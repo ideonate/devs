@@ -66,9 +66,17 @@ cmd_start() {
         
         echo "   Starting: $dev_name (container: $container_name)"
         
-        # Start devcontainer with custom name
+        # Create a unique workspace folder path for each dev
+        local unique_workspace_dir="${project_dir}-${dev_name}"
+        
+        # Create symlink if it doesn't exist
+        if [[ ! -e "$unique_workspace_dir" ]]; then
+            ln -sf "$project_dir" "$unique_workspace_dir"
+        fi
+        
+        # Start devcontainer with unique workspace folder
         DEVCONTAINER_NAME="$dev_name" devcontainer up \
-            --workspace-folder "$project_dir" \
+            --workspace-folder "$unique_workspace_dir" \
             --id-label "devs.project=$project_name" \
             --id-label "devs.dev=$dev_name" \
             --remove-existing-container || {
@@ -115,11 +123,14 @@ cmd_open() {
     for dev_name in "${dev_names[@]}"; do
         echo "   Opening: $dev_name"
         
-        local container_name=$(get_container_name "$dev_name" "$project_name")
+        # Use the unique workspace folder path for each dev
+        local unique_workspace_dir="${project_dir}-${dev_name}"
+        local unique_hex=$(printf "$unique_workspace_dir" | xxd -p | tr -d '\n')
+        local unique_workspace_name="${workspace_name}-${dev_name}"
         
-        # Launch VS Code with environment variable for naming
+        # Launch VS Code with unique workspace path
         DEVCONTAINER_NAME="$dev_name" code \
-            --folder-uri "vscode-remote://dev-container+${project_hex}/workspace/${workspace_name}" &
+            --folder-uri "vscode-remote://dev-container+${unique_hex}/workspace/${unique_workspace_name}" &
         
         echo "   ✅ Launched VS Code for: $dev_name"
         sleep 2  # Longer delay to ensure windows open separately
