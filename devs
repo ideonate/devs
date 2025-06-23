@@ -58,6 +58,7 @@ cmd_start() {
     local info=$(get_project_info)
     local project_dir=$(echo "$info" | cut -d'|' -f1)
     local project_name=$(echo "$info" | cut -d'|' -f2)
+    local workspace_name=$(basename "$project_dir")
     
     echo "🚀 Starting devcontainers for project: $project_name"
     
@@ -126,9 +127,9 @@ cmd_open() {
         # Use the unique workspace folder path for each dev
         local unique_workspace_dir="${project_dir}-${dev_name}"
         local unique_hex=$(printf "$unique_workspace_dir" | xxd -p | tr -d '\n')
-        local unique_workspace_name="${workspace_name}-${dev_name}"
         
         # Launch VS Code with unique workspace path
+        local unique_workspace_name="${workspace_name}-${dev_name}"
         DEVCONTAINER_NAME="$dev_name" code \
             --folder-uri "vscode-remote://dev-container+${unique_hex}/workspace/${unique_workspace_name}" &
         
@@ -203,6 +204,33 @@ cmd_list() {
     echo "💡 Stop with: $SCRIPT_NAME stop <dev-name>"
 }
 
+# Shell into a devcontainer
+cmd_shell() {
+    local dev_names=("$@")
+    
+    if [[ ${#dev_names[@]} -ne 1 ]]; then
+        echo "❌ Usage: $SCRIPT_NAME shell <dev-name>"
+        echo "   Example: $SCRIPT_NAME shell sally"
+        exit 1
+    fi
+    
+    local dev_name="$1"
+    local info=$(get_project_info)
+    local project_name=$(echo "$info" | cut -d'|' -f2)
+    local container_name=$(get_container_name "$dev_name" "$project_name")
+    
+    echo "🐚 Opening shell in: $dev_name (container: $container_name)"
+    
+    # Check if container is running
+    if ! docker ps --format "{{.Names}}" | grep -q "^${container_name}$"; then
+        echo "❌ Container $container_name not running. Start it first with: $SCRIPT_NAME start $dev_name"
+        exit 1
+    fi
+    
+    # Execute shell in container
+    docker exec -it "$container_name" /bin/zsh
+}
+
 # Show help
 cmd_help() {
     cat << EOF
@@ -215,6 +243,7 @@ COMMANDS:
     start <name...>    Start named devcontainers
     open <name...>     Open devcontainers in VS Code  
     stop <name...>     Stop and remove devcontainers
+    shell <name>       Open shell in devcontainer
     list               List active devcontainers for current project
     help               Show this help
 
@@ -250,6 +279,9 @@ main() {
             ;;
         stop)
             cmd_stop "$@"
+            ;;
+        shell)
+            cmd_shell "$@"
             ;;
         list|ls)
             cmd_list "$@"
