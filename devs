@@ -76,6 +76,14 @@ cmd_start() {
             continue
         }
         
+        # Rename container to our custom name
+        local auto_container_name=$(docker ps --filter "label=devs.project=$project_name" --filter "label=devs.dev=$dev_name" --format "{{.Names}}" | head -1)
+        if [[ -n "$auto_container_name" ]] && [[ "$auto_container_name" != "$container_name" ]]; then
+            docker rename "$auto_container_name" "$container_name" 2>/dev/null || {
+                echo "   ⚠️  Could not rename container to $container_name"
+            }
+        fi
+        
         echo "   ✅ Started: $dev_name"
     done
     
@@ -107,12 +115,14 @@ cmd_open() {
     for dev_name in "${dev_names[@]}"; do
         echo "   Opening: $dev_name"
         
+        local container_name=$(get_container_name "$dev_name" "$project_name")
+        
         # Launch VS Code with environment variable for naming
         DEVCONTAINER_NAME="$dev_name" code \
             --folder-uri "vscode-remote://dev-container+${project_hex}/workspace/${workspace_name}" &
         
         echo "   ✅ Launched VS Code for: $dev_name"
-        sleep 1  # Small delay to prevent overwhelming the system
+        sleep 2  # Longer delay to ensure windows open separately
     done
     
     echo ""
@@ -171,9 +181,9 @@ cmd_list() {
     echo "   Name        Status           Container"
     echo "   ────────────────────────────────────────"
     
-    while IFS=$'\t' read -r container_name status dev_name; do
+    while IFS=$'\t' read -r container_name container_status dev_name; do
         if [[ -n "$dev_name" ]]; then
-            printf "   %-10s  %-15s  %s\n" "$dev_name" "$status" "$container_name"
+            printf "   %-10s  %-15s  %s\n" "$dev_name" "$container_status" "$container_name"
         fi
     done <<< "$containers"
     
@@ -262,7 +272,7 @@ check_deps() {
 }
 
 # Entry point
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ "${(%):-%N}" == "${0}" ]] || [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
     check_deps
     main "$@"
 fi
