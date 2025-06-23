@@ -1,0 +1,268 @@
+#!/usr/bin/env zsh
+
+# devs - DevContainer Management Script
+# Manages multiple named devcontainers for the current project
+
+set -euo pipefail
+
+# Configuration
+SCRIPT_NAME="devs"
+PROJECT_PREFIX="dev"
+
+# Get project info
+get_project_info() {
+    local project_dir=$(pwd)
+    
+    # Get project name from git repo (org-repo format)
+    local project_name
+    if git remote get-url origin >/dev/null 2>&1; then
+        project_name=$(git remote get-url origin | sed 's/.*github\.com[/:]//' | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]' | tr '/' '-')
+    else
+        project_name=$(basename "$project_dir" | tr '[:upper:]' '[:lower:]')
+        echo "⚠️  Not a git repo, using directory name: $project_name" >&2
+    fi
+    
+    local project_hex=$(printf "$project_dir" | xxd -p | tr -d '\n')
+    
+    echo "$project_dir|$project_name|$project_hex"
+}
+
+# Check if devcontainer.json exists
+check_devcontainer() {
+    if [[ ! -f ".devcontainer/devcontainer.json" ]]; then
+        echo "❌ Error: No .devcontainer/devcontainer.json found in current directory"
+        echo "   Make sure you're in a project with devcontainer configuration"
+        exit 1
+    fi
+}
+
+# Generate container name with consistent prefix
+get_container_name() {
+    local dev_name="$1"
+    local project_name="$2"
+    echo "${PROJECT_PREFIX}-${project_name}-${dev_name}"
+}
+
+# Start devcontainers
+cmd_start() {
+    local dev_names=("$@")
+    
+    if [[ ${#dev_names[@]} -eq 0 ]]; then
+        echo "❌ Usage: $SCRIPT_NAME start <dev-name> [dev-name...]"
+        echo "   Example: $SCRIPT_NAME start sally bob"
+        exit 1
+    fi
+    
+    check_devcontainer
+    
+    local info=$(get_project_info)
+    local project_dir=$(echo "$info" | cut -d'|' -f1)
+    local project_name=$(echo "$info" | cut -d'|' -f2)
+    
+    echo "🚀 Starting devcontainers for project: $project_name"
+    
+    for dev_name in "${dev_names[@]}"; do
+        local container_name=$(get_container_name "$dev_name" "$project_name")
+        
+        echo "   Starting: $dev_name (container: $container_name)"
+        
+        # Start devcontainer with custom name
+        DEVCONTAINER_NAME="$dev_name" devcontainer up \
+            --workspace-folder "$project_dir" \
+            --id-label "devs.project=$project_name" \
+            --id-label "devs.dev=$dev_name" \
+            --remove-existing-container || {
+            echo "   ⚠️  Failed to start $dev_name, continuing with others..."
+            continue
+        }
+        
+        echo "   ✅ Started: $dev_name"
+    done
+    
+    echo ""
+    echo "💡 To open containers in VS Code:"
+    echo "   $SCRIPT_NAME open ${dev_names[*]}"
+}
+
+# Open devcontainers in VS Code
+cmd_open() {
+    local dev_names=("$@")
+    
+    if [[ ${#dev_names[@]} -eq 0 ]]; then
+        echo "❌ Usage: $SCRIPT_NAME open <dev-name> [dev-name...]"
+        echo "   Example: $SCRIPT_NAME open sally bob"
+        exit 1
+    fi
+    
+    check_devcontainer
+    
+    local info=$(get_project_info)
+    local project_dir=$(echo "$info" | cut -d'|' -f1)
+    local project_name=$(echo "$info" | cut -d'|' -f2)
+    local project_hex=$(echo "$info" | cut -d'|' -f3)
+    local workspace_name=$(basename "$project_dir")
+    
+    echo "📂 Opening devcontainers in VS Code for project: $project_name"
+    
+    for dev_name in "${dev_names[@]}"; do
+        echo "   Opening: $dev_name"
+        
+        # Launch VS Code with environment variable for naming
+        DEVCONTAINER_NAME="$dev_name" code \
+            --folder-uri "vscode-remote://dev-container+${project_hex}/workspace/${workspace_name}" &
+        
+        echo "   ✅ Launched VS Code for: $dev_name"
+        sleep 1  # Small delay to prevent overwhelming the system
+    done
+    
+    echo ""
+    echo "💡 VS Code windows should open shortly with titles: '<dev-name> - Claude Code Sandbox'"
+}
+
+# Stop and remove devcontainers
+cmd_stop() {
+    local dev_names=("$@")
+    
+    if [[ ${#dev_names[@]} -eq 0 ]]; then
+        echo "❌ Usage: $SCRIPT_NAME stop <dev-name> [dev-name...]"
+        echo "   Example: $SCRIPT_NAME stop sally"
+        exit 1
+    fi
+    
+    local info=$(get_project_info)
+    local project_name=$(echo "$info" | cut -d'|' -f2)
+    
+    echo "🛑 Stopping devcontainers for project: $project_name"
+    
+    for dev_name in "${dev_names[@]}"; do
+        local container_name=$(get_container_name "$dev_name" "$project_name")
+        
+        echo "   Stopping: $dev_name (container: $container_name)"
+        
+        # Stop and remove container
+        if docker ps -a --format "{{.Names}}" | grep -q "^${container_name}$"; then
+            docker stop "$container_name" >/dev/null 2>&1 || true
+            docker rm "$container_name" >/dev/null 2>&1 || true
+            echo "   ✅ Stopped and removed: $dev_name"
+        else
+            echo "   ⚠️  Container not found: $dev_name"
+        fi
+    done
+}
+
+# List active devcontainers for current project
+cmd_list() {
+    local info=$(get_project_info)
+    local project_name=$(echo "$info" | cut -d'|' -f2)
+    
+    echo "📋 Active devcontainers for project: $project_name"
+    echo ""
+    
+    # Find containers with our project label
+    local containers=$(docker ps -a --filter "label=devs.project=$project_name" --format "{{.Names}}\t{{.Status}}\t{{.Label \"devs.dev\"}}" 2>/dev/null || true)
+    
+    if [[ -z "$containers" ]]; then
+        echo "   No active devcontainers found"
+        echo ""
+        echo "💡 Start some with: $SCRIPT_NAME start <dev-name>"
+        return
+    fi
+    
+    echo "   Name        Status           Container"
+    echo "   ────────────────────────────────────────"
+    
+    while IFS=$'\t' read -r container_name status dev_name; do
+        if [[ -n "$dev_name" ]]; then
+            printf "   %-10s  %-15s  %s\n" "$dev_name" "$status" "$container_name"
+        fi
+    done <<< "$containers"
+    
+    echo ""
+    echo "💡 Open with: $SCRIPT_NAME open <dev-name>"
+    echo "💡 Stop with: $SCRIPT_NAME stop <dev-name>"
+}
+
+# Show help
+cmd_help() {
+    cat << EOF
+$SCRIPT_NAME - DevContainer Management Script
+
+USAGE:
+    $SCRIPT_NAME <command> [arguments]
+
+COMMANDS:
+    start <name...>    Start named devcontainers
+    open <name...>     Open devcontainers in VS Code  
+    stop <name...>     Stop and remove devcontainers
+    list               List active devcontainers for current project
+    help               Show this help
+
+EXAMPLES:
+    $SCRIPT_NAME start sally bob      # Start two devcontainers
+    $SCRIPT_NAME open sally           # Open sally's container in VS Code  
+    $SCRIPT_NAME stop bob             # Stop and remove bob's container
+    $SCRIPT_NAME list                 # Show all active containers
+
+NOTES:
+    - Run from project root directory with .devcontainer/devcontainer.json
+    - Project name derived from git repo (org-repo format)
+    - Container names: dev-<project>-<dev-name>
+    - VS Code windows show custom titles based on dev names
+    - Requires: devcontainer CLI, Docker, VS Code
+
+CURRENT PROJECT: $(get_project_info | cut -d'|' -f2)
+
+EOF
+}
+
+# Main command dispatcher
+main() {
+    local command="${1:-help}"
+    shift || true
+    
+    case "$command" in
+        start)
+            cmd_start "$@"
+            ;;
+        open)
+            cmd_open "$@"
+            ;;
+        stop)
+            cmd_stop "$@"
+            ;;
+        list|ls)
+            cmd_list "$@"
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            echo "❌ Unknown command: $command"
+            echo "   Run '$SCRIPT_NAME help' for usage information"
+            exit 1
+            ;;
+    esac
+}
+
+# Check dependencies
+check_deps() {
+    local missing=()
+    
+    command -v devcontainer >/dev/null 2>&1 || missing+=("devcontainer CLI")
+    command -v docker >/dev/null 2>&1 || missing+=("docker")
+    command -v code >/dev/null 2>&1 || missing+=("VS Code 'code' command")
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "❌ Missing dependencies:"
+        printf "   - %s\n" "${missing[@]}"
+        echo ""
+        echo "Install missing tools and try again."
+        exit 1
+    fi
+}
+
+# Entry point
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    check_deps
+    main "$@"
+fi
