@@ -63,19 +63,18 @@ ensure_container_running() {
     # Create a unique workspace folder path for each dev
     local unique_workspace_dir="${project_dir}-${dev_name}"
     
-    # Create symlink if it doesn't exist
+    # Create a real copy if it doesn't exist
     if [[ ! -e "$unique_workspace_dir" ]]; then
-        ln -sf "$project_dir" "$unique_workspace_dir"
+        echo "   📂 Creating isolated workspace copy for $dev_name..."
+        # Use rsync to exclude common build/dependency directories for faster copying
+        rsync -a --exclude='node_modules' --exclude='.git/objects' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='target' --exclude='dist' --exclude='build' --exclude='.next' "$project_dir/" "$unique_workspace_dir/"
+        echo "   ✅ Directory copied to $unique_workspace_dir (excluding build directories)"
+    else
+        echo "   📁 Using existing workspace at $unique_workspace_dir"
     fi
     
-    # Create a Docker volume for this workspace
-    local workspace_name=$(basename "$project_dir")
-    local workspace_volume_name="devs-${dev_name}-workspace"
-    
-    echo "   📦 Creating workspace volume: $workspace_volume_name"
-    docker volume create "$workspace_volume_name" >/dev/null 2>&1
-    
     # Start devcontainer with unique workspace folder
+    local workspace_name=$(basename "$project_dir")
     DEVCONTAINER_NAME="$dev_name" \
     GIT_REMOTE_URL="$git_remote_url" \
     WORKSPACE_FOLDER_NAME="${workspace_name}-${dev_name}" \
@@ -171,7 +170,7 @@ cmd_open() {
         
         # Launch VS Code pointing to the cloned project directory inside container
         local unique_workspace_name="${workspace_name}-${dev_name}"
-        local vscode_uri="vscode-remote://dev-container+${unique_hex}/workspace/${unique_workspace_name}"
+        local vscode_uri="vscode-remote://dev-container+${unique_hex}/workspaces/${unique_workspace_name}"
         
         echo "   🚀 Opening VS Code for: $dev_name"
         echo "   Command: DEVCONTAINER_NAME=\"$dev_name\" code --folder-uri \"$vscode_uri\""
@@ -216,12 +215,6 @@ cmd_stop() {
             echo "   ⚠️  Container not found: $dev_name"
         fi
         
-        # Clean up workspace volume
-        local workspace_volume_name="devs-${dev_name}-workspace"
-        if docker volume ls --format "{{.Name}}" | grep -q "^${workspace_volume_name}$"; then
-            docker volume rm "$workspace_volume_name" >/dev/null 2>&1 || true
-            echo "   🗑️  Removed workspace volume: $workspace_volume_name"
-        fi
     done
 }
 
@@ -276,7 +269,7 @@ cmd_shell() {
     local workspace_name=$(basename "$project_dir")
     
     # The workspace directory inside the container
-    local container_workspace_dir="/workspace/${workspace_name}-${dev_name}"
+    local container_workspace_dir="/workspaces/${workspace_name}-${dev_name}"
     
     echo "🐚 Opening shell in: $dev_name (container: $container_name)"
     echo "   Workspace: $container_workspace_dir"
