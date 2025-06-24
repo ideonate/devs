@@ -43,6 +43,49 @@ get_container_name() {
     echo "${PROJECT_PREFIX}-${project_name}-${dev_name}"
 }
 
+# Start a single devcontainer if not already running
+ensure_container_running() {
+    local dev_name="$1"
+    local project_name="$2"
+    local project_dir="$3"
+    local container_name=$(get_container_name "$dev_name" "$project_name")
+    
+    # Check if container is already running
+    if docker ps --format "{{.Names}}" | grep -q "^${container_name}$"; then
+        return 0  # Already running
+    fi
+    
+    echo "   🚀 Container not running, starting $dev_name first..."
+    
+    # Create a unique workspace folder path for each dev
+    local unique_workspace_dir="${project_dir}-${dev_name}"
+    
+    # Create symlink if it doesn't exist
+    if [[ ! -e "$unique_workspace_dir" ]]; then
+        ln -sf "$project_dir" "$unique_workspace_dir"
+    fi
+    
+    # Start devcontainer with unique workspace folder
+    DEVCONTAINER_NAME="$dev_name" devcontainer up \
+        --workspace-folder "$unique_workspace_dir" \
+        --id-label "devs.project=$project_name" \
+        --id-label "devs.dev=$dev_name" \
+        --remove-existing-container || {
+        return 1  # Failed to start
+    }
+    
+    # Rename container to our custom name
+    local auto_container_name=$(docker ps --filter "label=devs.project=$project_name" --filter "label=devs.dev=$dev_name" --format "{{.Names}}" | head -1)
+    if [[ -n "$auto_container_name" ]] && [[ "$auto_container_name" != "$container_name" ]]; then
+        docker rename "$auto_container_name" "$container_name" 2>/dev/null || {
+            echo "   ⚠️  Could not rename container to $container_name"
+        }
+    fi
+    
+    echo "   ✅ Started: $dev_name"
+    return 0  # Success
+}
+
 # Start devcontainers
 cmd_start() {
     local dev_names=("$@")
@@ -67,33 +110,10 @@ cmd_start() {
         
         echo "   Starting: $dev_name (container: $container_name)"
         
-        # Create a unique workspace folder path for each dev
-        local unique_workspace_dir="${project_dir}-${dev_name}"
-        
-        # Create symlink if it doesn't exist
-        if [[ ! -e "$unique_workspace_dir" ]]; then
-            ln -sf "$project_dir" "$unique_workspace_dir"
-        fi
-        
-        # Start devcontainer with unique workspace folder
-        DEVCONTAINER_NAME="$dev_name" devcontainer up \
-            --workspace-folder "$unique_workspace_dir" \
-            --id-label "devs.project=$project_name" \
-            --id-label "devs.dev=$dev_name" \
-            --remove-existing-container || {
+        if ! ensure_container_running "$dev_name" "$project_name" "$project_dir"; then
             echo "   ⚠️  Failed to start $dev_name, continuing with others..."
             continue
-        }
-        
-        # Rename container to our custom name
-        local auto_container_name=$(docker ps --filter "label=devs.project=$project_name" --filter "label=devs.dev=$dev_name" --format "{{.Names}}" | head -1)
-        if [[ -n "$auto_container_name" ]] && [[ "$auto_container_name" != "$container_name" ]]; then
-            docker rename "$auto_container_name" "$container_name" 2>/dev/null || {
-                echo "   ⚠️  Could not rename container to $container_name"
-            }
         fi
-        
-        echo "   ✅ Started: $dev_name"
     done
     
     echo ""
@@ -123,6 +143,12 @@ cmd_open() {
     
     for dev_name in "${dev_names[@]}"; do
         echo "   Opening: $dev_name"
+        
+        # Ensure container is running
+        if ! ensure_container_running "$dev_name" "$project_name" "$project_dir"; then
+            echo "   ❌ Failed to start $dev_name, skipping..."
+            continue
+        fi
         
         # Use the unique workspace folder path for each dev
         local unique_workspace_dir="${project_dir}-${dev_name}"
@@ -227,9 +253,9 @@ cmd_shell() {
     echo "🐚 Opening shell in: $dev_name (container: $container_name)"
     echo "   Workspace: $container_workspace_dir"
     
-    # Check if container is running
-    if ! docker ps --format "{{.Names}}" | grep -q "^${container_name}$"; then
-        echo "❌ Container $container_name not running. Start it first with: $SCRIPT_NAME start $dev_name"
+    # Ensure container is running
+    if ! ensure_container_running "$dev_name" "$project_name" "$project_dir"; then
+        echo "❌ Failed to start $dev_name"
         exit 1
     fi
     
