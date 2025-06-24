@@ -68,8 +68,14 @@ ensure_container_running() {
         ln -sf "$project_dir" "$unique_workspace_dir"
     fi
     
-    # Start devcontainer with unique workspace folder
+    # Create a Docker volume for this workspace
     local workspace_name=$(basename "$project_dir")
+    local workspace_volume_name="devs-${dev_name}-workspace"
+    
+    echo "   📦 Creating workspace volume: $workspace_volume_name"
+    docker volume create "$workspace_volume_name" >/dev/null 2>&1
+    
+    # Start devcontainer with unique workspace folder
     DEVCONTAINER_NAME="$dev_name" \
     GIT_REMOTE_URL="$git_remote_url" \
     WORKSPACE_FOLDER_NAME="${workspace_name}-${dev_name}" \
@@ -165,8 +171,13 @@ cmd_open() {
         
         # Launch VS Code pointing to the cloned project directory inside container
         local unique_workspace_name="${workspace_name}-${dev_name}"
+        local vscode_uri="vscode-remote://dev-container+${unique_hex}/workspace/${unique_workspace_name}"
+        
+        echo "   🚀 Opening VS Code for: $dev_name"
+        echo "   Command: DEVCONTAINER_NAME=\"$dev_name\" code --folder-uri \"$vscode_uri\""
+        
         DEVCONTAINER_NAME="$dev_name" code \
-            --folder-uri "vscode-remote://dev-container+${unique_hex}/workspace/${unique_workspace_name}" &
+            --folder-uri "$vscode_uri" &
         
         echo "   ✅ Launched VS Code for: $dev_name"
         sleep 2  # Longer delay to ensure windows open separately
@@ -203,6 +214,13 @@ cmd_stop() {
             echo "   ✅ Stopped and removed: $dev_name"
         else
             echo "   ⚠️  Container not found: $dev_name"
+        fi
+        
+        # Clean up workspace volume
+        local workspace_volume_name="devs-${dev_name}-workspace"
+        if docker volume ls --format "{{.Name}}" | grep -q "^${workspace_volume_name}$"; then
+            docker volume rm "$workspace_volume_name" >/dev/null 2>&1 || true
+            echo "   🗑️  Removed workspace volume: $workspace_volume_name"
         fi
     done
 }
