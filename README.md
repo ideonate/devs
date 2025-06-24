@@ -64,7 +64,7 @@ devs start sally bob charlie
 # Open containers in VS Code
 devs open sally bob
 
-# List active containers for current project  
+# List active containers for current project
 devs list
 
 # Stop and remove containers
@@ -100,18 +100,21 @@ devs list
 Containers are named using the pattern: `dev-<org>-<repo>-<dev-name>`
 
 For example, with repo `https://github.com/myorg/myproject`:
+
 - `devs start alice` creates container: `dev-myorg-myproject-alice`
 - `devs start bob` creates container: `dev-myorg-myproject-bob`
 
 ### VS Code Integration
 
 Each container gets a custom name in VS Code:
-- Window title shows: `<dev-name> - Claude Code Sandbox`
+
+- Window title shows: `<dev-name> - <workspace>`
 - Easy to distinguish between multiple development environments
 
 ### Project Isolation
 
 Containers are tagged with project labels for easy management:
+
 - Only shows containers for the current project when listing
 - Clean separation between different projects
 
@@ -121,7 +124,7 @@ The script uses your existing `.devcontainer/devcontainer.json` configuration. M
 
 ```json
 {
-  "name": "${localEnv:DEVCONTAINER_NAME:Default} - My Project",
+  "name": "${localEnv:DEVCONTAINER_NAME:Default} - My Project"
   // ... rest of your config
 }
 ```
@@ -148,6 +151,7 @@ You can use `devs` across multiple projects. Each project's containers are isola
 ### Command not found
 
 Make sure `/usr/local/bin` is in your PATH:
+
 ```bash
 echo $PATH | grep -q "/usr/local/bin" || echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.zshrc
 ```
@@ -155,6 +159,7 @@ echo $PATH | grep -q "/usr/local/bin" || echo 'export PATH="/usr/local/bin:$PATH
 ### DevContainer CLI not found
 
 Install the DevContainer CLI:
+
 ```bash
 npm install -g @devcontainers/cli
 ```
@@ -162,6 +167,7 @@ npm install -g @devcontainers/cli
 ### No devcontainer.json found
 
 Make sure you're in a project directory with `.devcontainer/devcontainer.json`:
+
 ```bash
 ls .devcontainer/devcontainer.json
 ```
@@ -169,6 +175,7 @@ ls .devcontainer/devcontainer.json
 ### Permission denied
 
 Make sure the script is executable:
+
 ```bash
 chmod +x /usr/local/bin/devs
 ```

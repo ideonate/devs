@@ -216,10 +216,16 @@ cmd_shell() {
     
     local dev_name="$1"
     local info=$(get_project_info)
+    local project_dir=$(echo "$info" | cut -d'|' -f1)
     local project_name=$(echo "$info" | cut -d'|' -f2)
     local container_name=$(get_container_name "$dev_name" "$project_name")
+    local workspace_name=$(basename "$project_dir")
+    
+    # The workspace directory inside the container
+    local container_workspace_dir="/workspace/${workspace_name}-${dev_name}"
     
     echo "🐚 Opening shell in: $dev_name (container: $container_name)"
+    echo "   Workspace: $container_workspace_dir"
     
     # Check if container is running
     if ! docker ps --format "{{.Names}}" | grep -q "^${container_name}$"; then
@@ -227,8 +233,8 @@ cmd_shell() {
         exit 1
     fi
     
-    # Execute shell in container
-    docker exec -it "$container_name" /bin/zsh
+    # Execute shell in container, changing to the workspace directory
+    docker exec -it -w "$container_workspace_dir" "$container_name" /bin/zsh
 }
 
 # Show help
