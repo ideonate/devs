@@ -67,7 +67,21 @@ ensure_container_running() {
     if [[ ! -e "$unique_workspace_dir" ]]; then
         echo "   📂 Creating isolated workspace copy for $dev_name..."
         # Use rsync to exclude common build/dependency directories for faster copying
-        rsync -a --exclude='node_modules' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='target' --exclude='dist' --exclude='build' --exclude='.next' "$project_dir/" "$unique_workspace_dir/"
+        #rsync -a --exclude='node_modules' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='target' --exclude='dist' --exclude='build' --exclude='.next' "$project_dir/" "$unique_workspace_dir/"
+
+        # Copy all files tracked by git or unignored, including untracked but not gitignored
+        git -C "$project_dir" ls-files -z --cached --others --exclude-standard | \
+          rsync -a --files-from=- --from0 "$project_dir"/ "$unique_workspace_dir"/
+
+        # Copy the .git directory
+        rsync -a "$project_dir/.git/" "$unique_workspace_dir/.git/"
+
+        # Explicitly copy .devcontainer/.env if it exists
+        if [[ -f "$project_dir/.devcontainer/.env" ]]; then
+          mkdir -p "$unique_workspace_dir/.devcontainer"
+          rsync -a "$project_dir/.devcontainer/.env" "$unique_workspace_dir/.devcontainer/.env"
+        fi
+
         echo "   ✅ Directory copied to $unique_workspace_dir (excluding build directories)"
     else
         echo "   📁 Using existing workspace at $unique_workspace_dir"
