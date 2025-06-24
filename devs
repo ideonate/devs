@@ -15,8 +15,10 @@ get_project_info() {
     
     # Get project name from git repo (org-repo format)
     local project_name
+    local git_remote_url=""
     if git remote get-url origin >/dev/null 2>&1; then
-        project_name=$(git remote get-url origin | sed 's/.*github\.com[/:]//' | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]' | tr '/' '-')
+        git_remote_url=$(git remote get-url origin)
+        project_name=$(echo "$git_remote_url" | sed 's/.*github\.com[/:]//' | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]' | tr '/' '-')
     else
         project_name=$(basename "$project_dir" | tr '[:upper:]' '[:lower:]')
         echo "⚠️  Not a git repo, using directory name: $project_name" >&2
@@ -24,7 +26,7 @@ get_project_info() {
     
     local project_hex=$(printf "$project_dir" | xxd -p | tr -d '\n')
     
-    echo "$project_dir|$project_name|$project_hex"
+    echo "$project_dir|$project_name|$project_hex|$git_remote_url"
 }
 
 # Check if devcontainer.json exists
@@ -48,6 +50,7 @@ ensure_container_running() {
     local dev_name="$1"
     local project_name="$2"
     local project_dir="$3"
+    local git_remote_url="$4"
     local container_name=$(get_container_name "$dev_name" "$project_name")
     
     # Check if container is already running
@@ -66,7 +69,11 @@ ensure_container_running() {
     fi
     
     # Start devcontainer with unique workspace folder
-    DEVCONTAINER_NAME="$dev_name" devcontainer up \
+    local workspace_name=$(basename "$project_dir")
+    DEVCONTAINER_NAME="$dev_name" \
+    GIT_REMOTE_URL="$git_remote_url" \
+    WORKSPACE_FOLDER_NAME="${workspace_name}-${dev_name}" \
+    devcontainer up \
         --workspace-folder "$unique_workspace_dir" \
         --id-label "devs.project=$project_name" \
         --id-label "devs.dev=$dev_name" \
@@ -101,6 +108,7 @@ cmd_start() {
     local info=$(get_project_info)
     local project_dir=$(echo "$info" | cut -d'|' -f1)
     local project_name=$(echo "$info" | cut -d'|' -f2)
+    local git_remote_url=$(echo "$info" | cut -d'|' -f4)
     local workspace_name=$(basename "$project_dir")
     
     echo "🚀 Starting devcontainers for project: $project_name"
@@ -110,7 +118,7 @@ cmd_start() {
         
         echo "   Starting: $dev_name (container: $container_name)"
         
-        if ! ensure_container_running "$dev_name" "$project_name" "$project_dir"; then
+        if ! ensure_container_running "$dev_name" "$project_name" "$project_dir" "$git_remote_url"; then
             echo "   ⚠️  Failed to start $dev_name, continuing with others..."
             continue
         fi
@@ -137,6 +145,7 @@ cmd_open() {
     local project_dir=$(echo "$info" | cut -d'|' -f1)
     local project_name=$(echo "$info" | cut -d'|' -f2)
     local project_hex=$(echo "$info" | cut -d'|' -f3)
+    local git_remote_url=$(echo "$info" | cut -d'|' -f4)
     local workspace_name=$(basename "$project_dir")
     
     echo "📂 Opening devcontainers in VS Code for project: $project_name"
@@ -145,16 +154,16 @@ cmd_open() {
         echo "   Opening: $dev_name"
         
         # Ensure container is running
-        if ! ensure_container_running "$dev_name" "$project_name" "$project_dir"; then
+        if ! ensure_container_running "$dev_name" "$project_name" "$project_dir" "$git_remote_url"; then
             echo "   ❌ Failed to start $dev_name, skipping..."
             continue
         fi
         
-        # Use the unique workspace folder path for each dev
+        # Use the unique workspace folder path for devcontainer connection
         local unique_workspace_dir="${project_dir}-${dev_name}"
         local unique_hex=$(printf "$unique_workspace_dir" | xxd -p | tr -d '\n')
         
-        # Launch VS Code with unique workspace path
+        # Launch VS Code pointing to the cloned project directory inside container
         local unique_workspace_name="${workspace_name}-${dev_name}"
         DEVCONTAINER_NAME="$dev_name" code \
             --folder-uri "vscode-remote://dev-container+${unique_hex}/workspace/${unique_workspace_name}" &
@@ -244,6 +253,7 @@ cmd_shell() {
     local info=$(get_project_info)
     local project_dir=$(echo "$info" | cut -d'|' -f1)
     local project_name=$(echo "$info" | cut -d'|' -f2)
+    local git_remote_url=$(echo "$info" | cut -d'|' -f4)
     local container_name=$(get_container_name "$dev_name" "$project_name")
     local workspace_name=$(basename "$project_dir")
     
@@ -254,7 +264,7 @@ cmd_shell() {
     echo "   Workspace: $container_workspace_dir"
     
     # Ensure container is running
-    if ! ensure_container_running "$dev_name" "$project_name" "$project_dir"; then
+    if ! ensure_container_running "$dev_name" "$project_name" "$project_dir" "$git_remote_url"; then
         echo "❌ Failed to start $dev_name"
         exit 1
     fi
