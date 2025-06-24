@@ -53,8 +53,8 @@ ensure_container_running() {
     local git_remote_url="$4"
     local container_name=$(get_container_name "$dev_name" "$project_name")
     
-    # Check if container is already running
-    if docker ps --format "{{.Names}}" | grep -q "^${container_name}$"; then
+    # Check if container is already running using labels
+    if docker ps --filter "label=devs.project=$project_name" --filter "label=devs.dev=$dev_name" --format "{{.Names}}" | head -1 | grep -q .; then
         return 0  # Already running
     fi
     
@@ -67,7 +67,7 @@ ensure_container_running() {
     if [[ ! -e "$unique_workspace_dir" ]]; then
         echo "   📂 Creating isolated workspace copy for $dev_name..."
         # Use rsync to exclude common build/dependency directories for faster copying
-        rsync -a --exclude='node_modules' --exclude='.git/objects' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='target' --exclude='dist' --exclude='build' --exclude='.next' "$project_dir/" "$unique_workspace_dir/"
+        rsync -a --exclude='node_modules' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='target' --exclude='dist' --exclude='build' --exclude='.next' "$project_dir/" "$unique_workspace_dir/"
         echo "   ✅ Directory copied to $unique_workspace_dir (excluding build directories)"
     else
         echo "   📁 Using existing workspace at $unique_workspace_dir"
