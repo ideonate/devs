@@ -163,6 +163,12 @@ ensure_container_running() {
           mkdir -p "$unique_workspace_dir/.devcontainer"
           rsync -a "$project_dir/.devcontainer/.env" "$unique_workspace_dir/.devcontainer/.env"
         fi
+        
+        # Explicitly copy .devcontainer/.ssh if it exists
+        if [[ -d "$project_dir/.devcontainer/.ssh" ]]; then
+          mkdir -p "$unique_workspace_dir/.devcontainer"
+          rsync -a "$project_dir/.devcontainer/.ssh/" "$unique_workspace_dir/.devcontainer/.ssh/"
+        fi
 
         echo "   ✅ Directory copied to $unique_workspace_dir (excluding build directories)"
     else
