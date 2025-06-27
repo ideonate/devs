@@ -49,7 +49,7 @@ should_rebuild_image() {
     
     # Try to find existing image for this devcontainer configuration
     # The devcontainer CLI creates images with predictable naming patterns
-    local image_pattern="vsc-$(basename "$project_dir")"
+    local image_pattern="vsc-${project_name}-${dev_name}-"
     local existing_images=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^${image_pattern}" || true)
     
     if [[ -z "$existing_images" ]]; then
@@ -67,9 +67,15 @@ should_rebuild_image() {
                     if command -v gdate >/dev/null 2>&1; then
                         image_epoch=$(gdate -d "$image_created" +%s 2>/dev/null || echo "0")
                     else
-                        # Remove microseconds and timezone for BSD date parsing
-                        local clean_date=$(echo "$image_created" | sed 's/\.[0-9]*Z$//' | sed 's/Z$//')
-                        image_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$clean_date" +%s 2>/dev/null || echo "0")
+                        # Remove microseconds and handle UTC timezone for BSD date parsing
+                        local clean_date=$(echo "$image_created" | sed 's/\.[0-9]*Z$/Z/')
+                        if [[ "$clean_date" == *Z ]]; then
+                            # Convert UTC to epoch using BSD date
+                            clean_date=$(echo "$clean_date" | sed 's/Z$//')
+                            image_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "$clean_date" +%s 2>/dev/null || echo "0")
+                        else
+                            image_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$clean_date" +%s 2>/dev/null || echo "0")
+                        fi
                     fi
                 } 2>/dev/null
                 
@@ -90,15 +96,21 @@ should_rebuild_image() {
     for file_pattern in "${devcontainer_files[@]}"; do
         if [[ -e "$project_dir/$file_pattern" ]]; then
             local file_epoch
+            local newest_file=""
             if [[ -d "$project_dir/$file_pattern" ]]; then
-                # For directories, check the newest file inside
-                file_epoch=$(find "$project_dir/$file_pattern" -type f -exec stat -f "%m" {} \; 2>/dev/null | sort -n | tail -1 || echo "0")
+                # For directories, find the newest file inside and its timestamp
+                local newest_find_result=$(find "$project_dir/$file_pattern" -type f -exec stat -f "%m %N" {} \; 2>/dev/null | sort -n | tail -1 || echo "0")
+                file_epoch=$(echo "$newest_find_result" | cut -d' ' -f1)
+                newest_file=$(echo "$newest_find_result" | cut -d' ' -f2-)
             else
                 # For files, get modification time
                 file_epoch=$(stat -f "%m" "$project_dir/$file_pattern" 2>/dev/null || echo "0")
+                newest_file="$project_dir/$file_pattern"
             fi
             
             if [[ "$file_epoch" -gt "$newest_image_epoch" ]]; then
+                echo "   📄 File triggering rebuild: $newest_file"
+                echo "   🕒 File time: $(date -r "$file_epoch" 2>/dev/null || echo "unknown"), Image time: $(date -r "$newest_image_epoch" 2>/dev/null || echo "unknown")"
                 return 0  # Need rebuild - files newer than image
             fi
         fi
