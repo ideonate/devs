@@ -38,6 +38,70 @@ check_devcontainer() {
     fi
 }
 
+# Check if devcontainer image should be rebuilt
+should_rebuild_image() {
+    local project_dir="$1"
+    local dev_name="$2"
+    local project_name="$3"
+    
+    # Try to find existing image for this devcontainer configuration
+    # The devcontainer CLI creates images with predictable naming patterns
+    local image_pattern="vsc-$(basename "$project_dir")"
+    local existing_images=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^${image_pattern}" || true)
+    
+    if [[ -z "$existing_images" ]]; then
+        return 1  # No existing image, don't need --rebuild for new builds
+    fi
+    
+    # Get the most recent image creation time
+    local newest_image_epoch=0
+    while IFS= read -r image_name; do
+        if [[ -n "$image_name" ]]; then
+            local image_created=$(docker inspect --format='{{.Created}}' "$image_name" 2>/dev/null || echo "")
+            if [[ -n "$image_created" ]]; then
+                local image_epoch
+                if command -v gdate >/dev/null 2>&1; then
+                    image_epoch=$(gdate -d "$image_created" +%s 2>/dev/null || echo "0")
+                else
+                    # Remove microseconds and timezone for BSD date parsing
+                    local clean_date=$(echo "$image_created" | sed 's/\.[0-9]*Z$//' | sed 's/Z$//')
+                    image_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$clean_date" +%s 2>/dev/null || echo "0")
+                fi
+                
+                if [[ "$image_epoch" -gt "$newest_image_epoch" ]]; then
+                    newest_image_epoch="$image_epoch"
+                fi
+            fi
+        fi
+    done <<< "$existing_images"
+    
+    if [[ "$newest_image_epoch" -eq 0 ]]; then
+        return 1  # Could not determine image age, don't rebuild
+    fi
+    
+    # Check if any devcontainer-related files are newer than the newest image
+    local devcontainer_files=(".devcontainer" "Dockerfile" "docker-compose.yml" "docker-compose.yaml")
+    
+    for file_pattern in "${devcontainer_files[@]}"; do
+        if [[ -e "$project_dir/$file_pattern" ]]; then
+            local file_epoch
+            if [[ -d "$project_dir/$file_pattern" ]]; then
+                # For directories, check the newest file inside
+                file_epoch=$(find "$project_dir/$file_pattern" -type f -exec stat -f "%m" {} \; 2>/dev/null | sort -n | tail -1 || echo "0")
+            else
+                # For files, get modification time
+                file_epoch=$(stat -f "%m" "$project_dir/$file_pattern" 2>/dev/null || echo "0")
+            fi
+            
+            if [[ "$file_epoch" -gt "$newest_image_epoch" ]]; then
+                return 0  # Need rebuild - files newer than image
+            fi
+        fi
+    done
+    
+    return 1  # No rebuild needed
+}
+
 # Generate container name with consistent prefix
 get_container_name() {
     local dev_name="$1"
@@ -53,9 +117,23 @@ ensure_container_running() {
     local git_remote_url="$4"
     local container_name=$(get_container_name "$dev_name" "$project_name")
     
+    # Check if we need to rebuild the image
+    local rebuild_flag=""
+    if should_rebuild_image "$project_dir" "$dev_name" "$project_name"; then
+        echo "   🔄 Devcontainer configuration changed, will rebuild image..."
+        rebuild_flag="--build-no-cache"
+    fi
+    
     # Check if container is already running using labels
-    if docker ps --filter "label=devs.project=$project_name" --filter "label=devs.dev=$dev_name" --format "{{.Names}}" | head -1 | grep -q .; then
-        return 0  # Already running
+    local existing_container=$(docker ps --filter "label=devs.project=$project_name" --filter "label=devs.dev=$dev_name" --format "{{.Names}}" | head -1)
+    if [[ -n "$existing_container" ]]; then
+        if [[ -n "$rebuild_flag" ]]; then
+            echo "   🔄 Container running but needs rebuild, stopping first..."
+            docker stop "$existing_container" >/dev/null 2>&1 || true
+            docker rm "$existing_container" >/dev/null 2>&1 || true
+        else
+            return 0  # Already running and up to date
+        fi
     fi
     
     echo "   🚀 Container not running, starting $dev_name first..."
@@ -66,15 +144,14 @@ ensure_container_running() {
     # Create a real copy if it doesn't exist
     if [[ ! -e "$unique_workspace_dir" ]]; then
         echo "   📂 Creating isolated workspace copy for $dev_name..."
-        # Use rsync to exclude common build/dependency directories for faster copying
-        #rsync -a --exclude='node_modules' --exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='target' --exclude='dist' --exclude='build' --exclude='.next' "$project_dir/" "$unique_workspace_dir/"
-
         # Copy all files tracked by git or unignored, including untracked but not gitignored
         git -C "$project_dir" ls-files -z --cached --others --exclude-standard | \
           rsync -a --files-from=- --from0 "$project_dir"/ "$unique_workspace_dir"/
 
-        # Copy the .git directory
+        # Copy the .git and .claude directories
         rsync -a "$project_dir/.git/" "$unique_workspace_dir/.git/"
+        echo "Copy .claude"
+        rsync -a "$project_dir/.claude/" "$unique_workspace_dir/.claude/"
 
         # Explicitly copy .devcontainer/.env if it exists
         if [[ -f "$project_dir/.devcontainer/.env" ]]; then
@@ -96,16 +173,43 @@ ensure_container_running() {
         --workspace-folder "$unique_workspace_dir" \
         --id-label "devs.project=$project_name" \
         --id-label "devs.dev=$dev_name" \
-        --remove-existing-container || {
+        --remove-existing-container \
+        $rebuild_flag || {
+        # Clean up any failed containers using labels
+        echo "   ❌ Devcontainer up failed, cleaning up..."
+        local failed_container=$(docker ps -a --filter "label=devs.project=$project_name" --filter "label=devs.dev=$dev_name" --format "{{.Names}}" | head -1)
+        if [[ -n "$failed_container" ]]; then
+            docker stop "$failed_container" >/dev/null 2>&1 || true
+            docker rm "$failed_container" >/dev/null 2>&1 || true
+            echo "   🗑️  Removed failed container: $failed_container"
+        fi
         return 1  # Failed to start
     }
     
-    # Rename container to our custom name
-    local auto_container_name=$(docker ps --filter "label=devs.project=$project_name" --filter "label=devs.dev=$dev_name" --format "{{.Names}}" | head -1)
-    if [[ -n "$auto_container_name" ]] && [[ "$auto_container_name" != "$container_name" ]]; then
-        docker rename "$auto_container_name" "$container_name" 2>/dev/null || {
-            echo "   ⚠️  Could not rename container to $container_name"
-        }
+    # Get the container that was created using labels
+    local created_container=$(docker ps --filter "label=devs.project=$project_name" --filter "label=devs.dev=$dev_name" --format "{{.Names}}" | head -1)
+    
+    # Verify container is actually healthy/ready
+    if [[ -n "$created_container" ]]; then
+        echo "   🔍 Checking container health..."
+        
+        # Test if we can execute a simple command in the container
+        if ! docker exec "$created_container" /bin/sh -c "echo 'Container ready'" >/dev/null 2>&1; then
+            echo "   ❌ Container started but is not responding, cleaning up..."
+            docker stop "$created_container" >/dev/null 2>&1 || true
+            docker rm "$created_container" >/dev/null 2>&1 || true
+            return 1  # Failed - container not healthy
+        fi
+        
+        # Rename container to our custom name if needed
+        if [[ "$created_container" != "$container_name" ]]; then
+            docker rename "$created_container" "$container_name" 2>/dev/null || {
+                echo "   ⚠️  Could not rename container to $container_name"
+            }
+        fi
+    else
+        echo "   ❌ No container found after devcontainer up"
+        return 1  # Failed - no container created
     fi
     
     echo "   ✅ Started: $dev_name"
