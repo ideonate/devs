@@ -40,6 +40,9 @@ check_devcontainer() {
 
 # Check if devcontainer image should be rebuilt
 should_rebuild_image() {
+    # Disable tracing to prevent debug output
+    { set +x; } 2>/dev/null
+    
     local project_dir="$1"
     local dev_name="$2"
     local project_name="$3"
@@ -59,14 +62,16 @@ should_rebuild_image() {
         if [[ -n "$image_name" ]]; then
             local image_created=$(docker inspect --format='{{.Created}}' "$image_name" 2>/dev/null || echo "")
             if [[ -n "$image_created" ]]; then
-                local image_epoch
-                if command -v gdate >/dev/null 2>&1; then
-                    image_epoch=$(gdate -d "$image_created" +%s 2>/dev/null || echo "0")
-                else
-                    # Remove microseconds and timezone for BSD date parsing
-                    local clean_date=$(echo "$image_created" | sed 's/\.[0-9]*Z$//' | sed 's/Z$//')
-                    image_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$clean_date" +%s 2>/dev/null || echo "0")
-                fi
+                local image_epoch=0
+                {
+                    if command -v gdate >/dev/null 2>&1; then
+                        image_epoch=$(gdate -d "$image_created" +%s 2>/dev/null || echo "0")
+                    else
+                        # Remove microseconds and timezone for BSD date parsing
+                        local clean_date=$(echo "$image_created" | sed 's/\.[0-9]*Z$//' | sed 's/Z$//')
+                        image_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$clean_date" +%s 2>/dev/null || echo "0")
+                    fi
+                } 2>/dev/null
                 
                 if [[ "$image_epoch" -gt "$newest_image_epoch" ]]; then
                     newest_image_epoch="$image_epoch"
