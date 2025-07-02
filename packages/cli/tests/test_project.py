@@ -98,8 +98,19 @@ class TestProject:
         """Test project info computation for git repository."""
         # Mock git repo
         mock_repo_instance = Mock()
-        mock_repo_instance.remotes = [Mock()]
-        mock_repo_instance.remotes.origin.url = "git@github.com:test/project.git"
+        
+        # Mock the origin remote
+        mock_origin = Mock()
+        mock_origin.name = 'origin'
+        mock_origin.url = "git@github.com:test/project.git"
+        
+        # Mock remotes collection
+        mock_remotes = Mock()
+        mock_remotes.__iter__ = Mock(return_value=iter([mock_origin]))
+        mock_remotes.__bool__ = Mock(return_value=True)
+        mock_remotes.origin = mock_origin
+        
+        mock_repo_instance.remotes = mock_remotes
         mock_repo.return_value = mock_repo_instance
         
         project = Project(tmp_path)
@@ -113,8 +124,9 @@ class TestProject:
     @patch('devs.core.project.Repo')
     def test_compute_project_info_without_git(self, mock_repo, tmp_path):
         """Test project info computation for non-git directory."""
-        # Mock git repo to raise exception
-        mock_repo.side_effect = Exception("Not a git repo")
+        # Mock git repo to raise InvalidGitRepositoryError
+        from git.exc import InvalidGitRepositoryError
+        mock_repo.side_effect = InvalidGitRepositoryError("Not a git repo")
         
         project = Project(tmp_path)
         info = project._compute_project_info()

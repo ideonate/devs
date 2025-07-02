@@ -102,7 +102,8 @@ class Project:
             return ""
         
         # Remove .git suffix and convert to lowercase
-        path = path.rstrip('.git')
+        if path.endswith('.git'):
+            path = path[:-4]
         
         # Convert to org-repo format
         project_name = path.lower().replace('/', '-')
