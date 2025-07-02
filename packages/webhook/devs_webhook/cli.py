@@ -56,7 +56,8 @@ def status():
             data = response.json()
             
             click.echo("🟢 Webhook Handler Status")
-            click.echo(f"Active tasks: {data['active_tasks']}/{data['max_concurrent_tasks']}")
+            click.echo(f"Queued tasks: {data['queued_tasks']}")
+            click.echo(f"Container pool size: {data['container_pool_size']}")
             click.echo(f"Mentioned user: @{data['mentioned_user']}")
             
             containers = data['containers']
@@ -83,7 +84,6 @@ def config():
         click.echo(f"Mentioned user: @{config.mentioned_user}")
         click.echo(f"Container pool: {', '.join(config.container_pool)}")
         click.echo(f"Container timeout: {config.container_timeout_minutes} minutes")
-        click.echo(f"Max concurrent tasks: {config.max_concurrent_tasks}")
         click.echo(f"Repository cache: {config.repo_cache_dir}")
         click.echo(f"Workspace directory: {config.workspace_dir}")
         click.echo(f"Server: {config.host}:{config.port}")
@@ -96,8 +96,6 @@ def config():
             missing.append("GITHUB_WEBHOOK_SECRET")
         if not config.github_token:
             missing.append("GITHUB_TOKEN")
-        if not config.claude_api_key:
-            missing.append("CLAUDE_API_KEY")
         
         if missing:
             click.echo(f"\n⚠️  Missing required environment variables:")
