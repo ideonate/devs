@@ -109,7 +109,7 @@ def start(dev_names: tuple, rebuild: bool) -> None:
     
     console.print("")
     console.print("💡 To open containers in VS Code:")
-    console.print(f"   devs open {' '.join(dev_names)}")
+    console.print(f"   devs vscode {' '.join(dev_names)}")
     console.print("")
     console.print("💡 To open containers in shell:")
     console.print(f"   devs shell {' '.join(dev_names)}")
@@ -118,12 +118,12 @@ def start(dev_names: tuple, rebuild: bool) -> None:
 @cli.command()
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--delay', default=2.0, help='Delay between opening VS Code windows (seconds)')
-def open(dev_names: tuple, delay: float) -> None:
+def vscode(dev_names: tuple, delay: float) -> None:
     """Open devcontainers in VS Code.
     
     DEV_NAMES: One or more development environment names to open
     
-    Example: devs open sally bob
+    Example: devs vscode sally bob
     """
     check_dependencies()
     project = get_project()
@@ -261,7 +261,7 @@ def list(all_projects: bool) -> None:
         
         console.print(table)
         console.print("")
-        console.print("💡 Open with: devs open <dev-name>")
+        console.print("💡 Open with: devs vscode <dev-name>")
         console.print("💡 Shell into: devs shell <dev-name>")
         console.print("💡 Stop with: devs stop <dev-name>")
         

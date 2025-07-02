@@ -18,7 +18,7 @@ class TestCLI:
         assert result.exit_code == 0
         assert "DevContainer Management Tool" in result.output
         assert "start" in result.output
-        assert "open" in result.output
+        assert "vscode" in result.output
         assert "stop" in result.output
         assert "shell" in result.output
         assert "list" in result.output
@@ -40,10 +40,10 @@ class TestCLI:
         assert "Start named devcontainers" in result.output
         assert "DEV_NAMES" in result.output
     
-    def test_open_command_help(self):
-        """Test open command help."""
+    def test_vscode_command_help(self):
+        """Test vscode command help."""
         runner = CliRunner()
-        result = runner.invoke(cli, ['open', '--help'])
+        result = runner.invoke(cli, ['vscode', '--help'])
         
         assert result.exit_code == 0
         assert "Open devcontainers in VS Code" in result.output
@@ -95,10 +95,10 @@ class TestCLI:
     
     @patch('devs.cli.check_dependencies')
     @patch('devs.cli.get_project')
-    def test_open_missing_args(self, mock_get_project, mock_check_deps):
-        """Test open command with missing arguments."""
+    def test_vscode_missing_args(self, mock_get_project, mock_check_deps):
+        """Test vscode command with missing arguments."""
         runner = CliRunner()
-        result = runner.invoke(cli, ['open'])
+        result = runner.invoke(cli, ['vscode'])
         
         assert result.exit_code != 0
         assert "Missing argument" in result.output
