@@ -70,8 +70,9 @@
     "LC_ALL": "en_US.UTF-8",
     "GIT_REMOTE_URL": "${localEnv:GIT_REMOTE_URL}",
     "WORKSPACE_FOLDER_NAME": "${localEnv:WORKSPACE_FOLDER_NAME}",
-    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}"
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
-  "postCreateCommand": "sudo /usr/local/bin/init-firewall.sh && /usr/local/bin/setup-workspace.sh && (gh auth setup-git || echo '⚠️ GitHub auth setup skipped - run gh auth login if needed')"
+  "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh"
 }

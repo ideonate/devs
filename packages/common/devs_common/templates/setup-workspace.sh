@@ -3,6 +3,12 @@ set -euo pipefail
 
 echo "Setting up development workspace..."
 
+# Enable debug output if DEVS_DEBUG is set
+if [ "${DEVS_DEBUG:-}" = "true" ]; then
+    echo "🐛 [DEBUG] setup-workspace.sh: Debug mode enabled"
+    set -x  # Enable command tracing
+fi
+
 # Check SSH setup (configured during Docker build)
 check_ssh_setup() {
     if [ -d /home/node/.ssh ] && [ "$(ls -A /home/node/.ssh 2>/dev/null)" ]; then
@@ -16,6 +22,37 @@ check_ssh_setup() {
         echo "   1. Create directory: .devcontainer/.ssh"
         echo "   2. Copy your SSH keys there (e.g., id_ed25519_github)"
         echo "   3. Rebuild the devcontainer"
+    fi
+}
+
+# Check GitHub token setup (configured via environment variables)
+check_github_token_setup() {
+    if [ -n "${GH_TOKEN:-}" ]; then
+        echo "✅ GitHub token (GH_TOKEN) is available"
+        
+        # Ensure it's available in all shell sessions for the node user
+        if ! grep -q "export GH_TOKEN" /home/node/.zshrc 2>/dev/null; then
+            echo "export GH_TOKEN=\"\$GH_TOKEN\"" >> /home/node/.zshrc
+        fi
+        if ! grep -q "export GH_TOKEN" /home/node/.bashrc 2>/dev/null; then
+            echo "export GH_TOKEN=\"\$GH_TOKEN\"" >> /home/node/.bashrc
+        fi
+        
+        # Test if gh CLI can authenticate
+        if command -v gh >/dev/null 2>&1; then
+            if gh auth status >/dev/null 2>&1; then
+                echo "✅ GitHub CLI authentication is working"
+            else
+                echo "ℹ️  GitHub CLI token available but not yet configured"
+                echo "   Run 'gh auth setup-git' to complete setup"
+            fi
+        fi
+    else
+        echo "ℹ️  No GitHub token (GH_TOKEN) configured"
+        echo "   To enable GitHub API access:"
+        echo "   1. Set environment variable: export GH_TOKEN=your_token_here"
+        echo "   2. Restart the devcontainer"
+        echo "   3. Or add to your ~/.bashrc or ~/.zshrc for persistence"
     fi
 }
 
@@ -88,6 +125,9 @@ echo "Contents: $(ls -la)"
 
 # Check SSH access (configured during build)
 check_ssh_setup
+
+# Check GitHub token access (configured via environment variables)
+check_github_token_setup
 
 # List all directories
 echo "Checking for directories..."

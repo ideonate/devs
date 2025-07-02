@@ -104,20 +104,35 @@ class DevContainerCLI:
             if 'GH_TOKEN' in os.environ:
                 env['GH_TOKEN'] = os.environ['GH_TOKEN']
             
+            # Pass debug mode to container scripts
+            if debug:
+                env['DEVS_DEBUG'] = 'true'
+            
             if debug:
                 from rich.console import Console
                 console = Console()
                 console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-                console.print(f"[dim]Environment variables: DEVCONTAINER_NAME={env.get('DEVCONTAINER_NAME')}, GIT_REMOTE_URL={env.get('GIT_REMOTE_URL')}, GH_TOKEN={'***' if env.get('GH_TOKEN') else 'not set'}[/dim]")
+                console.print(f"[dim]Environment variables: DEVCONTAINER_NAME={env.get('DEVCONTAINER_NAME')}, GIT_REMOTE_URL={env.get('GIT_REMOTE_URL')}, GH_TOKEN={'***' if env.get('GH_TOKEN') else 'not set'}, DEVS_DEBUG={env.get('DEVS_DEBUG', 'not set')}[/dim]")
             
-            result = subprocess.run(
-                cmd,
-                cwd=workspace_folder,
-                env=env,
-                capture_output=not debug,  # Show output in debug mode
-                text=True,
-                check=False
-            )
+            if debug:
+                # In debug mode, stream output in real-time
+                result = subprocess.run(
+                    cmd,
+                    cwd=workspace_folder,
+                    env=env,
+                    text=True,
+                    check=False
+                )
+            else:
+                # In normal mode, capture output for error handling
+                result = subprocess.run(
+                    cmd,
+                    cwd=workspace_folder,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
             
             if debug and result.returncode == 0:
                 from rich.console import Console

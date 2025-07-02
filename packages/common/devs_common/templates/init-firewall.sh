@@ -2,6 +2,12 @@
 set -euo pipefail  # Exit on error, undefined vars, and pipeline failures
 IFS=$'\n\t'       # Stricter word splitting
 
+# Enable debug output if DEVS_DEBUG is set
+if [ "${DEVS_DEBUG:-}" = "true" ]; then
+    echo "🐛 [DEBUG] init-firewall.sh: Debug mode enabled"
+    set -x  # Enable command tracing
+fi
+
 # Flush existing rules and delete existing ipsets
 iptables -F
 iptables -X
@@ -29,16 +35,7 @@ ipset create allowed-domains hash:net
 
 # Fetch GitHub meta information and aggregate + add their IP ranges
 echo "Fetching GitHub IP ranges..."
-# Try to get GH_TOKEN from user's shell config
-if [ -z "${GH_TOKEN:-}" ]; then
-    echo "GH_TOKEN not in environment, trying to extract from /home/node/.zshrc"
-    if [ -f /home/node/.zshrc ]; then
-        GH_TOKEN=$(grep 'export GH_TOKEN=' /home/node/.zshrc | sed 's/export GH_TOKEN="//' | sed 's/"//')
-        echo "Extracted GH_TOKEN from .zshrc: '${GH_TOKEN:0:10}...'"
-    fi
-fi
-
-echo "GH_TOKEN available: '${GH_TOKEN:-NOT_SET}'"
+echo "GH_TOKEN available: ${GH_TOKEN:+YES}"
 
 if [ -n "${GH_TOKEN:-}" ]; then
     echo "Using authenticated GitHub API request"

@@ -54,20 +54,13 @@ def copy_default_devcontainer(workspace_dir: Path) -> None:
         # Create .devcontainer directory
         target_dir.mkdir(parents=True, exist_ok=True)
         
-        # Copy template files
-        template_files = [
-            "devcontainer.json",
-            "Dockerfile"
-        ]
-        
-        for template_file in template_files:
-            src = template_dir / template_file
-            dest = target_dir / template_file
-            
-            if src.exists():
-                shutil.copy2(src, dest)
-            else:
-                raise WorkspaceError(f"Template file not found: {template_file}")
+        # Copy all template files from the templates directory
+        # This includes both config files (devcontainer.json, Dockerfile) 
+        # and script files that will be copied during Docker build
+        for template_file in template_dir.iterdir():
+            if template_file.is_file():
+                dest = target_dir / template_file.name
+                shutil.copy2(template_file, dest)
         
         # Create .dockerignore if it doesn't exist
         dockerignore = workspace_dir / ".dockerignore"

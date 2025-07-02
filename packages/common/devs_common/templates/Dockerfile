@@ -97,33 +97,10 @@ RUN echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> /home/node/.z
   echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> /home/node/.bashrc
 
 
-USER node
-
-# Create basic setup scripts
-USER root
-RUN echo '#!/bin/bash\n\
-  echo "🚀 Setting up workspace..."\n\
-  # Set up git config if not already configured\n\
-  if [ -z "$(git config --global user.name)" ]; then\n\
-  git config --global user.name "Claude AI Assistant"\n\
-  git config --global user.email "claude@ideonate.com"\n\
-  fi\n\
-  # Set up basic aliases\n\
-  echo "alias ll=\"ls -la\"" >> /home/node/.zshrc\n\
-  echo "alias la=\"ls -la\"" >> /home/node/.zshrc\n\
-  echo "✅ Workspace setup complete"\n\
-  ' > /usr/local/bin/setup-workspace.sh && \
-  chmod +x /usr/local/bin/setup-workspace.sh
-
-RUN echo '#!/bin/bash\n\
-  echo "🔥 Setting up basic firewall rules..."\n\
-  # Basic firewall setup - can be extended as needed\n\
-  echo "✅ Firewall setup complete"\n\
-  ' > /usr/local/bin/init-firewall.sh && \
-  chmod +x /usr/local/bin/init-firewall.sh
-
-# Allow node user to run setup scripts with sudo
-RUN echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh, /usr/local/bin/setup-workspace.sh" > /etc/sudoers.d/node-scripts && \
+# Copy and set up scripts
+COPY init-firewall.sh setup-workspace.sh webapp-screenshot.py screenshot-webapp.sh python-venv-integration.sh copy-ssh.sh post-create-wrapper.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/setup-workspace.sh /usr/local/bin/webapp-screenshot.py /usr/local/bin/screenshot-webapp.sh /usr/local/bin/python-venv-integration.sh /usr/local/bin/copy-ssh.sh /usr/local/bin/post-create-wrapper.sh && \
+  echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh, /usr/local/bin/setup-workspace.sh" > /etc/sudoers.d/node-scripts && \
   chmod 0440 /etc/sudoers.d/node-scripts
 
 USER node
