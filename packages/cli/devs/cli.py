@@ -110,6 +110,9 @@ def start(dev_names: tuple, rebuild: bool) -> None:
     console.print("")
     console.print("💡 To open containers in VS Code:")
     console.print(f"   devs open {' '.join(dev_names)}")
+    console.print("")
+    console.print("💡 To open containers in shell:")
+    console.print(f"   devs shell {' '.join(dev_names)}")
 
 
 @cli.command()
@@ -259,6 +262,7 @@ def list(all_projects: bool) -> None:
         console.print(table)
         console.print("")
         console.print("💡 Open with: devs open <dev-name>")
+        console.print("💡 Shell into: devs shell <dev-name>")
         console.print("💡 Stop with: devs stop <dev-name>")
         
     except ContainerError as e:
