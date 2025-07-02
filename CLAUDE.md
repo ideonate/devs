@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with the `devs` project 
 
 ## Project Overview
 
-`devs` is now a multi-package monorepo containing tools for managing multiple named devcontainers for any project. The main CLI tool allows developers to run commands like `devs start sally bob` to create multiple development environments with distinct names, then `devs open sally` to launch VS Code connected to specific containers.
+`devs` is now a multi-package monorepo containing tools for managing multiple named devcontainers for any project. The main CLI tool allows developers to run commands like `devs start sally bob` to create multiple development environments with distinct names, then `devs vscode sally` to launch VS Code connected to specific containers.
 
 ## Repository Structure
 
@@ -99,7 +99,7 @@ Each dev environment gets its own isolated workspace:
 
 ### Core Commands (CLI Package)
 - `devs start <name...>` - Start named devcontainers
-- `devs open <name...>` - Open devcontainers in VS Code
+- `devs vscode <name...>` - Open devcontainers in VS Code
 - `devs stop <name...>` - Stop and remove devcontainers
 - `devs shell <name>` - Open shell in devcontainer
 - `devs list` - List active devcontainers for current project
@@ -113,7 +113,7 @@ Each dev environment gets its own isolated workspace:
 devs start frontend backend
 
 # Open both in VS Code (separate windows)
-devs open frontend backend
+devs vscode frontend backend
 
 # Check status
 devs status

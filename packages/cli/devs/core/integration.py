@@ -71,13 +71,13 @@ class VSCodeIntegration:
         
         return vscode_uri
     
-    def open_devcontainer(
+    def launch_devcontainer(
         self, 
         workspace_dir: Path, 
         dev_name: str,
         new_window: bool = True
     ) -> bool:
-        """Open a devcontainer in VS Code.
+        """Launch a devcontainer in VS Code.
         
         Args:
             workspace_dir: Workspace directory path
@@ -129,13 +129,13 @@ class VSCodeIntegration:
         except subprocess.SubprocessError as e:
             raise VSCodeError(f"Failed to launch VS Code for {dev_name}: {e}")
     
-    def open_multiple_devcontainers(
+    def launch_multiple_devcontainers(
         self, 
         workspace_dirs: List[Path], 
         dev_names: List[str],
         delay_between_windows: float = 2.0
     ) -> int:
-        """Open multiple devcontainers in separate VS Code windows.
+        """Launch multiple devcontainers in separate VS Code windows.
         
         Args:
             workspace_dirs: List of workspace directory paths
@@ -143,7 +143,7 @@ class VSCodeIntegration:
             delay_between_windows: Delay between opening windows (seconds)
             
         Returns:
-            Number of successfully opened windows
+            Number of successfully launched windows
         """
         if len(workspace_dirs) != len(dev_names):
             raise VSCodeError("Workspace directories and dev names lists must have same length")
@@ -154,7 +154,7 @@ class VSCodeIntegration:
         
         for workspace_dir, dev_name in zip(workspace_dirs, dev_names):
             try:
-                if self.open_devcontainer(workspace_dir, dev_name, new_window=True):
+                if self.launch_devcontainer(workspace_dir, dev_name, new_window=True):
                     success_count += 1
                 
                 # Add delay between windows to ensure they open separately
@@ -162,7 +162,7 @@ class VSCodeIntegration:
                     time.sleep(delay_between_windows)
                     
             except VSCodeError as e:
-                console.print(f"   ❌ Failed to open {dev_name}: {e}")
+                console.print(f"   ❌ Failed to launch {dev_name}: {e}")
                 continue
         
         if success_count > 0:

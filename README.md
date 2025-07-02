@@ -17,7 +17,7 @@ pip install devs
 devs start frontend backend
 
 # Open in VS Code
-devs open frontend backend
+devs vscode frontend backend
 ```
 
 ### 🔄 Webhook Handler *(Coming Soon)*
@@ -44,7 +44,7 @@ pip install -e .
 devs start sally bob charlie
 
 # Open containers in VS Code (separate windows)
-devs open sally bob
+devs vscode sally bob
 
 # Work in a specific container
 devs shell sally

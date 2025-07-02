@@ -57,7 +57,7 @@ All original commands work identically:
 | Command | Shell Script | Python Package | Status |
 |---------|-------------|----------------|---------|
 | `devs start <names>` | ✅ | ✅ | Identical |
-| `devs open <names>` | ✅ | ✅ | Enhanced with better error handling |
+| `devs vscode <names>` | ✅ | ✅ | Enhanced with better error handling |
 | `devs stop <names>` | ✅ | ✅ | Identical |
 | `devs shell <name>` | ✅ | ✅ | Identical |
 | `devs list` | ✅ | ✅ | Enhanced with table output |

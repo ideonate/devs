@@ -112,7 +112,7 @@ def start(dev_names: tuple, rebuild: bool) -> None:
     console.print(f"   devs vscode {' '.join(dev_names)}")
     console.print("")
     console.print("💡 To open containers in shell:")
-    console.print(f"   devs shell {' '.join(dev_names)}")
+    console.print(f"   devs shell {dev_names[0] if dev_names else '<dev-name>'}")
 
 
 @cli.command()
@@ -155,7 +155,7 @@ def vscode(dev_names: tuple, delay: float) -> None:
     
     if workspace_dirs:
         try:
-            success_count = vscode.open_multiple_devcontainers(
+            success_count = vscode.launch_multiple_devcontainers(
                 workspace_dirs, 
                 valid_dev_names,
                 delay_between_windows=delay

@@ -23,7 +23,7 @@ pip install devs
 devs start frontend backend
 
 # Open both in VS Code (separate windows)
-devs open frontend backend
+devs vscode frontend backend
 
 # Work in a specific container
 devs shell frontend
