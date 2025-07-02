@@ -16,6 +16,11 @@ from .git_utils import (
 
 from .docker_client import DockerClient
 from .devcontainer import DevContainerCLI
+from .devcontainer_template import (
+    ensure_devcontainer_config,
+    has_devcontainer_config,
+    copy_default_devcontainer,
+)
 
 __all__ = [
     "copy_file_list",
@@ -28,4 +33,7 @@ __all__ = [
     "is_git_repository",
     "DockerClient",
     "DevContainerCLI",
+    "ensure_devcontainer_config",
+    "has_devcontainer_config", 
+    "copy_default_devcontainer",
 ]

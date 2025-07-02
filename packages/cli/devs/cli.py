@@ -46,12 +46,10 @@ def get_project() -> Project:
     """Get project instance with error handling."""
     try:
         project = Project()
-        project.check_devcontainer_config()
+        # No longer require devcontainer config upfront - 
+        # WorkspaceManager will provide default template if needed
         return project
     except ProjectNotFoundError as e:
-        console.print(f"❌ {e}")
-        sys.exit(1)
-    except DevcontainerConfigError as e:
         console.print(f"❌ {e}")
         sys.exit(1)
 
@@ -282,9 +280,9 @@ def status() -> None:
         # Check devcontainer config
         try:
             project.check_devcontainer_config()
-            console.print("   DevContainer config: ✅ Found")
+            console.print("   DevContainer config: ✅ Found in project")
         except DevcontainerConfigError:
-            console.print("   DevContainer config: ❌ Missing")
+            console.print("   DevContainer config: 📋 Will use default template")
         
         # Show dependency status
         integration = ExternalToolIntegration(project)

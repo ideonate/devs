@@ -16,6 +16,7 @@ from ..utils.file_utils import (
     is_directory_empty
 )
 from ..utils.git_utils import get_tracked_files, is_git_repository
+from ..utils.devcontainer_template import ensure_devcontainer_config
 from .project import Project
 
 console = Console()
@@ -50,7 +51,7 @@ class WorkspaceManager:
         Returns:
             Path to workspace directory
         """
-        workspace_name = f"{self.project.info.directory.name}-{dev_name}"
+        workspace_name = f"{self.project.info.name}-{dev_name}"
         if self.config:
             return self.config.workspaces_dir / workspace_name
         else:
@@ -107,6 +108,9 @@ class WorkspaceManager:
             
             # Copy special directories
             self._copy_special_directories(workspace_dir)
+            
+            # Ensure devcontainer configuration exists
+            ensure_devcontainer_config(workspace_dir, self.project.project_dir)
             
             console.print(f"   ✅ Directory copied to {workspace_dir}")
             return workspace_dir
@@ -246,7 +250,7 @@ class WorkspaceManager:
             List of dev environment names with workspaces
         """
         workspaces = []
-        project_prefix = f"{self.project.info.directory.name}-"
+        project_prefix = f"{self.project.info.name}-"
         
         workspaces_dir = self.get_workspace_dir("").parent  # Get parent to list all workspaces
         if not workspaces_dir.exists():

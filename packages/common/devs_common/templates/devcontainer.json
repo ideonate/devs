@@ -1,0 +1,77 @@
+{
+  "name": "${localEnv:DEVCONTAINER_NAME:Project}",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "TZ": "${localEnv:TZ:UTC}",
+      "GH_TOKEN": "${localEnv:GH_TOKEN}"
+    }
+  },
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscode.git",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "eamodio.gitlens",
+        "ms-python.debugpy",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.pylint",
+        "ms-python.flake8",
+        "ms-python.black-formatter",
+        "Anthropic.claude-code"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "python.defaultInterpreterPath": "./venv/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.flake8Enabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.formatting.provider": "none",
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "bash",
+            "icon": "terminal-bash"
+          },
+          "zsh": {
+            "path": "zsh"
+          }
+        }
+      }
+    }
+  },
+  "remoteUser": "node",
+  "mounts": [
+    "source=claude-code-bashhistory,target=/commandhistory,type=volume",
+    "source=${localEnv:HOME}/.devs/claudeconfig,target=/home/node/claudeconfig,type=bind",
+    "source=claude-code-vscode-extensions,target=/home/node/.vscode-server/extensions,type=volume",
+    "source=claude-code-vscode-data,target=/home/node/.vscode-server,type=volume"
+  ],
+  "remoteEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "POWERLEVEL9K_DISABLE_GITSTATUS": "true",
+    "LANG": "en_US.UTF-8",
+    "LC_ALL": "en_US.UTF-8",
+    "GIT_REMOTE_URL": "${localEnv:GIT_REMOTE_URL}",
+    "WORKSPACE_FOLDER_NAME": "${localEnv:WORKSPACE_FOLDER_NAME}"
+  },
+  "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
+  "postCreateCommand": "sudo /usr/local/bin/init-firewall.sh && /usr/local/bin/setup-workspace.sh && (gh auth setup-git || echo '⚠️ GitHub auth setup skipped - run gh auth login if needed')"
+}

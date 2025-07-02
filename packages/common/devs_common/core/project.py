@@ -142,6 +142,6 @@ class Project:
             dev_name: Development environment name
             
         Returns:
-            Workspace name in format: basename-devname
+            Workspace name in format: org-repo-devname
         """
-        return f"{self.info.directory.name}-{dev_name}"
+        return f"{self.info.name}-{dev_name}"
