@@ -7,6 +7,7 @@ A collection of tools for managing multiple named devcontainers for any project.
 This is a multi-package monorepo containing:
 
 ### 📦 [CLI Tool](packages/cli/) - `devs`
+
 The main command-line interface for managing devcontainers locally.
 
 ```bash
@@ -20,15 +21,18 @@ devs start frontend backend
 devs vscode frontend backend
 ```
 
-### 🔄 Webhook Handler *(Coming Soon)*
+### 🔄 Webhook Handler
+
 GitHub App webhook handler for automated devcontainer operations.
 
-### 🛠️ Common Utilities *(Coming Soon)*
+### 🛠️ Common Utilities _(Coming Soon)_
+
 Shared utilities between CLI and webhook packages.
 
 ## Quick Start
 
 ### Installation
+
 ```bash
 # Install just the CLI tool
 pip install devs
@@ -39,6 +43,7 @@ pip install -e .
 ```
 
 ### Basic Usage
+
 ```bash
 # Start development environments
 devs start sally bob charlie
@@ -74,6 +79,7 @@ devs stop sally bob charlie
 ## Development
 
 ### Repository Structure
+
 ```
 devs/
 ├── packages/
@@ -87,6 +93,7 @@ devs/
 ```
 
 ### Development Setup
+
 ```bash
 # Install CLI package in development mode
 cd packages/cli
@@ -109,15 +116,19 @@ If you're upgrading from the original zsh script, see [MIGRATION.md](packages/cl
 ## Architecture
 
 ### Container Naming
+
 Containers follow the pattern: `dev-<org>-<repo>-<dev-name>`
 
 Example: `dev-ideonate-devs-sally`, `dev-ideonate-devs-bob`
 
 ### VS Code Window Management
+
 Each container gets unique workspace paths to ensure VS Code treats them as separate sessions.
 
 ### Workspace Isolation
+
 Each dev environment gets its own workspace copy with:
+
 - Git-tracked files (or all files for non-git projects)
 - Special directories (.git, .claude, .devcontainer extras)
 - Proper exclusion of build/cache directories

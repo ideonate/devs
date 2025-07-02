@@ -66,6 +66,7 @@ devs-webhook serve --host 127.0.0.1 --port 8080 --reload
 ### Basic Issue Resolution
 
 Create a GitHub issue:
+
 ```
 There's a bug in the user authentication system where passwords aren't being validated properly.
 
@@ -73,6 +74,7 @@ There's a bug in the user authentication system where passwords aren't being val
 ```
 
 The webhook will:
+
 1. Detect the @mention
 2. Allocate a container
 3. Clone the repository
@@ -84,6 +86,7 @@ The webhook will:
 ### Feature Requests
 
 Create an issue:
+
 ```
 Can we add a dark mode toggle to the settings page?
 
@@ -91,6 +94,7 @@ Can we add a dark mode toggle to the settings page?
 ```
 
 Claude Code will:
+
 1. Analyze the current UI structure
 2. Implement the dark mode functionality
 3. Create appropriate tests
@@ -102,10 +106,11 @@ Claude Code will:
 The webhook manages a pool of named containers:
 
 - **eamonn**: First container in rotation
-- **harry**: Second container in rotation  
+- **harry**: Second container in rotation
 - **darren**: Third container in rotation
 
 Each container:
+
 - Gets a fresh workspace copy of the repository
 - Has a 30-minute timeout (configurable)
 - Is automatically cleaned up after use
@@ -175,20 +180,19 @@ Created  Event     Container   & Setup       Solve Issue    Back
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GITHUB_WEBHOOK_SECRET` | Required | GitHub webhook secret |
-| `GITHUB_TOKEN` | Required | GitHub personal access token |
-| `GITHUB_MENTIONED_USER` | Required | Username to watch for @mentions |
-| `CLAUDE_API_KEY` | Required | Claude API key |
-| `CLAUDE_MODEL` | `claude-3-5-sonnet-20241022` | Claude model to use |
-| `CONTAINER_POOL` | `eamonn,harry,darren` | Container names |
-| `CONTAINER_TIMEOUT_MINUTES` | `30` | Container timeout |
-| `MAX_CONCURRENT_TASKS` | `3` | Max parallel tasks |
-| `REPO_CACHE_DIR` | `~/.devs-webhook/repos` | Repository cache |
-| `WORKSPACE_DIR` | `~/.devs-webhook/workspaces` | Container workspaces |
-| `WEBHOOK_HOST` | `0.0.0.0` | Server host |
-| `WEBHOOK_PORT` | `8000` | Server port |
+| Variable                    | Default                      | Description                     |
+| --------------------------- | ---------------------------- | ------------------------------- |
+| `GITHUB_WEBHOOK_SECRET`     | Required                     | GitHub webhook secret           |
+| `GITHUB_TOKEN`              | Required                     | GitHub personal access token    |
+| `GITHUB_MENTIONED_USER`     | Required                     | Username to watch for @mentions |
+| `CLAUDE_API_KEY`            | Required                     | Claude API key                  |
+| `CONTAINER_POOL`            | `eamonn,harry,darren`        | Container names                 |
+| `CONTAINER_TIMEOUT_MINUTES` | `30`                         | Container timeout               |
+| `MAX_CONCURRENT_TASKS`      | `3`                          | Max parallel tasks              |
+| `REPO_CACHE_DIR`            | `~/.devs-webhook/repos`      | Repository cache                |
+| `WORKSPACE_DIR`             | `~/.devs-webhook/workspaces` | Container workspaces            |
+| `WEBHOOK_HOST`              | `0.0.0.0`                    | Server host                     |
+| `WEBHOOK_PORT`              | `8000`                       | Server port                     |
 
 ## Deployment
 

@@ -16,7 +16,6 @@ class WebhookConfig(BaseModel):
     
     # Claude settings
     claude_api_key: str = Field(..., description="Claude API key")
-    claude_model: str = Field(default="claude-3-5-sonnet-20241022", description="Claude model to use")
     
     # Container pool settings
     container_pool: List[str] = Field(
@@ -53,7 +52,6 @@ class WebhookConfig(BaseModel):
             github_token=os.getenv("GITHUB_TOKEN", ""),
             mentioned_user=os.getenv("GITHUB_MENTIONED_USER", ""),
             claude_api_key=os.getenv("CLAUDE_API_KEY", ""),
-            claude_model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022"),
             container_pool=os.getenv("CONTAINER_POOL", "eamonn,harry,darren").split(","),
             container_timeout_minutes=int(os.getenv("CONTAINER_TIMEOUT_MINUTES", "30")),
             max_concurrent_tasks=int(os.getenv("MAX_CONCURRENT_TASKS", "3")),
