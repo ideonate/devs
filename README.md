@@ -1,196 +1,146 @@
-# devs - DevContainer Management Script
+# devs - DevContainer Management Toolkit
 
-A simple command-line tool to manage multiple named devcontainers for any project, making it easy to spin up and switch between different development environments.
+A collection of tools for managing multiple named devcontainers for any project.
+
+## Repository Structure
+
+This is a multi-package monorepo containing:
+
+### 📦 [CLI Tool](packages/cli/) - `devs`
+The main command-line interface for managing devcontainers locally.
+
+```bash
+# Install the CLI tool
+pip install devs
+
+# Start development environments
+devs start frontend backend
+
+# Open in VS Code
+devs open frontend backend
+```
+
+### 🔄 Webhook Handler *(Coming Soon)*
+GitHub App webhook handler for automated devcontainer operations.
+
+### 🛠️ Common Utilities *(Coming Soon)*
+Shared utilities between CLI and webhook packages.
+
+## Quick Start
+
+### Installation
+```bash
+# Install just the CLI tool
+pip install devs
+
+# Or install from source (development)
+cd packages/cli
+pip install -e .
+```
+
+### Basic Usage
+```bash
+# Start development environments
+devs start sally bob charlie
+
+# Open containers in VS Code (separate windows)
+devs open sally bob
+
+# Work in a specific container
+devs shell sally
+
+# List active containers
+devs list
+
+# Clean up when done
+devs stop sally bob charlie
+```
+
+## Requirements
+
+- **Docker**: Container runtime
+- **VS Code**: With `code` command in PATH
+- **DevContainer CLI**: `npm install -g @devcontainers/cli`
+- **Project Requirements**: `.devcontainer/devcontainer.json` in target projects
 
 ## Features
 
-- 🚀 **Start multiple devcontainers** with custom names (e.g., "sally", "bob")
-- 📂 **Open containers in VS Code** with clear window titles
-- 🛑 **Stop and clean up** containers when done
-- 📋 **List active containers** for current project
-- 🏷️ **Project-aware** using git repository names (org-repo format)
-- ⚡ **Works with any project** that has devcontainer configuration
+- **Multiple Named Containers**: Start multiple devcontainers with custom names
+- **VS Code Integration**: Open containers in separate VS Code windows with clear titles
+- **Project Isolation**: Containers are prefixed with git repository names
+- **Workspace Isolation**: Each dev environment gets its own workspace copy
+- **Cross-Platform**: Works on any project with devcontainer configuration
 
-## Installation
+## Development
 
-### Quick Install
-
-```bash
-# Clone and install globally
-git clone https://github.com/ideonate/devs.git
-cd devs
-sudo ./install.sh
+### Repository Structure
+```
+devs/
+├── packages/
+│   ├── cli/                    # Main CLI tool
+│   ├── webhook/               # GitHub webhook handler (planned)
+│   └── common/                # Shared utilities (planned)
+├── docs/                      # Documentation
+├── scripts/                   # Development scripts
+├── devs                       # Legacy zsh script (to be removed)
+└── README.md                  # This file
 ```
 
-### Manual Install
-
+### Development Setup
 ```bash
-# Clone the repository
-git clone https://github.com/ideonate/devs.git
-cd devs
+# Install CLI package in development mode
+cd packages/cli
+pip install -e ".[dev]"
 
-# Make executable and add to PATH
-chmod +x devs
-sudo cp devs /usr/local/bin/devs
+# Run tests
+pytest
+
+# Format code
+black devs tests
+
+# Type checking
+mypy devs
 ```
 
-### Development Install
+## Migration from Shell Script
 
-```bash
-# Clone and symlink for development
-git clone https://github.com/ideonate/devs.git
-cd devs
-chmod +x devs
-sudo ln -sf "$(pwd)/devs" /usr/local/bin/devs
-```
+If you're upgrading from the original zsh script, see [MIGRATION.md](packages/cli/MIGRATION.md) for detailed migration information.
 
-## Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/)
-- [VS Code](https://code.visualstudio.com/) with `code` command in PATH
-- [DevContainer CLI](https://github.com/devcontainers/cli): `npm install -g @devcontainers/cli`
-- Project with `.devcontainer/devcontainer.json` configuration
-
-## Usage
-
-Run `devs` from any project directory that has devcontainer configuration:
-
-### Basic Commands
-
-```bash
-# Start named devcontainers
-devs start sally bob charlie
-
-# Open containers in VS Code
-devs open sally bob
-
-# List active containers for current project
-devs list
-
-# Stop and remove containers
-devs stop sally
-
-# Show help
-devs help
-```
-
-### Example Workflow
-
-```bash
-# In your project directory
-cd ~/myproject
-
-# Start two development environments
-devs start frontend backend
-
-# Open both in VS Code (separate windows)
-devs open frontend backend
-
-# Later, stop the backend container
-devs stop backend
-
-# List what's still running
-devs list
-```
-
-## How It Works
+## Architecture
 
 ### Container Naming
+Containers follow the pattern: `dev-<org>-<repo>-<dev-name>`
 
-Containers are named using the pattern: `dev-<org>-<repo>-<dev-name>`
+Example: `dev-ideonate-devs-sally`, `dev-ideonate-devs-bob`
 
-For example, with repo `https://github.com/myorg/myproject`:
+### VS Code Window Management
+Each container gets unique workspace paths to ensure VS Code treats them as separate sessions.
 
-- `devs start alice` creates container: `dev-myorg-myproject-alice`
-- `devs start bob` creates container: `dev-myorg-myproject-bob`
+### Workspace Isolation
+Each dev environment gets its own workspace copy with:
+- Git-tracked files (or all files for non-git projects)
+- Special directories (.git, .claude, .devcontainer extras)
+- Proper exclusion of build/cache directories
 
-### VS Code Integration
+## Legacy Shell Script
 
-Each container gets a custom name in VS Code:
+The original zsh script is still available at the repository root (`./devs`) but will be removed in a future version. New users should use the Python CLI tool.
 
-- Window title shows: `<dev-name> - <workspace>`
-- Easy to distinguish between multiple development environments
+## License
 
-### Project Isolation
-
-Containers are tagged with project labels for easy management:
-
-- Only shows containers for the current project when listing
-- Clean separation between different projects
-
-## Configuration
-
-The script uses your existing `.devcontainer/devcontainer.json` configuration. Make sure your devcontainer config supports the `DEVCONTAINER_NAME` environment variable for custom naming:
-
-```json
-{
-  "name": "${localEnv:DEVCONTAINER_NAME:Default} - My Project"
-  // ... rest of your config
-}
-```
-
-## Advanced Usage
-
-### Custom Project Names
-
-By default, project names are derived from git repository URLs. For `https://github.com/org/repo`, the project name becomes `org-repo`.
-
-### Multiple Projects
-
-You can use `devs` across multiple projects. Each project's containers are isolated and managed separately.
-
-### Container Lifecycle
-
-- `start` - Creates and starts new containers (removes existing ones with same name)
-- `open` - Launches VS Code connected to existing containers
-- `stop` - Stops and removes containers completely
-- `list` - Shows only containers for current project
-
-## Troubleshooting
-
-### Command not found
-
-Make sure `/usr/local/bin` is in your PATH:
-
-```bash
-echo $PATH | grep -q "/usr/local/bin" || echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.zshrc
-```
-
-### DevContainer CLI not found
-
-Install the DevContainer CLI:
-
-```bash
-npm install -g @devcontainers/cli
-```
-
-### No devcontainer.json found
-
-Make sure you're in a project directory with `.devcontainer/devcontainer.json`:
-
-```bash
-ls .devcontainer/devcontainer.json
-```
-
-### Permission denied
-
-Make sure the script is executable:
-
-```bash
-chmod +x /usr/local/bin/devs
-```
+MIT License - see individual package directories for details.
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Make changes and test
-4. Submit a pull request
+2. Create a feature branch
+3. Make your changes in the appropriate package directory
+4. Add tests for new functionality
+5. Ensure all tests pass
+6. Submit a pull request
 
-## License
+## Support
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Author
-
-Created by [Ideonate](https://github.com/ideonate) to simplify devcontainer management across projects.
+- [Issues](https://github.com/ideonate/devs/issues)
+- [CLI Documentation](packages/cli/README.md)
+- [Migration Guide](packages/cli/MIGRATION.md)

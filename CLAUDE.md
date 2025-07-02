@@ -1,18 +1,73 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with the `devs` project - a DevContainer Management Script for managing multiple named devcontainers.
+This file provides guidance to Claude Code when working with the `devs` project - a DevContainer Management Toolkit with multiple Python packages for managing named devcontainers.
 
 ## Project Overview
 
-`devs` is a command-line tool that simplifies managing multiple named devcontainers for any project. It allows developers to run commands like `devs start sally bob` to create multiple development environments with distinct names, then `devs open sally` to launch VS Code connected to specific containers.
+`devs` is now a multi-package monorepo containing tools for managing multiple named devcontainers for any project. The main CLI tool allows developers to run commands like `devs start sally bob` to create multiple development environments with distinct names, then `devs open sally` to launch VS Code connected to specific containers.
+
+## Repository Structure
+
+This is a **multi-package monorepo** with the following structure:
+
+```
+devs/
+├── packages/
+│   ├── cli/                    # Main CLI tool (Python package)
+│   ├── webhook/               # GitHub webhook handler (planned)
+│   └── common/                # Shared utilities (planned)
+├── docs/                      # Documentation
+├── scripts/                   # Development scripts
+├── devs                       # Legacy zsh script (to be removed)
+├── README.md                  # Monorepo overview
+└── CLAUDE.md                  # This file
+```
 
 ## Key Features
 
 - **Multiple Named Containers**: Start multiple devcontainers with custom names (e.g., "sally", "bob", "charlie")
 - **VS Code Integration**: Open containers in separate VS Code windows with clear titles
-- **Project Isolation**: Containers are prefixed with git repository names (org-repo format) 
-- **Shared Authentication**: Claude credentials are shared between containers for the same project
+- **Project Isolation**: Containers are prefixed with git repository names (org-repo format)
+- **Workspace Isolation**: Each dev environment gets its own workspace copy
 - **Cross-Platform**: Works on any project with devcontainer configuration
+- **Python Architecture**: Object-oriented design with proper error handling and testing
+
+## Package Details
+
+### CLI Package (`packages/cli/`)
+
+**Installation**: `pip install devs` (when published) or `pip install -e packages/cli/` (development)
+
+**Package Structure**:
+```
+packages/cli/
+├── devs/
+│   ├── __init__.py             # Package initialization
+│   ├── cli.py                  # Click-based CLI interface
+│   ├── config.py               # Configuration management
+│   ├── exceptions.py           # Custom exception classes
+│   ├── core/                   # Core business logic
+│   │   ├── project.py          # Project detection and info
+│   │   ├── container.py        # Docker container management
+│   │   ├── workspace.py        # Workspace isolation
+│   │   └── integration.py      # VS Code integration
+│   └── utils/                  # Utility modules
+│       ├── docker_client.py    # Docker API wrapper
+│       ├── devcontainer.py     # DevContainer CLI wrapper
+│       ├── git_utils.py        # Git operation utilities
+│       └── file_utils.py       # File operation utilities
+├── tests/                      # Test suite
+├── pyproject.toml             # Package configuration
+├── README.md                  # Package documentation
+└── MIGRATION.md               # Migration guide from shell script
+```
+
+**Key Classes**:
+- `Project`: Handles project detection, git info, naming conventions
+- `ContainerManager`: Manages Docker container lifecycle using python-docker API
+- `WorkspaceManager`: Handles workspace copying and isolation
+- `VSCodeIntegration`: Manages VS Code launching and devcontainer URIs
+- `DockerClient`: Docker API wrapper with comprehensive error handling
 
 ## Architecture
 
@@ -21,26 +76,35 @@ Containers follow the pattern: `dev-<org>-<repo>-<dev-name>`
 
 Example: `dev-ideonate-devs-sally`, `dev-ideonate-devs-bob`
 
-### VS Code Window Management  
-Each container gets unique workspace paths to ensure VS Code treats them as separate sessions:
-- Host symlinks: `/path/to/project-sally`, `/path/to/project-bob`
-- Container workspaces: `/workspace/project-sally`, `/workspace/project-bob`
-- VS Code titles: "Sally - Project Name", "Bob - Project Name"
+### Workspace Management
+Each dev environment gets its own isolated workspace:
+- **Location**: `~/.devs/workspaces/<project-name>-<dev-name>/`
+- **Content**: Git-tracked files (or all files for non-git projects)
+- **Special dirs**: `.git`, `.claude`, `.devcontainer` extras copied
+- **Exclusions**: Build/cache directories excluded for non-git projects
 
-### Claude Authentication Sharing
-The tool creates symlinks in `.claude/projects/` so all containers for the same project share Claude authentication:
-- Individual paths: `workspace-project-sally-<hash>`, `workspace-project-bob-<hash>`
-- Shared target: `workspace-project-shared`
-- Result: Login once per project, not per container
+### VS Code Integration
+- **URI Format**: `vscode-remote://dev-container+${hex_path}/workspaces/${workspace_name}`
+- **Unique Paths**: Each dev environment gets unique workspace path for VS Code separation
+- **Window Titles**: Custom titles based on dev environment names
+
+### Python Dependencies
+- **Docker Operations**: `docker` package (native Python API)
+- **Git Operations**: `GitPython` (robust git handling)
+- **CLI Framework**: `click` (better argument parsing and help)
+- **Terminal Output**: `rich` (beautiful terminal output and tables)
+- **File Operations**: Native Python `pathlib` and `shutil`
 
 ## Commands
 
-### Core Commands
+### Core Commands (CLI Package)
 - `devs start <name...>` - Start named devcontainers
 - `devs open <name...>` - Open devcontainers in VS Code
-- `devs stop <name...>` - Stop and remove devcontainers  
+- `devs stop <name...>` - Stop and remove devcontainers
 - `devs shell <name>` - Open shell in devcontainer
 - `devs list` - List active devcontainers for current project
+- `devs status` - Show project and dependency status
+- `devs clean --unused` - Clean up unused workspaces
 - `devs help` - Show usage information
 
 ### Example Workflow
@@ -51,6 +115,9 @@ devs start frontend backend
 # Open both in VS Code (separate windows)
 devs open frontend backend
 
+# Check status
+devs status
+
 # Work in a specific container
 devs shell frontend
 
@@ -58,120 +125,163 @@ devs shell frontend
 devs stop frontend backend
 ```
 
-## Installation
+## Development
 
-The script is designed to be globally available via symlink:
-
+### Development Setup
 ```bash
-# Clone repository
-git clone https://github.com/ideonate/devs.git
-cd devs
+# Quick setup for all packages
+./scripts/setup-dev.sh
 
-# Make globally available
-sudo ln -sf "$(pwd)/devs" /usr/local/bin/devs
+# Or manually for CLI package
+cd packages/cli
+pip install -e ".[dev]"
 ```
 
-## Dependencies
+### Development Scripts
+- `./scripts/setup-dev.sh` - Install all packages in development mode
+- `./scripts/test-all.sh` - Run tests across all packages
+- `./scripts/lint-all.sh` - Lint and format all packages
+- `./scripts/clean.sh` - Clean build artifacts and cache files
 
-- **Docker**: Container runtime
-- **VS Code**: With `code` command in PATH
-- **DevContainer CLI**: `npm install -g @devcontainers/cli`
-- **Project Requirements**: `.devcontainer/devcontainer.json` in target projects
-
-## Key Implementation Details
-
-### Project Detection
-The script uses git remote URLs to determine project names:
+### Testing
 ```bash
-# Extract org-repo format from git URL
-project_name=$(git remote get-url origin | sed 's/.*github\.com[/:]//' | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]' | tr '/' '-')
+# Test all packages
+./scripts/test-all.sh
+
+# Test CLI package specifically
+cd packages/cli && pytest -v
 ```
 
-### Unique Workspace Creation
-For each dev container, the script:
-1. Creates symlink: `${project_dir}-${dev_name}` → `${project_dir}`
-2. Uses symlink as workspace folder for devcontainer CLI
-3. Results in unique container workspaces that VS Code can distinguish
-
-### VS Code URI Format
-The script uses VS Code's devcontainer URI format:
+### Code Quality
 ```bash
-code --folder-uri "vscode-remote://dev-container+${hex_path}/workspace/${workspace_name}"
+# Lint all packages
+./scripts/lint-all.sh
+
+# Or for CLI package specifically
+cd packages/cli
+black devs tests        # Format code
+mypy devs              # Type checking
+flake8 devs tests      # Linting
 ```
 
-Where `hex_path` is the hexadecimal encoding of the unique workspace folder path.
+## Configuration
 
-### Claude Configuration Sharing
-A post-create script (`setup-claude-symlinks.sh`) runs in each container to:
-1. Detect the workspace name and extract base project name
-2. Create symlinks from container-specific Claude project paths to shared paths
-3. Ensure all containers for the same project use the same Claude authentication
+### Environment Variables
+- `DEVS_WORKSPACES_DIR`: Custom workspace directory (default: `~/.devs/workspaces`)
+- `DEVS_PROJECT_PREFIX`: Container name prefix (default: `dev`)
+- `DEVS_CLAUDE_CONFIG_DIR`: Claude config directory (default: `~/.devs/claudeconfig`)
 
-## Troubleshooting
-
-### "Container not found" errors
-- Check if container is running: `docker ps`
-- Verify project name detection: `devs list`
-- Ensure you're in a git repository
-
-### VS Code can't connect
-- Verify devcontainer configuration exists: `.devcontainer/devcontainer.json`
-- Check container logs: `docker logs <container-name>`
-- Try shell access first: `devs shell <name>`
-
-### Claude authentication issues
-- Check symlinks: `ls -la ~/.claude/projects/` (inside container)
-- Verify shared directory exists: `workspace-<project>-shared`
-- Re-run setup: `/usr/local/bin/setup-claude-symlinks.sh`
-
-### Multiple VS Code windows not opening
-- This was a complex issue requiring unique workspace paths
-- Ensure symlinks are created: `ls -la /path/to/project-*`
-- Check devcontainer CLI success in `devs start` output
-
-## Development Notes
-
-### Environment Variable Support
-The devcontainer.json supports `DEVCONTAINER_NAME` for custom naming:
+### DevContainer Support
+The devcontainer.json should support `DEVCONTAINER_NAME` for custom naming:
 ```json
 {
   "name": "${localEnv:DEVCONTAINER_NAME:Default} - Project Name"
 }
 ```
 
-### GitHub Token Integration
-The containers include GitHub token setup for API access, extracted from user shell configuration to bypass sudo restrictions.
+## Dependencies
 
-### Firewall Configuration
-Containers include network filtering via `init-firewall.sh` that:
-- Fetches GitHub IP ranges (with authentication)
-- Allows specific domains for development tools
-- Blocks general internet access for security
+### Runtime Dependencies
+- **Python 3.8+**: Required for the package
+- **Docker**: Container runtime
+- **VS Code**: With `code` command in PATH
+- **DevContainer CLI**: `npm install -g @devcontainers/cli`
+- **Project Requirements**: `.devcontainer/devcontainer.json` in target projects
+
+### Development Dependencies
+- `pytest>=6.0`: Testing framework
+- `pytest-cov`: Coverage reporting
+- `black`: Code formatting
+- `mypy`: Type checking
+- `flake8`: Linting
+
+## Key Implementation Details
+
+### Project Detection (Python)
+Uses `GitPython` for robust git operations:
+```python
+# Extract org-repo format from git URL
+def _extract_project_name_from_url(self, git_url: str) -> str:
+    # Handles SSH and HTTPS formats
+    # Converts to org-repo format
+```
+
+### Container Management (Python)
+Uses `docker` Python package for native API access:
+```python
+# Direct Docker API calls instead of CLI
+def ensure_container_running(self, dev_name: str, workspace_dir: Path) -> bool:
+    # Check container status
+    # Handle image rebuilds
+    # Manage container lifecycle
+```
+
+### Workspace Creation (Python)
+Uses native Python file operations:
+```python
+# Git-aware file copying
+def create_workspace(self, dev_name: str) -> Path:
+    # Copy git-tracked files or all files
+    # Handle special directories
+    # Exclude build/cache directories
+```
+
+## Error Handling
+
+### Custom Exception Hierarchy
+- `DevsError`: Base exception
+- `ProjectNotFoundError`: Project detection issues
+- `DevcontainerConfigError`: Missing devcontainer.json
+- `ContainerError`: Container operation failures
+- `WorkspaceError`: Workspace operation failures
+- `VSCodeError`: VS Code integration failures
+- `DependencyError`: Missing dependencies
+
+### Dependency Checking
+The CLI automatically checks for required dependencies and provides installation instructions for missing tools.
 
 ## Future Enhancements
 
-- **Multi-project support**: Currently optimized for single project at a time
-- **Container persistence**: Add options for persistent vs ephemeral containers  
-- **Resource limits**: Add CPU/memory constraints per container
-- **Template support**: Custom devcontainer configurations per dev name
-- **Backup/restore**: Save and restore container states
+### Planned Packages
+- **Webhook Package** (`packages/webhook/`): GitHub App webhook handler for automated devcontainer operations
+- **Common Package** (`packages/common/`): Shared utilities between CLI and webhook
 
-## File Structure
+### Potential Features
+- **Plugin System**: Extensible plugin architecture
+- **Configuration Files**: YAML/TOML configuration files
+- **Container Templates**: Custom devcontainer templates per project
+- **Resource Management**: CPU/memory limits and monitoring
+- **Multi-Project Support**: Managing containers across multiple projects
+- **Web Interface**: Optional web UI for container management
 
-```
-devs/
-├── devs                    # Main script
-├── README.md              # User documentation  
-├── CLAUDE.md              # This file - Claude Code guidance
-└── LICENSE                # MIT license
-```
+## Migration Notes
 
-## Important Implementation Decisions
+### From Shell Script to Python
+The original zsh script (`./devs`) is preserved for backward compatibility but will be removed in a future version. The Python CLI tool (`packages/cli/`) provides:
 
-1. **Symlink approach**: Chosen over volume mounts for VS Code compatibility
-2. **Git-based naming**: Ensures consistent project identification across machines
-3. **Post-create hooks**: Used for Claude configuration sharing
-4. **Shell integration**: zsh as default shell with proper environment setup
-5. **Permission handling**: Careful sudo configuration for security scripts
+- **Better Error Handling**: Comprehensive exception handling with helpful messages
+- **Enhanced Dependencies**: Native Python APIs instead of shell command wrapping
+- **Object-Oriented Design**: Maintainable and extensible architecture
+- **Testing**: Comprehensive test suite with pytest
+- **Type Safety**: Full type hints with mypy checking
 
-This architecture balances VS Code's requirements for unique workspace identification with the need to share authentication and project context between multiple development environments.
+See `packages/cli/MIGRATION.md` for detailed migration information.
+
+## Troubleshooting
+
+### Python Package Issues
+- **Import Errors**: Ensure package installed with `pip install -e packages/cli/`
+- **Dependency Issues**: Run `devs status` to check dependency availability
+- **Permission Issues**: Ensure Docker daemon is running and accessible
+
+### Container Issues
+- **Container not found**: Check `devs list` and verify project detection
+- **VS Code connection issues**: Verify devcontainer configuration exists
+- **Workspace issues**: Check `~/.devs/workspaces/` for workspace copies
+
+### Development Issues
+- **Test failures**: Run `./scripts/test-all.sh` to see detailed output
+- **Linting failures**: Run `./scripts/lint-all.sh` to identify and fix issues
+- **Type checking**: Use `mypy devs` in the CLI package directory
+
+This architecture provides a solid foundation for both the current CLI tool and future webhook handler while maintaining backward compatibility and providing a much more maintainable codebase.

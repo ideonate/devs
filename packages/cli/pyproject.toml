@@ -53,6 +53,7 @@ devs = "devs.cli:main"
 Homepage = "https://github.com/ideonate/devs"
 Repository = "https://github.com/ideonate/devs"
 Issues = "https://github.com/ideonate/devs/issues"
+Documentation = "https://github.com/ideonate/devs/tree/main/packages/cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
