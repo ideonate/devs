@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  webhook:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Required settings - set these in .env file or override
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_MENTIONED_USER=${GITHUB_MENTIONED_USER}
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      
+      # Optional settings with defaults
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-3-5-sonnet-20241022}
+      - CONTAINER_POOL=${CONTAINER_POOL:-eamonn,harry,darren}
+      - CONTAINER_TIMEOUT_MINUTES=${CONTAINER_TIMEOUT_MINUTES:-30}
+      - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-3}
+      - WEBHOOK_HOST=0.0.0.0
+      - WEBHOOK_PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    
+    volumes:
+      # Mount Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock
+      
+      # Persistent storage for repositories and workspaces
+      - webhook_repos:/app/.devs-webhook/repos
+      - webhook_workspaces:/app/.devs-webhook/workspaces
+      
+      # Mount devs CLI from host (if developing locally)
+      # - ../cli:/app/packages/cli
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    depends_on:
+      - redis  # Optional: for task queuing in future
+
+  # Optional: Redis for task queuing and state management
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # Optional: Monitoring with Prometheus metrics
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml
+  #   restart: unless-stopped
+
+volumes:
+  webhook_repos:
+    driver: local
+  webhook_workspaces:
+    driver: local
+  redis_data:
+    driver: local

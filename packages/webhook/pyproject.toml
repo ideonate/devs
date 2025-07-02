@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "devs-webhook"
+version = "0.1.0"
+description = "GitHub webhook handler for automated devcontainer operations with Claude Code"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Dan Lester"},
+]
+keywords = ["webhook", "github", "devcontainer", "claude", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
+]
+
+dependencies = [
+    "fastapi>=0.68.0",
+    "uvicorn[standard]>=0.15.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.24.0",
+    "claude-code-sdk>=0.1.0",
+    "GitPython>=3.1.0",
+    "cryptography>=3.4.0",
+    "structlog>=21.1.0",
+    "tenacity>=8.0.0",
+    "devs>=0.1.0",  # Our CLI package
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "pytest-asyncio",
+    "black",
+    "mypy",
+    "flake8",
+    "httpx",
+]
+
+[project.scripts]
+devs-webhook = "devs_webhook.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ideonate/devs"
+Repository = "https://github.com/ideonate/devs"
+Issues = "https://github.com/ideonate/devs/issues"
+Documentation = "https://github.com/ideonate/devs/tree/main/packages/webhook"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["devs_webhook*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
