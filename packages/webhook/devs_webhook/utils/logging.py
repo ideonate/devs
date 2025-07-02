@@ -1,6 +1,7 @@
 """Logging configuration."""
 
 import sys
+import logging
 import structlog
 from typing import Any, Dict
 
@@ -21,7 +22,7 @@ def setup_logging() -> None:
             else structlog.processors.JSONRenderer()
         ],
         wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(structlog.stdlib, config.log_level.upper(), structlog.INFO)
+            getattr(logging, config.log_level.upper(), logging.INFO)
         ),
         logger_factory=structlog.WriteLoggerFactory(sys.stdout),
         cache_logger_on_first_use=True,

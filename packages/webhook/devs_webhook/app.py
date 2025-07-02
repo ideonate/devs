@@ -22,8 +22,16 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Initialize webhook handler
-webhook_handler = WebhookHandler()
+# Initialize webhook handler lazily
+webhook_handler = None
+
+
+def get_webhook_handler():
+    """Get or create the webhook handler."""
+    global webhook_handler
+    if webhook_handler is None:
+        webhook_handler = WebhookHandler()
+    return webhook_handler
 
 
 def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
@@ -102,7 +110,7 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     
     # Process webhook in background
     background_tasks.add_task(
-        webhook_handler.process_webhook,
+        get_webhook_handler().process_webhook,
         headers,
         payload,
         delivery_id
@@ -117,13 +125,13 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 @app.get("/status")
 async def status():
     """Get current webhook handler status."""
-    return await webhook_handler.get_status()
+    return await get_webhook_handler().get_status()
 
 
 @app.post("/container/{container_name}/stop")
 async def stop_container(container_name: str):
     """Manually stop a container."""
-    success = await webhook_handler.stop_container(container_name)
+    success = await get_webhook_handler().stop_container(container_name)
     if success:
         return {"status": "stopped", "container": container_name}
     else:
@@ -133,7 +141,7 @@ async def stop_container(container_name: str):
 @app.get("/containers")
 async def list_containers():
     """List all managed containers."""
-    return await webhook_handler.list_containers()
+    return await get_webhook_handler().list_containers()
 
 
 # Error handlers

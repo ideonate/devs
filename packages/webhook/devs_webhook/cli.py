@@ -3,8 +3,9 @@
 import asyncio
 import click
 import uvicorn
+from pathlib import Path
 
-from .config import get_config, WebhookConfig
+from .config import get_config
 from .app import app
 from .utils.logging import setup_logging
 
@@ -19,11 +20,41 @@ def cli():
 @click.option('--host', default=None, help='Host to bind to')
 @click.option('--port', default=None, type=int, help='Port to bind to')
 @click.option('--reload', is_flag=True, help='Enable auto-reload for development')
-def serve(host: str, port: int, reload: bool):
-    """Start the webhook server."""
+@click.option('--env-file', type=click.Path(exists=True, path_type=Path), help='Path to .env file to load')
+@click.option('--dev', is_flag=True, help='Development mode (auto-loads .env, enables reload, console logs)')
+def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
+    """Start the webhook server.
+    
+    Examples:
+        devs-webhook serve --dev                    # Development mode with .env loading
+        devs-webhook serve --env-file /path/.env    # Load specific .env file
+        devs-webhook serve --host 127.0.0.1        # Override host from config
+    """
     setup_logging()
     
-    config = get_config()
+    # Handle development mode
+    if dev:
+        reload = True
+        if env_file is None:
+            # Look for .env in current directory
+            env_file = Path.cwd() / ".env"
+            if not env_file.exists():
+                click.echo("⚠️  Development mode enabled but no .env file found")
+                env_file = None
+        
+        click.echo("🚀 Development mode enabled")
+        if env_file:
+            click.echo(f"📄 Loading environment variables from {env_file}")
+    
+    # Load config with optional .env file  
+    elif env_file:
+        click.echo(f"📄 Loading environment variables from {env_file}")
+    
+    config = get_config(dotenv_path=env_file)
+    
+    # Override log format for development mode
+    if dev:
+        config.log_format = "console"
     
     # Override config with CLI options
     actual_host = host or config.host
