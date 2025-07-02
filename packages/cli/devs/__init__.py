@@ -7,9 +7,7 @@ __version__ = "0.1.0"
 __author__ = "Dan Lester"
 __email__ = "dan@ideonate.com"
 
-from .core.project import Project
-from .core.container import ContainerManager
-from .core.workspace import WorkspaceManager
+from devs_common.core import Project, ContainerManager, WorkspaceManager
 from .core.integration import VSCodeIntegration
 
 __all__ = [
