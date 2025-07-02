@@ -30,6 +30,12 @@ class WebhookConfig(BaseSettings):
     # Runtime settings (not from env)
     dev_mode: bool = Field(default=False, description="Development mode enabled")
     
+    # Workspace settings (shared with CLI for interoperability)
+    workspaces_dir: Path = Field(
+        default_factory=lambda: Path.home() / ".devs" / "workspaces",
+        description="Directory for container workspaces (shared with CLI)"
+    )
+    
     # Container pool settings
     container_pool: List[str] = Field(
         default_factory=lambda: ["eamonn", "harry", "darren"],
@@ -40,12 +46,8 @@ class WebhookConfig(BaseSettings):
     
     # Repository settings
     repo_cache_dir: Path = Field(
-        default_factory=lambda: Path.home() / ".devs-webhook" / "repos",
-        description="Directory to cache repositories"
-    )
-    workspace_dir: Path = Field(
-        default_factory=lambda: Path.home() / ".devs-webhook" / "workspaces", 
-        description="Directory for container workspaces"
+        default_factory=lambda: Path.home() / ".devs" / "repocache",
+        description="Directory to cache cloned repositories (shared with CLI)"
     )
     
     # Server settings
@@ -79,7 +81,8 @@ class WebhookConfig(BaseSettings):
     def ensure_directories(self) -> None:
         """Ensure required directories exist."""
         self.repo_cache_dir.mkdir(parents=True, exist_ok=True)
-        self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        # workspaces_dir is now managed by the base config
+        self.workspaces_dir.mkdir(parents=True, exist_ok=True)
     
     def validate_required_settings(self) -> None:
         """Validate that required settings are present."""

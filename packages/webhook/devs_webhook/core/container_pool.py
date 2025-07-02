@@ -280,7 +280,7 @@ class ContainerPool:
         """
         try:
             # Setup container for the repository if needed
-            repo_path = Path(self.config.workspace_dir) / "repos" / queued_task.repo_name.replace("/", "-")
+            repo_path = self.config.repo_cache_dir / queued_task.repo_name.replace("/", "-")
             
             # Ensure repository is cloned
             await self._ensure_repository_cloned(queued_task.repo_name, repo_path)
@@ -436,12 +436,13 @@ class ContainerPool:
             # Create a temporary project for this repo
             project = Project(repo_path)
             
-            # Set up workspace manager with webhook workspace dir
+            # Set up shared configuration for CLI interoperability
             webhook_config = WebhookConfig()
-            webhook_config.workspaces_dir = self.config.workspace_dir
             workspace_manager = WorkspaceManager(project, webhook_config)
             
             # Create workspace for this container
+            # Note: container_name is the pool name (eamonn/harry/darren) which becomes the dev_name
+            # ContainerManager will generate proper Docker container name: dev-org-repo-poolname
             workspace_dir = workspace_manager.create_workspace(
                 container_name, force=True  # Always recreate for fresh start
             )
@@ -449,7 +450,7 @@ class ContainerPool:
             # Set up container manager
             container_manager = ContainerManager(project, webhook_config)
             
-            # Ensure container is running
+            # Ensure container is running using proper container name
             success = container_manager.ensure_container_running(
                 container_name, workspace_dir, force_rebuild=False
             )
@@ -487,7 +488,6 @@ class ContainerPool:
             project = Project(repo_path)
             
             webhook_config = WebhookConfig()
-            webhook_config.workspaces_dir = self.config.workspace_dir
             workspace_manager = WorkspaceManager(project, webhook_config)
             
             container_manager = ContainerManager(project, webhook_config)
