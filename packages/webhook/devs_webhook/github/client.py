@@ -40,8 +40,8 @@ class GitHubClient:
                 logger.info("GitHub CLI authenticated successfully")
                 
         except FileNotFoundError:
-            logger.error("GitHub CLI (gh) not found. Install with: brew install gh")
-            raise
+            logger.warning("GitHub CLI (gh) not found - GitHub operations will be limited")
+            # Don't raise, just log the warning
     
     async def comment_on_issue(
         self, 

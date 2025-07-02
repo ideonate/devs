@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import structlog
 import uuid
+from datetime import datetime
 
 from .config import get_config, WebhookConfig
 from .core.webhook_handler import WebhookHandler
@@ -189,14 +190,14 @@ async def test_event(
     )
     
     # Create a minimal mock webhook event
-    from .github.models import Repository, User, Issue, IssueEvent
+    from .github.models import GitHubRepository, GitHubUser, GitHubIssue, IssueEvent
     
     # Mock repository
-    mock_repo = Repository(
+    mock_repo = GitHubRepository(
         id=999999,
         name=request.repo.split("/")[-1],
         full_name=request.repo,
-        owner=User(
+        owner=GitHubUser(
             login=request.repo.split("/")[0],
             id=999999,
             avatar_url="https://github.com/test.png",
@@ -209,21 +210,21 @@ async def test_event(
     )
     
     # Mock issue with the prompt
-    mock_issue = Issue(
+    mock_issue = GitHubIssue(
         id=999999,
         number=999,
         title="Test Issue",
         body=f"Test prompt: {request.prompt}",
         state="open",
-        user=User(
+        user=GitHubUser(
             login="test-user",
             id=999999,
             avatar_url="https://github.com/test.png",
             html_url="https://github.com/test-user"
         ),
         html_url=f"https://github.com/{request.repo}/issues/999",
-        created_at="2023-01-01T00:00:00Z",
-        updated_at="2023-01-01T00:00:00Z"
+        created_at=datetime.now(),
+        updated_at=datetime.now()
     )
     
     # Mock issue event
