@@ -70,11 +70,13 @@ class WebhookConfig(BaseSettings):
         return self
     
     # Configuration for Pydantic Settings
+    # Note: .env files are optional - environment variables are the primary source
     if SettingsConfigDict:
         model_config = SettingsConfigDict(
             env_file=".env",
             env_file_encoding="utf-8",
-            case_sensitive=False
+            case_sensitive=False,
+            env_ignore_empty=True  # Ignore empty .env values, prefer environment
         )
     
     

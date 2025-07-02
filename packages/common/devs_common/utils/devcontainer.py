@@ -3,7 +3,7 @@
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 
 from ..exceptions import DevsError, DependencyError
 
@@ -50,7 +50,8 @@ class DevContainerCLI:
         project_name: str,
         git_remote_url: str = "",
         rebuild: bool = False,
-        remove_existing: bool = True
+        remove_existing: bool = True,
+        debug: bool = False
     ) -> bool:
         """Start a devcontainer.
         
@@ -61,6 +62,7 @@ class DevContainerCLI:
             git_remote_url: Git remote URL
             rebuild: Whether to rebuild the image
             remove_existing: Whether to remove existing container
+            debug: Whether to show debug output
             
         Returns:
             True if successful
@@ -98,17 +100,35 @@ class DevContainerCLI:
                 'WORKSPACE_FOLDER_NAME': f"{workspace_folder.name}",
             })
             
+            # Pass through GH_TOKEN if available (for runtime access inside container)
+            if 'GH_TOKEN' in os.environ:
+                env['GH_TOKEN'] = os.environ['GH_TOKEN']
+            
+            if debug:
+                from rich.console import Console
+                console = Console()
+                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+                console.print(f"[dim]Environment variables: DEVCONTAINER_NAME={env.get('DEVCONTAINER_NAME')}, GIT_REMOTE_URL={env.get('GIT_REMOTE_URL')}, GH_TOKEN={'***' if env.get('GH_TOKEN') else 'not set'}[/dim]")
+            
             result = subprocess.run(
                 cmd,
                 cwd=workspace_folder,
                 env=env,
-                capture_output=True,
+                capture_output=not debug,  # Show output in debug mode
                 text=True,
                 check=False
             )
             
+            if debug and result.returncode == 0:
+                from rich.console import Console
+                console = Console()
+                console.print("[dim]DevContainer up completed successfully[/dim]")
+            
             if result.returncode != 0:
-                raise DevsError(f"DevContainer up failed: {result.stderr}")
+                error_msg = f"DevContainer up failed (exit code {result.returncode})"
+                if result.stderr:
+                    error_msg += f": {result.stderr}"
+                raise DevsError(error_msg)
             
             return True
             

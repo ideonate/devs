@@ -70,7 +70,8 @@ def cli(ctx, debug: bool) -> None:
 @cli.command()
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--rebuild', is_flag=True, help='Force rebuild of container images')
-def start(dev_names: tuple, rebuild: bool) -> None:
+@click.pass_context
+def start(ctx, dev_names: tuple, rebuild: bool) -> None:
     """Start named devcontainers.
     
     DEV_NAMES: One or more development environment names to start
@@ -79,6 +80,7 @@ def start(dev_names: tuple, rebuild: bool) -> None:
     """
     check_dependencies()
     project = get_project()
+    debug = ctx.obj.get('DEBUG', False)
     
     console.print(f"🚀 Starting devcontainers for project: {project.info.name}")
     
@@ -96,7 +98,8 @@ def start(dev_names: tuple, rebuild: bool) -> None:
             if container_manager.ensure_container_running(
                 dev_name, 
                 workspace_dir, 
-                force_rebuild=rebuild
+                force_rebuild=rebuild,
+                debug=debug
             ):
                 continue
             else:
@@ -117,7 +120,8 @@ def start(dev_names: tuple, rebuild: bool) -> None:
 @cli.command()
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--delay', default=2.0, help='Delay between opening VS Code windows (seconds)')
-def vscode(dev_names: tuple, delay: float) -> None:
+@click.pass_context
+def vscode(ctx, dev_names: tuple, delay: float) -> None:
     """Open devcontainers in VS Code.
     
     DEV_NAMES: One or more development environment names to open
@@ -126,6 +130,7 @@ def vscode(dev_names: tuple, delay: float) -> None:
     """
     check_dependencies()
     project = get_project()
+    debug = ctx.obj.get('DEBUG', False)
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -142,7 +147,7 @@ def vscode(dev_names: tuple, delay: float) -> None:
             workspace_dir = workspace_manager.create_workspace(dev_name)
             
             # Ensure container is running
-            if container_manager.ensure_container_running(dev_name, workspace_dir):
+            if container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug):
                 workspace_dirs.append(workspace_dir)
                 valid_dev_names.append(dev_name)
             else:
@@ -190,7 +195,8 @@ def stop(dev_names: tuple) -> None:
 
 @cli.command()
 @click.argument('dev_name')
-def shell(dev_name: str) -> None:
+@click.pass_context
+def shell(ctx, dev_name: str) -> None:
     """Open shell in devcontainer.
     
     DEV_NAME: Development environment name
@@ -199,6 +205,7 @@ def shell(dev_name: str) -> None:
     """
     check_dependencies()
     project = get_project()
+    debug = ctx.obj.get('DEBUG', False)
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -208,7 +215,7 @@ def shell(dev_name: str) -> None:
         workspace_dir = workspace_manager.create_workspace(dev_name)
         
         # Open shell
-        container_manager.exec_shell(dev_name, workspace_dir)
+        container_manager.exec_shell(dev_name, workspace_dir, debug=debug)
         
     except (ContainerError, WorkspaceError) as e:
         console.print(f"❌ Error opening shell for {dev_name}: {e}")

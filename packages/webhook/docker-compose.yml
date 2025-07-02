@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Required settings - set these in .env file or override
+      # Required settings - set these in your environment (e.g., export GITHUB_TOKEN=...)
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GITHUB_MENTIONED_USER=${GITHUB_MENTIONED_USER}

@@ -167,17 +167,60 @@ flake8 devs tests      # Linting
 ## Configuration
 
 ### Environment Variables
+
+#### Core Configuration
 - `DEVS_WORKSPACES_DIR`: Custom workspace directory (default: `~/.devs/workspaces`)
 - `DEVS_PROJECT_PREFIX`: Container name prefix (default: `dev`)
 - `DEVS_CLAUDE_CONFIG_DIR`: Claude config directory (default: `~/.devs/claudeconfig`)
 
+#### GitHub Integration
+- `GH_TOKEN`: GitHub personal access token (for private repositories and GitHub CLI authentication)
+  ```bash
+  export GH_TOKEN=your_github_token_here
+  devs start mydev  # Token automatically passed to container
+  ```
+
+#### Webhook Configuration
+- `GITHUB_WEBHOOK_SECRET`: GitHub webhook secret
+- `GITHUB_TOKEN`: GitHub personal access token (same as GH_TOKEN)
+- `GITHUB_MENTIONED_USER`: GitHub username to watch for @mentions
+- `CLAUDE_API_KEY`: Claude API key for webhook responses
+
 ### DevContainer Support
-The devcontainer.json should support `DEVCONTAINER_NAME` for custom naming:
+The devcontainer.json should support `DEVCONTAINER_NAME` for custom naming and `GH_TOKEN` for runtime GitHub access:
 ```json
 {
-  "name": "${localEnv:DEVCONTAINER_NAME:Default} - Project Name"
+  "name": "${localEnv:DEVCONTAINER_NAME:Default} - Project Name",
+  "remoteEnv": {
+    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+  }
 }
 ```
+
+### Migrating from .env Files
+Previous versions required creating `.devcontainer/.env` files with `GH_TOKEN=...`. This is no longer needed:
+
+**Old approach (deprecated):**
+```bash
+# Create .devcontainer/.env file
+echo "GH_TOKEN=your_token" > .devcontainer/.env
+devs start mydev
+```
+
+**New approach (recommended):**
+```bash
+# Set environment variable (persists across sessions if added to ~/.bashrc or ~/.zshrc)
+export GH_TOKEN=your_github_token_here
+devs start mydev  # Token automatically available in container at runtime
+```
+
+**How it works:**
+- The `GH_TOKEN` is passed as a **runtime environment variable** (not build-time)
+- Available inside the running container for tools like `gh` CLI
+- More secure than storing tokens in Docker image layers
+- No rebuilds needed when tokens change
+
+Note: `.devcontainer/.env` files are still copied if they exist (for other custom environment variables), but `GH_TOKEN` is now passed directly from your environment.
 
 ## Dependencies
 

@@ -199,8 +199,9 @@ class WorkspaceManager:
                         console.print(f"   ⚠️  Warning: Could not copy {dir_name}: {e}")
         
         # Copy specific devcontainer files if they exist
+        # Note: .env files are optional since GH_TOKEN is now passed via environment
         devcontainer_extras = [
-            '.devcontainer/.env',
+            '.devcontainer/.env',  # Optional: only needed if project has custom env vars
             '.devcontainer/.ssh',
         ]
         

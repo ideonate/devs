@@ -107,6 +107,10 @@ class VSCodeIntegration:
             env = os.environ.copy()
             env['DEVCONTAINER_NAME'] = dev_name
             
+            # Pass through GH_TOKEN if available (for GitHub authentication)
+            if 'GH_TOKEN' in os.environ:
+                env['GH_TOKEN'] = os.environ['GH_TOKEN']
+            
             # Launch VS Code in background
             process = subprocess.Popen(
                 cmd,

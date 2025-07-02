@@ -119,7 +119,8 @@ class ContainerManager:
         self, 
         dev_name: str,
         workspace_dir: Path,
-        force_rebuild: bool = False
+        force_rebuild: bool = False,
+        debug: bool = False
     ) -> bool:
         """Ensure a container is running for the specified dev environment.
         
@@ -127,6 +128,7 @@ class ContainerManager:
             dev_name: Development environment name
             workspace_dir: Workspace directory path
             force_rebuild: Force rebuild even if not needed
+            debug: Show debug output for devcontainer operations
             
         Returns:
             True if container is running successfully
@@ -156,17 +158,29 @@ class ContainerManager:
                 # Stop existing container if running
                 existing_containers = self.docker.find_containers_by_labels(project_labels)
                 for container_info in existing_containers:
+                    if debug:
+                        console.print(f"[dim]Stopping container: {container_info['name']}[/dim]")
                     self.docker.stop_container(container_info['name'])
+                    if debug:
+                        console.print(f"[dim]Removing container: {container_info['name']}[/dim]")
                     self.docker.remove_container(container_info['name'])
             
             # Check if container is already running
+            if debug:
+                console.print(f"[dim]Checking for existing containers with labels: {project_labels}[/dim]")
             existing_containers = self.docker.find_containers_by_labels(project_labels)
             if existing_containers and not (rebuild_needed or force_rebuild):
                 container_info = existing_containers[0]
+                if debug:
+                    console.print(f"[dim]Found existing container: {container_info['name']} (status: {container_info['status']})[/dim]")
                 if container_info['status'] == 'running':
+                    if debug:
+                        console.print(f"[dim]Container already running, skipping startup[/dim]")
                     return True
                 else:
                     # Container exists but not running, remove it
+                    if debug:
+                        console.print(f"[dim]Container exists but not running, removing: {container_info['name']}[/dim]")
                     self.docker.remove_container(container_info['name'], force=True)
             
             console.print(f"   🚀 Starting container for {dev_name}...")
@@ -178,13 +192,16 @@ class ContainerManager:
                 project_name=self.project.info.name,
                 git_remote_url=self.project.info.git_remote_url,
                 rebuild=rebuild_needed or force_rebuild,
-                remove_existing=True
+                remove_existing=True,
+                debug=debug
             )
             
             if not success:
                 raise ContainerError(f"Failed to start devcontainer for {dev_name}")
             
             # Get the created container and verify it's healthy
+            if debug:
+                console.print(f"[dim]Looking for created containers with labels: {project_labels}[/dim]")
             created_containers = self.docker.find_containers_by_labels(project_labels)
             if not created_containers:
                 raise ContainerError(f"No container found after devcontainer up for {dev_name}")
@@ -192,14 +209,21 @@ class ContainerManager:
             created_container = created_containers[0]
             container_name_actual = created_container['name']
             
+            if debug:
+                console.print(f"[dim]Found created container: {container_name_actual}[/dim]")
+            
             # Test container health
             console.print(f"   🔍 Checking container health for {dev_name}...")
+            if debug:
+                console.print(f"[dim]Running health check: docker exec {container_name_actual} echo 'Container ready'[/dim]")
             if not self.docker.exec_command(container_name_actual, "echo 'Container ready'"):
                 raise ContainerError(f"Container {dev_name} is not responding")
             
             # Rename container if needed
             if container_name_actual != container_name:
                 try:
+                    if debug:
+                        console.print(f"[dim]Renaming container from {container_name_actual} to {container_name}[/dim]")
                     self.docker.rename_container(container_name_actual, container_name)
                 except DockerError:
                     console.print(f"   ⚠️  Could not rename container to {container_name}")
@@ -233,7 +257,9 @@ class ContainerManager:
         
         try:
             if self.docker.container_exists(container_name):
+                console.print(f"   🛑 Stopping container: {container_name}")
                 self.docker.stop_container(container_name)
+                console.print(f"   🗑️  Removing container: {container_name}")
                 self.docker.remove_container(container_name)
                 console.print(f"   ✅ Stopped and removed: {dev_name}")
                 return True
@@ -279,12 +305,13 @@ class ContainerManager:
         except DockerError as e:
             raise ContainerError(f"Failed to list containers: {e}")
     
-    def exec_shell(self, dev_name: str, workspace_dir: Path) -> None:
+    def exec_shell(self, dev_name: str, workspace_dir: Path, debug: bool = False) -> None:
         """Execute a shell in the container.
         
         Args:
             dev_name: Development environment name
             workspace_dir: Workspace directory path
+            debug: Show debug output for devcontainer operations
             
         Raises:
             ContainerError: If shell execution fails
@@ -296,19 +323,21 @@ class ContainerManager:
         
         try:
             # Ensure container is running
-            if not self.ensure_container_running(dev_name, workspace_dir):
+            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug):
                 raise ContainerError(f"Failed to start container for {dev_name}")
             
             console.print(f"🐚 Opening shell in: {dev_name} (container: {container_name})")
             console.print(f"   Workspace: {container_workspace_dir}")
             
             # Use docker exec to get an interactive shell
-            
             cmd = [
                 'docker', 'exec', '-it', 
                 '-w', container_workspace_dir,
                 container_name, '/bin/zsh'
             ]
+            
+            if debug:
+                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
             
             subprocess.run(cmd, check=True)
             
