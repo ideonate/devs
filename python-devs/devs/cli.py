@@ -1,0 +1,357 @@
+"""Command-line interface for devs package."""
+
+import sys
+from pathlib import Path
+from typing import List
+
+import click
+from rich.console import Console
+from rich.table import Table
+
+from .config import config
+from .core.project import Project
+from .core.container import ContainerManager
+from .core.workspace import WorkspaceManager
+from .core.integration import VSCodeIntegration, ExternalToolIntegration
+from .exceptions import (
+    DevsError,
+    ProjectNotFoundError,
+    DevcontainerConfigError,
+    ContainerError,
+    WorkspaceError,
+    VSCodeError,
+    DependencyError
+)
+
+console = Console()
+
+
+def check_dependencies() -> None:
+    """Check and report on dependencies."""
+    integration = ExternalToolIntegration(Project())
+    missing = integration.get_missing_dependencies()
+    
+    if missing:
+        console.print(f"❌ Missing dependencies: {', '.join(missing)}")
+        console.print("\nInstall missing tools:")
+        for tool in missing:
+            if tool == 'devcontainer':
+                console.print("   npm install -g @devcontainers/cli")
+            elif tool == 'docker':
+                console.print("   Install Docker Desktop or Docker Engine")
+            elif tool == 'code':
+                console.print("   Install VS Code and ensure 'code' command is in PATH")
+        sys.exit(1)
+
+
+def get_project() -> Project:
+    """Get project instance with error handling."""
+    try:
+        project = Project()
+        project.check_devcontainer_config()
+        return project
+    except ProjectNotFoundError as e:
+        console.print(f"❌ {e}")
+        sys.exit(1)
+    except DevcontainerConfigError as e:
+        console.print(f"❌ {e}")
+        sys.exit(1)
+
+
+@click.group()
+@click.version_option(version="0.1.0", prog_name="devs")
+def cli() -> None:
+    """DevContainer Management Tool
+    
+    Manage multiple named devcontainers for any project.
+    """
+    pass
+
+
+@cli.command()
+@click.argument('dev_names', nargs=-1, required=True)
+@click.option('--rebuild', is_flag=True, help='Force rebuild of container images')
+def start(dev_names: tuple, rebuild: bool) -> None:
+    """Start named devcontainers.
+    
+    DEV_NAMES: One or more development environment names to start
+    
+    Example: devs start sally bob
+    """
+    check_dependencies()
+    project = get_project()
+    
+    console.print(f"🚀 Starting devcontainers for project: {project.info.name}")
+    
+    container_manager = ContainerManager(project)
+    workspace_manager = WorkspaceManager(project)
+    
+    for dev_name in dev_names:
+        console.print(f"   Starting: {dev_name}")
+        
+        try:
+            # Create/ensure workspace exists
+            workspace_dir = workspace_manager.create_workspace(dev_name)
+            
+            # Ensure container is running
+            if container_manager.ensure_container_running(
+                dev_name, 
+                workspace_dir, 
+                force_rebuild=rebuild
+            ):
+                continue
+            else:
+                console.print(f"   ⚠️  Failed to start {dev_name}, continuing with others...")
+                
+        except (ContainerError, WorkspaceError) as e:
+            console.print(f"   ❌ Error starting {dev_name}: {e}")
+            continue
+    
+    console.print("")
+    console.print("💡 To open containers in VS Code:")
+    console.print(f"   devs open {' '.join(dev_names)}")
+
+
+@cli.command()
+@click.argument('dev_names', nargs=-1, required=True)
+@click.option('--delay', default=2.0, help='Delay between opening VS Code windows (seconds)')
+def open(dev_names: tuple, delay: float) -> None:
+    """Open devcontainers in VS Code.
+    
+    DEV_NAMES: One or more development environment names to open
+    
+    Example: devs open sally bob
+    """
+    check_dependencies()
+    project = get_project()
+    
+    container_manager = ContainerManager(project)
+    workspace_manager = WorkspaceManager(project)
+    vscode = VSCodeIntegration(project)
+    
+    workspace_dirs = []
+    valid_dev_names = []
+    
+    for dev_name in dev_names:
+        console.print(f"   Preparing: {dev_name}")
+        
+        try:
+            # Ensure workspace exists
+            workspace_dir = workspace_manager.create_workspace(dev_name)
+            
+            # Ensure container is running
+            if container_manager.ensure_container_running(dev_name, workspace_dir):
+                workspace_dirs.append(workspace_dir)
+                valid_dev_names.append(dev_name)
+            else:
+                console.print(f"   ❌ Failed to start container for {dev_name}, skipping...")
+                
+        except (ContainerError, WorkspaceError) as e:
+            console.print(f"   ❌ Error preparing {dev_name}: {e}")
+            continue
+    
+    if workspace_dirs:
+        try:
+            success_count = vscode.open_multiple_devcontainers(
+                workspace_dirs, 
+                valid_dev_names,
+                delay_between_windows=delay
+            )
+            
+            if success_count == 0:
+                console.print("❌ Failed to open any VS Code windows")
+                
+        except VSCodeError as e:
+            console.print(f"❌ VS Code integration error: {e}")
+
+
+@cli.command()
+@click.argument('dev_names', nargs=-1, required=True) 
+def stop(dev_names: tuple) -> None:
+    """Stop and remove devcontainers.
+    
+    DEV_NAMES: One or more development environment names to stop
+    
+    Example: devs stop sally
+    """
+    check_dependencies()
+    project = get_project()
+    
+    console.print(f"🛑 Stopping devcontainers for project: {project.info.name}")
+    
+    container_manager = ContainerManager(project)
+    
+    for dev_name in dev_names:
+        console.print(f"   Stopping: {dev_name}")
+        container_manager.stop_container(dev_name)
+
+
+@cli.command()
+@click.argument('dev_name')
+def shell(dev_name: str) -> None:
+    """Open shell in devcontainer.
+    
+    DEV_NAME: Development environment name
+    
+    Example: devs shell sally
+    """
+    check_dependencies()
+    project = get_project()
+    
+    container_manager = ContainerManager(project)
+    workspace_manager = WorkspaceManager(project)
+    
+    try:
+        # Ensure workspace exists
+        workspace_dir = workspace_manager.create_workspace(dev_name)
+        
+        # Open shell
+        container_manager.exec_shell(dev_name, workspace_dir)
+        
+    except (ContainerError, WorkspaceError) as e:
+        console.print(f"❌ Error opening shell for {dev_name}: {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--all-projects', is_flag=True, help='List containers for all projects')
+def list(all_projects: bool) -> None:
+    """List active devcontainers for current project."""
+    check_dependencies() 
+    
+    if all_projects:
+        console.print("📋 All devcontainers:")
+        # This would require a more complex implementation
+        console.print("   --all-projects not implemented yet")
+        return
+    
+    project = get_project()
+    container_manager = ContainerManager(project)
+    
+    console.print(f"📋 Active devcontainers for project: {project.info.name}")
+    console.print("")
+    
+    try:
+        containers = container_manager.list_containers()
+        
+        if not containers:
+            console.print("   No active devcontainers found")
+            console.print("")
+            console.print("💡 Start some with: devs start <dev-name>")
+            return
+        
+        # Create a table
+        table = Table()
+        table.add_column("Name", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Container", style="dim")
+        table.add_column("Created", style="dim")
+        
+        for container in containers:
+            created_str = container.created.strftime("%Y-%m-%d %H:%M") if container.created else "unknown"
+            table.add_row(
+                container.dev_name,
+                container.status,
+                container.name,
+                created_str
+            )
+        
+        console.print(table)
+        console.print("")
+        console.print("💡 Open with: devs open <dev-name>")
+        console.print("💡 Stop with: devs stop <dev-name>")
+        
+    except ContainerError as e:
+        console.print(f"❌ Error listing containers: {e}")
+
+
+@cli.command()
+def status() -> None:
+    """Show project and dependency status."""
+    try:
+        project = Project()
+        
+        console.print(f"📁 Project: {project.info.name}")
+        console.print(f"   Directory: {project.info.directory}")
+        console.print(f"   Git repo: {'Yes' if project.info.is_git_repo else 'No'}")
+        if project.info.git_remote_url:
+            console.print(f"   Remote URL: {project.info.git_remote_url}")
+        
+        # Check devcontainer config
+        try:
+            project.check_devcontainer_config()
+            console.print("   DevContainer config: ✅ Found")
+        except DevcontainerConfigError:
+            console.print("   DevContainer config: ❌ Missing")
+        
+        # Show dependency status
+        integration = ExternalToolIntegration(project)
+        integration.print_dependency_status()
+        
+        # Show workspace info
+        workspace_manager = WorkspaceManager(project)
+        workspaces = workspace_manager.list_workspaces()
+        if workspaces:
+            console.print(f"\n📂 Workspaces ({len(workspaces)}):")
+            for workspace in workspaces:
+                console.print(f"   - {workspace}")
+        
+    except ProjectNotFoundError as e:
+        console.print(f"❌ {e}")
+
+
+@cli.command()
+@click.argument('dev_names', nargs=-1)
+@click.option('--unused', is_flag=True, help='Clean up unused workspaces')
+def clean(dev_names: tuple, unused: bool) -> None:
+    """Clean up workspaces and containers.
+    
+    DEV_NAMES: Specific development environments to clean up
+    """
+    check_dependencies()
+    project = get_project()
+    
+    workspace_manager = WorkspaceManager(project)
+    
+    if unused:
+        # Get active containers to determine which workspaces are still needed
+        container_manager = ContainerManager(project)
+        try:
+            containers = container_manager.list_containers()
+            active_dev_names = {c.dev_name for c in containers if c.status == 'running'}
+            
+            cleaned_count = workspace_manager.cleanup_unused_workspaces(active_dev_names)
+            console.print(f"🗑️  Cleaned up {cleaned_count} unused workspaces")
+            
+        except ContainerError as e:
+            console.print(f"❌ Error during cleanup: {e}")
+    
+    elif dev_names:
+        # Clean specific dev environments
+        for dev_name in dev_names:
+            console.print(f"🗑️  Cleaning up {dev_name}...")
+            workspace_manager.remove_workspace(dev_name)
+    
+    else:
+        console.print("❌ Specify --unused or provide dev environment names to clean")
+
+
+def main() -> None:
+    """Main entry point."""
+    try:
+        cli()
+    except KeyboardInterrupt:
+        console.print("\n👋 Interrupted by user")
+        sys.exit(130)
+    except DevsError as e:
+        console.print(f"❌ {e}")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"❌ Unexpected error: {e}")
+        if '--debug' in sys.argv:
+            raise
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
