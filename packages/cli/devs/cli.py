@@ -56,12 +56,15 @@ def get_project() -> Project:
 
 @click.group()
 @click.version_option(version="0.1.0", prog_name="devs")
-def cli() -> None:
+@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
+@click.pass_context
+def cli(ctx, debug: bool) -> None:
     """DevContainer Management Tool
     
     Manage multiple named devcontainers for any project.
     """
-    pass
+    ctx.ensure_object(dict)
+    ctx.obj['DEBUG'] = debug
 
 
 @cli.command()
@@ -178,7 +181,7 @@ def stop(dev_names: tuple) -> None:
     
     console.print(f"🛑 Stopping devcontainers for project: {project.info.name}")
     
-    container_manager = ContainerManager(project)
+    container_manager = ContainerManager(project, config)
     
     for dev_name in dev_names:
         console.print(f"   Stopping: {dev_name}")
@@ -225,7 +228,7 @@ def list(all_projects: bool) -> None:
         return
     
     project = get_project()
-    container_manager = ContainerManager(project)
+    container_manager = ContainerManager(project, config)
     
     console.print(f"📋 Active devcontainers for project: {project.info.name}")
     console.print("")
@@ -289,7 +292,7 @@ def status() -> None:
         integration.print_dependency_status()
         
         # Show workspace info
-        workspace_manager = WorkspaceManager(project)
+        workspace_manager = WorkspaceManager(project, config)
         workspaces = workspace_manager.list_workspaces()
         if workspaces:
             console.print(f"\n📂 Workspaces ({len(workspaces)}):")
@@ -311,11 +314,11 @@ def clean(dev_names: tuple, unused: bool) -> None:
     check_dependencies()
     project = get_project()
     
-    workspace_manager = WorkspaceManager(project)
+    workspace_manager = WorkspaceManager(project, config)
     
     if unused:
         # Get active containers to determine which workspaces are still needed
-        container_manager = ContainerManager(project)
+        container_manager = ContainerManager(project, config)
         try:
             containers = container_manager.list_containers()
             active_dev_names = {c.dev_name for c in containers if c.status == 'running'}
@@ -338,8 +341,9 @@ def clean(dev_names: tuple, unused: bool) -> None:
 
 def main() -> None:
     """Main entry point."""
+    ctx = click.Context(cli, obj={})
     try:
-        cli()
+        cli.main(standalone_mode=False, obj=ctx.obj)
     except KeyboardInterrupt:
         console.print("\n👋 Interrupted by user")
         sys.exit(130)
@@ -347,8 +351,9 @@ def main() -> None:
         console.print(f"❌ {e}")
         sys.exit(1)
     except Exception as e:
+        debug = ctx.obj.get('DEBUG', False)
         console.print(f"❌ Unexpected error: {e}")
-        if '--debug' in sys.argv:
+        if debug:
             raise
         sys.exit(1)
 

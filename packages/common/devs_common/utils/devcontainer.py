@@ -8,12 +8,18 @@ from typing import Dict, List, Optional, Any
 from ..exceptions import DevsError, DependencyError
 
 
+from ..config import BaseConfig
+
 class DevContainerCLI:
     """Wrapper for DevContainer CLI operations."""
     
-    def __init__(self) -> None:
-        """Initialize DevContainer CLI wrapper."""
+    def __init__(self, config: Optional[BaseConfig] = None) -> None:
+        """Initialize DevContainer CLI wrapper.
+        Args:
+            config: Optional config object for container labels
+        """
         self._check_devcontainer_cli()
+        self.config = config
     
     def _check_devcontainer_cli(self) -> None:
         """Check if devcontainer CLI is available.
@@ -78,6 +84,11 @@ class DevContainerCLI:
                 '--id-label', f'devs.project={project_name}',
                 '--id-label', f'devs.dev={dev_name}',
             ])
+            # Add extra container labels from config if provided
+            if self.config and hasattr(self.config, 'container_labels'):
+                for k, v in self.config.container_labels.items():
+                    if k not in ('devs.project', 'devs.dev'):
+                        cmd.extend(['--id-label', f'{k}={v}'])
             
             # Set environment variables
             env = os.environ.copy()

@@ -1,6 +1,7 @@
 """Docker client utilities and wrapper."""
 
 from datetime import datetime
+import logging
 from typing import Dict, List, Optional, Any
 
 import docker
@@ -111,6 +112,8 @@ class DockerClient:
                 all=True, 
                 filters={'label': label_filters}
             )
+
+            logging.debug("Found containers by labels", labels=labels, count=len(containers))
             
             result = []
             for container in containers:

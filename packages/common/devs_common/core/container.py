@@ -3,9 +3,9 @@
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import subprocess
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from ..config import BaseConfig
 from ..exceptions import ContainerError, DockerError
@@ -51,7 +51,7 @@ class ContainerManager:
         self.project = project
         self.config = config
         self.docker = DockerClient()
-        self.devcontainer = DevContainerCLI()
+        self.devcontainer = DevContainerCLI(config)
     
     def should_rebuild_image(self, dev_name: str) -> Tuple[bool, str]:
         """Check if devcontainer image should be rebuilt.
@@ -303,7 +303,6 @@ class ContainerManager:
             console.print(f"   Workspace: {container_workspace_dir}")
             
             # Use docker exec to get an interactive shell
-            import subprocess
             
             cmd = [
                 'docker', 'exec', '-it', 
