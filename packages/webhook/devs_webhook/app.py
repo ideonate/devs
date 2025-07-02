@@ -2,18 +2,25 @@
 
 import hmac
 import hashlib
-from typing import Dict
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 import structlog
+import uuid
 
-from .config import get_config
+from .config import get_config, WebhookConfig
 from .core.webhook_handler import WebhookHandler
 from .utils.logging import setup_logging
 
 # Set up logging
 setup_logging()
 logger = structlog.get_logger()
+
+
+class TestEventRequest(BaseModel):
+    """Request model for test event endpoint."""
+    prompt: str
+    repo: str = "test/repo"  # Default test repository
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -32,6 +39,15 @@ def get_webhook_handler():
     if webhook_handler is None:
         webhook_handler = WebhookHandler()
     return webhook_handler
+
+
+def require_dev_mode(config: WebhookConfig = Depends(get_config)):
+    """Dependency that requires development mode."""
+    if not config.dev_mode:
+        raise HTTPException(
+            status_code=404, 
+            detail="This endpoint is only available in development mode"
+        )
 
 
 def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
@@ -72,10 +88,12 @@ async def health():
         "status": "healthy",
         "service": "devs-webhook",
         "version": "0.1.0",
+        "dev_mode": config.dev_mode,
         "config": {
-            "mentioned_user": config.mentioned_user,
+            "mentioned_user": config.github_mentioned_user,
             "container_pool": config.container_pool,
             "webhook_path": config.webhook_path,
+            "log_format": config.log_format,
         }
     }
 
@@ -93,7 +111,7 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     
     # Verify signature
     signature = headers.get("x-hub-signature-256", "")
-    if not verify_webhook_signature(payload, signature, config.webhook_secret):
+    if not verify_webhook_signature(payload, signature, config.github_webhook_secret):
         logger.warning("Invalid webhook signature", signature=signature)
         raise HTTPException(status_code=401, detail="Invalid signature")
     
@@ -142,6 +160,119 @@ async def stop_container(container_name: str):
 async def list_containers():
     """List all managed containers."""
     return await get_webhook_handler().list_containers()
+
+
+@app.post("/testevent")
+async def test_event(
+    request: TestEventRequest,
+    config: WebhookConfig = Depends(require_dev_mode)
+):
+    """Test endpoint to simulate GitHub webhook events with custom prompts.
+    
+    Only available in development mode.
+    
+    Example:
+        POST /testevent
+        {
+            "prompt": "Fix the login bug in the authentication module",
+            "repo": "myorg/myproject"
+        }
+    """
+    # Generate a unique delivery ID for this test
+    delivery_id = f"test-{uuid.uuid4().hex[:8]}"
+    
+    logger.info(
+        "Test event received",
+        prompt_length=len(request.prompt),
+        repo=request.repo,
+        delivery_id=delivery_id
+    )
+    
+    # Create a minimal mock webhook event
+    from .github.models import Repository, User, Issue, IssueEvent
+    
+    # Mock repository
+    mock_repo = Repository(
+        id=999999,
+        name=request.repo.split("/")[-1],
+        full_name=request.repo,
+        owner=User(
+            login=request.repo.split("/")[0],
+            id=999999,
+            avatar_url="https://github.com/test.png",
+            html_url=f"https://github.com/{request.repo.split('/')[0]}"
+        ),
+        html_url=f"https://github.com/{request.repo}",
+        clone_url=f"https://github.com/{request.repo}.git",
+        ssh_url=f"git@github.com:{request.repo}.git",
+        default_branch="main"
+    )
+    
+    # Mock issue with the prompt
+    mock_issue = Issue(
+        id=999999,
+        number=999,
+        title="Test Issue",
+        body=f"Test prompt: {request.prompt}",
+        state="open",
+        user=User(
+            login="test-user",
+            id=999999,
+            avatar_url="https://github.com/test.png",
+            html_url="https://github.com/test-user"
+        ),
+        html_url=f"https://github.com/{request.repo}/issues/999",
+        created_at="2023-01-01T00:00:00Z",
+        updated_at="2023-01-01T00:00:00Z"
+    )
+    
+    # Mock issue event
+    mock_event = IssueEvent(
+        action="opened",
+        issue=mock_issue,
+        repository=mock_repo,
+        sender=mock_issue.user
+    )
+    
+    # Generate workspace name for this test task
+    repo_slug = request.repo.replace("/", "-")
+    workspace_name = f"{repo_slug}-{delivery_id}"
+    
+    # Queue the task directly in the container pool
+    success = await get_webhook_handler().container_pool.queue_task(
+        task_id=delivery_id,
+        repo_name=request.repo,
+        task_description=request.prompt,
+        event=mock_event,
+        workspace_name=workspace_name
+    )
+    
+    if success:
+        logger.info("Test task queued successfully",
+                   delivery_id=delivery_id,
+                   repo=request.repo,
+                   workspace=workspace_name)
+        
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "test_accepted",
+                "delivery_id": delivery_id,
+                "repo": request.repo,
+                "prompt": request.prompt[:100] + "..." if len(request.prompt) > 100 else request.prompt,
+                "workspace": workspace_name,
+                "message": "Test task queued for processing"
+            }
+        )
+    else:
+        logger.error("Failed to queue test task",
+                    delivery_id=delivery_id,
+                    repo=request.repo)
+        
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to queue test task"
+        )
 
 
 # Error handlers

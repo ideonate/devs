@@ -48,19 +48,32 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
     elif env_file:
         click.echo(f"📄 Loading environment variables from {env_file}")
     
-    config = get_config(dotenv_path=env_file)
-    
-    # Override log format for development mode
+    # Set environment variables for FastAPI app
+    import os
     if dev:
-        config.log_format = "console"
+        os.environ["DEV_MODE"] = "true"
+        os.environ["LOG_FORMAT"] = "console"
+        os.environ["WEBHOOK_HOST"] = "127.0.0.1"
+    if env_file:
+        # Load the env file explicitly
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(env_file)
+        except ImportError:
+            click.echo("⚠️ python-dotenv not available, skipping .env file loading")
     
-    # Override config with CLI options
-    actual_host = host or config.host
-    actual_port = port or config.port
+    # Get config for display purposes
+    config = get_config()
+    
+    # Override config with CLI options  
+    actual_host = host or config.webhook_host
+    actual_port = port or config.webhook_port
     
     click.echo(f"Starting webhook server on {actual_host}:{actual_port}")
-    click.echo(f"Watching for @{config.mentioned_user} mentions")
+    click.echo(f"Watching for @{config.github_mentioned_user} mentions")
     click.echo(f"Container pool: {', '.join(config.container_pool)}")
+    if dev:
+        click.echo("🔧 Development mode enabled - /testevent endpoint available")
     
     uvicorn.run(
         "devs_webhook.app:app",
@@ -77,7 +90,7 @@ def status():
     import httpx
     
     config = get_config()
-    url = f"http://{config.host}:{config.port}/status"
+    url = f"http://{config.webhook_host}:{config.webhook_port}/status"
     
     try:
         response = httpx.get(url, timeout=5.0)
@@ -110,18 +123,18 @@ def config():
         config = get_config()
         
         click.echo("📋 Webhook Handler Configuration")
-        click.echo(f"Mentioned user: @{config.mentioned_user}")
+        click.echo(f"Mentioned user: @{config.github_mentioned_user}")
         click.echo(f"Container pool: {', '.join(config.container_pool)}")
         click.echo(f"Container timeout: {config.container_timeout_minutes} minutes")
         click.echo(f"Repository cache: {config.repo_cache_dir}")
         click.echo(f"Workspace directory: {config.workspace_dir}")
-        click.echo(f"Server: {config.host}:{config.port}")
+        click.echo(f"Server: {config.webhook_host}:{config.webhook_port}")
         click.echo(f"Webhook path: {config.webhook_path}")
         click.echo(f"Log level: {config.log_level}")
         
         # Check for missing required settings
         missing = []
-        if not config.webhook_secret:
+        if not config.github_webhook_secret:
             missing.append("GITHUB_WEBHOOK_SECRET")
         if not config.github_token:
             missing.append("GITHUB_TOKEN")
@@ -144,7 +157,7 @@ def stop_container(container_name: str):
     import httpx
     
     config = get_config()
-    url = f"http://{config.host}:{config.port}/container/{container_name}/stop"
+    url = f"http://{config.webhook_host}:{config.webhook_port}/container/{container_name}/stop"
     
     try:
         response = httpx.post(url, timeout=10.0)
@@ -214,6 +227,74 @@ def test_setup():
         click.echo("❌ DevContainer CLI not installed")
     
     click.echo("\n🎉 Setup test complete!")
+
+
+@cli.command()
+@click.argument('prompt')
+@click.option('--repo', default='test/repo', help='Repository name (default: test/repo)')
+@click.option('--host', default=None, help='Webhook server host')
+@click.option('--port', default=None, type=int, help='Webhook server port')
+def test(prompt: str, repo: str, host: str, port: int):
+    """Send a test prompt to the webhook handler.
+    
+    This sends a test event to the /testevent endpoint, which is only available
+    in development mode.
+    
+    Examples:
+        devs-webhook test "Fix the login bug"
+        devs-webhook test "Add dark mode toggle" --repo myorg/myproject
+    """
+    import httpx
+    
+    config = get_config()
+    
+    # Use CLI options or config defaults
+    actual_host = host or config.webhook_host
+    actual_port = port or config.webhook_port
+    url = f"http://{actual_host}:{actual_port}/testevent"
+    
+    payload = {
+        "prompt": prompt,
+        "repo": repo
+    }
+    
+    try:
+        click.echo(f"🧪 Sending test event to {url}")
+        click.echo(f"📝 Prompt: {prompt}")
+        click.echo(f"📦 Repository: {repo}")
+        
+        response = httpx.post(
+            url,
+            json=payload,
+            timeout=10.0
+        )
+        
+        if response.status_code == 202:
+            data = response.json()
+            click.echo(f"\n✅ Test event accepted!")
+            click.echo(f"🆔 Delivery ID: {data['delivery_id']}")
+            click.echo(f"🏗️  Workspace: {data['workspace']}")
+            click.echo(f"📋 Status: {data['status']}")
+            click.echo(f"\n💡 Check logs or /status endpoint for processing updates")
+            
+        elif response.status_code == 404:
+            click.echo(f"❌ Test endpoint not available (server not in development mode)")
+            click.echo(f"💡 Start server with: devs-webhook serve --dev")
+            
+        else:
+            click.echo(f"❌ Request failed with status {response.status_code}")
+            try:
+                error_data = response.json()
+                click.echo(f"Error: {error_data.get('detail', 'Unknown error')}")
+            except:
+                click.echo(f"Response: {response.text}")
+                
+    except httpx.ConnectError:
+        click.echo(f"❌ Failed to connect to webhook server at {actual_host}:{actual_port}")
+        click.echo(f"💡 Make sure the server is running with: devs-webhook serve --dev")
+        
+    except Exception as e:
+        click.echo(f"❌ Unexpected error: {e}")
 
 
 def main():

@@ -19,7 +19,7 @@ class WebhookHandler:
         self.container_pool = ContainerPool()
         
         logger.info("Webhook handler initialized", 
-                   mentioned_user=self.config.mentioned_user,
+                   mentioned_user=self.config.github_mentioned_user,
                    container_pool=self.config.container_pool)
     
     async def process_webhook(
@@ -46,10 +46,10 @@ class WebhookHandler:
                 return
             
             # Check if we should process this event
-            if not WebhookParser.should_process_event(event, self.config.mentioned_user):
+            if not WebhookParser.should_process_event(event, self.config.github_mentioned_user):
                 logger.info("Event does not contain target mentions",
                            event_type=type(event).__name__,
-                           mentioned_user=self.config.mentioned_user,
+                           mentioned_user=self.config.github_mentioned_user,
                            delivery_id=delivery_id)
                 return
             
@@ -61,7 +61,7 @@ class WebhookHandler:
             
             # Extract task description for Claude
             task_description = WebhookParser.extract_task_description(
-                event, self.config.mentioned_user
+                event, self.config.github_mentioned_user
             )
             
             # Generate workspace name for this task
@@ -108,7 +108,7 @@ class WebhookHandler:
             "queued_tasks": total_queued,
             "container_pool_size": len(self.config.container_pool),
             "containers": container_status,
-            "mentioned_user": self.config.mentioned_user,
+            "mentioned_user": self.config.github_mentioned_user,
         }
     
     async def stop_container(self, container_name: str) -> bool:

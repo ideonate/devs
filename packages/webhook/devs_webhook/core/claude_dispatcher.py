@@ -1,9 +1,7 @@
 """Claude Code CLI integration for executing tasks in containers."""
 
 import asyncio
-import subprocess
 import shlex
-from pathlib import Path
 from typing import NamedTuple, Optional
 import structlog
 
