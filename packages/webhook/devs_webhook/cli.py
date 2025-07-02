@@ -1,12 +1,10 @@
 """CLI for webhook management."""
 
-import asyncio
 import click
 import uvicorn
 from pathlib import Path
 
 from .config import get_config
-from .app import app
 from .utils.logging import setup_logging
 
 

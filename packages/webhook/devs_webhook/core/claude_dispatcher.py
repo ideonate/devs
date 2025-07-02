@@ -2,6 +2,7 @@
 
 import asyncio
 import subprocess
+import shlex
 from pathlib import Path
 from typing import NamedTuple, Optional
 import structlog
@@ -102,6 +103,9 @@ class ClaudeDispatcher:
             Task execution result
         """
         try:
+            # Escape the prompt for shell safety
+            escaped_prompt = shlex.quote(prompt)
+            
             # Build docker exec command
             cmd = [
                 "docker", "exec", "-i",  # -i for stdin, no TTY
@@ -109,7 +113,7 @@ class ClaudeDispatcher:
                 container_name,
                 "claude",
                 "--dangerously-skip-permissions",
-                "-p", prompt
+                "-p", escaped_prompt
             ]
             
             logger.debug("Executing Claude CLI command",
