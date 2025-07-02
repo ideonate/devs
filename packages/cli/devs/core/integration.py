@@ -9,7 +9,7 @@ from typing import List, Optional
 from rich.console import Console
 
 from ..exceptions import VSCodeError, DependencyError
-from .project import Project
+from devs_common.core.project import Project
 
 console = Console()
 

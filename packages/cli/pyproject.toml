@@ -31,8 +31,7 @@ classifiers = [
 
 dependencies = [
     "click>=8.0.0",
-    "docker>=6.0.0", 
-    "GitPython>=3.1.0",
+    "devs-common>=0.1.0",  # Our common package
     "rich>=12.0.0",
     "pathspec>=0.10.0",
 ]

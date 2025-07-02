@@ -9,9 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .config import config
-from .core.project import Project
-from .core.container import ContainerManager
-from .core.workspace import WorkspaceManager
+from .core import Project, ContainerManager, WorkspaceManager
 from .core.integration import VSCodeIntegration, ExternalToolIntegration
 from .exceptions import (
     DevsError,
@@ -83,8 +81,8 @@ def start(dev_names: tuple, rebuild: bool) -> None:
     
     console.print(f"🚀 Starting devcontainers for project: {project.info.name}")
     
-    container_manager = ContainerManager(project)
-    workspace_manager = WorkspaceManager(project)
+    container_manager = ContainerManager(project, config)
+    workspace_manager = WorkspaceManager(project, config)
     
     for dev_name in dev_names:
         console.print(f"   Starting: {dev_name}")
@@ -128,8 +126,8 @@ def vscode(dev_names: tuple, delay: float) -> None:
     check_dependencies()
     project = get_project()
     
-    container_manager = ContainerManager(project)
-    workspace_manager = WorkspaceManager(project)
+    container_manager = ContainerManager(project, config)
+    workspace_manager = WorkspaceManager(project, config)
     vscode = VSCodeIntegration(project)
     
     workspace_dirs = []
@@ -201,8 +199,8 @@ def shell(dev_name: str) -> None:
     check_dependencies()
     project = get_project()
     
-    container_manager = ContainerManager(project)
-    workspace_manager = WorkspaceManager(project)
+    container_manager = ContainerManager(project, config)
+    workspace_manager = WorkspaceManager(project, config)
     
     try:
         # Ensure workspace exists

@@ -6,11 +6,12 @@ from typing import Dict, Optional, Set, Any, NamedTuple
 from pathlib import Path
 import structlog
 
-from devs.core.project import Project
-from devs.core.container import ContainerManager
-from devs.core.workspace import WorkspaceManager
+from devs_common.core.project import Project
+from devs_common.core.container import ContainerManager
+from devs_common.core.workspace import WorkspaceManager
 
 from ..config import get_config
+from .webhook_config import WebhookConfig
 from ..github.models import WebhookEvent
 from .claude_dispatcher import ClaudeDispatcher, TaskResult
 
@@ -436,8 +437,9 @@ class ContainerPool:
             project = Project(repo_path)
             
             # Set up workspace manager with webhook workspace dir
-            workspace_manager = WorkspaceManager(project)
-            workspace_manager.config.workspaces_dir = self.config.workspace_dir
+            webhook_config = WebhookConfig()
+            webhook_config.workspaces_dir = self.config.workspace_dir
+            workspace_manager = WorkspaceManager(project, webhook_config)
             
             # Create workspace for this container
             workspace_dir = workspace_manager.create_workspace(
@@ -445,7 +447,7 @@ class ContainerPool:
             )
             
             # Set up container manager
-            container_manager = ContainerManager(project)
+            container_manager = ContainerManager(project, webhook_config)
             
             # Ensure container is running
             success = container_manager.ensure_container_running(
@@ -484,10 +486,11 @@ class ContainerPool:
             # Create project and managers for cleanup
             project = Project(repo_path)
             
-            workspace_manager = WorkspaceManager(project)
-            workspace_manager.config.workspaces_dir = self.config.workspace_dir
+            webhook_config = WebhookConfig()
+            webhook_config.workspaces_dir = self.config.workspace_dir
+            workspace_manager = WorkspaceManager(project, webhook_config)
             
-            container_manager = ContainerManager(project)
+            container_manager = ContainerManager(project, webhook_config)
             
             # Stop container
             container_manager.stop_container(container_name)

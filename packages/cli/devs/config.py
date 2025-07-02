@@ -4,9 +4,11 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from devs_common.config import BaseConfig
 
-class Config:
-    """Configuration settings for devs."""
+
+class Config(BaseConfig):
+    """Configuration settings for devs CLI."""
     
     # Default settings
     PROJECT_PREFIX = "dev"
@@ -15,34 +17,27 @@ class Config:
     
     def __init__(self) -> None:
         """Initialize configuration with environment variable overrides."""
-        self.project_prefix = os.getenv("DEVS_PROJECT_PREFIX", self.PROJECT_PREFIX)
+        super().__init__()
         
-        # Allow override of workspaces directory
-        workspaces_env = os.getenv("DEVS_WORKSPACES_DIR")
-        if workspaces_env:
-            self.workspaces_dir = Path(workspaces_env)
-        else:
-            self.workspaces_dir = self.WORKSPACES_DIR
-            
-        # Allow override of Claude config directory  
+        # CLI-specific configuration
         claude_config_env = os.getenv("DEVS_CLAUDE_CONFIG_DIR")
         if claude_config_env:
             self.claude_config_dir = Path(claude_config_env)
         else:
             self.claude_config_dir = self.CLAUDE_CONFIG_DIR
     
+    def get_default_workspaces_dir(self) -> Path:
+        """Get default workspaces directory for CLI package."""
+        return self.WORKSPACES_DIR
+    
+    def get_default_project_prefix(self) -> str:
+        """Get default project prefix for CLI package."""
+        return self.PROJECT_PREFIX
+    
     def ensure_directories(self) -> None:
         """Ensure required directories exist."""
-        self.workspaces_dir.mkdir(parents=True, exist_ok=True)
+        super().ensure_directories()
         self.claude_config_dir.mkdir(parents=True, exist_ok=True)
-    
-    @property
-    def container_labels(self) -> dict[str, str]:
-        """Standard labels applied to containers."""
-        return {
-            "devs.managed": "true",
-            "devs.version": "0.1.0",
-        }
 
 
 # Global config instance
