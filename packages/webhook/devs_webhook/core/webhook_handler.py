@@ -62,24 +62,18 @@ class WebhookHandler:
             # Get context from the event for Claude
             task_description = event.get_context_for_claude()
             
-            # Generate workspace name for this task
-            repo_slug = event.repository.full_name.replace("/", "-")
-            workspace_name = f"{repo_slug}-{delivery_id}"
-            
             # Queue the task in the container pool
             success = await self.container_pool.queue_task(
                 task_id=delivery_id,
                 repo_name=event.repository.full_name,
                 task_description=task_description,
-                event=event,
-                workspace_name=workspace_name
+                event=event
             )
             
             if success:
                 logger.info("Task queued successfully",
                            delivery_id=delivery_id,
-                           repo=event.repository.full_name,
-                           workspace=workspace_name)
+                           repo=event.repository.full_name)
             else:
                 logger.error("Failed to queue task",
                             delivery_id=delivery_id,
