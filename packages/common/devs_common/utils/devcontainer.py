@@ -51,7 +51,8 @@ class DevContainerCLI:
         git_remote_url: str = "",
         rebuild: bool = False,
         remove_existing: bool = True,
-        debug: bool = False
+        debug: bool = False,
+        config_path: Optional[Path] = None
     ) -> bool:
         """Start a devcontainer.
         
@@ -63,6 +64,7 @@ class DevContainerCLI:
             rebuild: Whether to rebuild the image
             remove_existing: Whether to remove existing container
             debug: Whether to show debug output
+            config_path: Optional path to external devcontainer config directory
             
         Returns:
             True if successful
@@ -72,6 +74,10 @@ class DevContainerCLI:
         """
         try:
             cmd = ['devcontainer', 'up', '--workspace-folder', str(workspace_folder)]
+            
+            # Add config path if provided (use external config instead of copying to workspace)
+            if config_path:
+                cmd.extend(['--config', str(config_path)])
             
             # Add rebuild flag if requested
             if rebuild:

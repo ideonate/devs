@@ -11,6 +11,7 @@ from ..config import BaseConfig
 from ..exceptions import ContainerError, DockerError
 from ..utils.docker_client import DockerClient
 from ..utils.devcontainer import DevContainerCLI
+from ..utils.devcontainer_template import get_template_dir
 from .project import Project
 
 console = Console()
@@ -185,6 +186,21 @@ class ContainerManager:
             
             console.print(f"   🚀 Starting container for {dev_name}...")
             
+            # Determine config path based on whether .devcontainer was copied to workspace
+            config_path = None
+            workspace_devcontainer = workspace_dir / ".devcontainer"
+            project_devcontainer = self.project.project_dir / ".devcontainer"
+            
+            if workspace_devcontainer.exists():
+                # .devcontainer was copied to workspace, use it (config_path = None)
+                config_path = None
+            elif project_devcontainer.exists():
+                # .devcontainer exists in project but not copied (gitignored), use original
+                config_path = project_devcontainer / "devcontainer.json"
+            else:
+                # No .devcontainer in project, use devs template
+                config_path = get_template_dir() / "devcontainer.json"
+            
             # Start devcontainer
             success = self.devcontainer.up(
                 workspace_folder=workspace_dir,
@@ -193,7 +209,8 @@ class ContainerManager:
                 git_remote_url=self.project.info.git_remote_url,
                 rebuild=rebuild_needed or force_rebuild,
                 remove_existing=True,
-                debug=debug
+                debug=debug,
+                config_path=config_path
             )
             
             if not success:

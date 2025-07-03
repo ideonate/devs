@@ -16,7 +16,7 @@ from ..utils.file_utils import (
     is_directory_empty
 )
 from ..utils.git_utils import get_tracked_files, is_git_repository
-from ..utils.devcontainer_template import ensure_devcontainer_config
+# from ..utils.devcontainer_template import ensure_devcontainer_config  # No longer used
 from .project import Project
 
 console = Console()
@@ -109,8 +109,7 @@ class WorkspaceManager:
             # Copy special directories
             self._copy_special_directories(workspace_dir)
             
-            # Ensure devcontainer configuration exists
-            ensure_devcontainer_config(workspace_dir, self.project.project_dir)
+            # Don't copy devcontainer template - will use external config if needed
             
             console.print(f"   ✅ Directory copied to {workspace_dir}")
             return workspace_dir
