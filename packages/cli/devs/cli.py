@@ -351,9 +351,12 @@ def clean(dev_names: tuple, aborted: bool, exclude_aborted: bool, all_projects: 
             console.print(f"❌ Error cleaning aborted containers: {e}")
     
     elif dev_names:
-        # Clean specific dev environments
+        # Clean specific dev environments (both containers and workspaces)
         for dev_name in dev_names:
             console.print(f"🗑️  Cleaning up {dev_name}...")
+            # Stop and remove container if it exists
+            container_manager.stop_container(dev_name)
+            # Remove workspace
             workspace_manager.remove_workspace(dev_name)
     
     else:

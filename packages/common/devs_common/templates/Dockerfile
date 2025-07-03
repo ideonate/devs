@@ -100,10 +100,14 @@ RUN echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> /home/node/.z
 # Copy and set up scripts
 COPY scripts/ /usr/local/bin/
 COPY sudo-scripts/ /usr/local/bin/
-RUN chmod +x /usr/local/bin/*.sh /usr/local/bin/*.py && \
-  echo "# Allow node user to run sudo scripts without password" > /etc/sudoers.d/node-scripts && \
-  echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" >> /etc/sudoers.d/node-scripts && \
-  echo "node ALL=(root) NOPASSWD: /usr/local/bin/setup-devs-env.sh" >> /etc/sudoers.d/node-scripts && \
-  chmod 0440 /etc/sudoers.d/node-scripts
+RUN chmod +x /usr/local/bin/*.sh /usr/local/bin/*.py
+COPY sudo-scripts/ /tmp/sudo-scripts-list/
+RUN echo "DEBUG: Files that need sudo:" && ls -la /tmp/sudo-scripts-list/ && \
+  { echo "# Allow node user to run sudo scripts without password"; \
+    ls /tmp/sudo-scripts-list/ | sed 's/^/node ALL=(root) NOPASSWD: \/usr\/local\/bin\//'; \
+  } > /etc/sudoers.d/node-scripts && \
+  echo "DEBUG: Generated sudoers file:" && cat /etc/sudoers.d/node-scripts && \
+  chmod 0440 /etc/sudoers.d/node-scripts && \
+  rm -rf /tmp/sudo-scripts-list
 
 USER node
