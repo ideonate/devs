@@ -113,7 +113,7 @@ class ClaudeDispatcher:
             project = Project(repo_path)
             full_container_name = project.get_container_name(dev_name)
 
-            if not event.is_test:
+            if False:
 
                 # Escape the prompt for shell safety
                 escaped_prompt = shlex.quote(prompt)

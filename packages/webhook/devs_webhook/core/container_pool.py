@@ -140,16 +140,18 @@ class ContainerPool:
                 try:
                     queued_task = await self.container_queues[dev_name].get()
                     
-                    logger.info("Worker processing task",
-                               container=dev_name,
-                               task_id=queued_task.task_id,
-                               repo=queued_task.repo_name)
-                    
-                    # Process the task
-                    await self._process_task(dev_name, queued_task)
-                    
-                    # Mark task as done
-                    self.container_queues[dev_name].task_done()
+                    try:
+                        logger.info("Worker processing task",
+                                   container=dev_name,
+                                   task_id=queued_task.task_id,
+                                   repo=queued_task.repo_name)
+                        
+                        # Process the task
+                        await self._process_task(dev_name, queued_task)
+                        
+                    finally:
+                        # Always mark task as done, regardless of success/failure
+                        self.container_queues[dev_name].task_done()
                     
                 except asyncio.CancelledError:
                     logger.info("Container worker cancelled", container=dev_name)
