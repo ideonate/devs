@@ -115,11 +115,12 @@ class ClaudeDispatcher:
             full_container_name = project.get_container_name(dev_name)
 
             if not event.is_test:
-                # Build docker exec command with cd and stdin for prompt
+                # Build docker exec command with -w flag like exec_shell does
                 cmd = [
                     "docker", "exec", "-i",  # -i for stdin, no TTY
+                    "-w", f"/workspaces/{workspace_name}",  # Set working directory at Docker level
                     full_container_name,
-                    "sh", "-c", f"cd /workspaces/{workspace_name} && claude --dangerously-skip-permissions"
+                    "claude", "--dangerously-skip-permissions"
                 ]
             else:
                 # For test events, use a simplified command
