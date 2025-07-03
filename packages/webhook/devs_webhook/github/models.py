@@ -80,7 +80,7 @@ class WebhookEvent(BaseModel):
         
         # Create regex pattern with word boundary to match exact username
         # This prevents matching @bot in @botname or @mybotname
-        pattern = re.compile(rf"\b@{re.escape(target_user)}\b", re.IGNORECASE)
+        pattern = re.compile(rf"@{re.escape(target_user)}\b", re.IGNORECASE)
         
         for text in text_sources:
             if text and pattern.search(text):
