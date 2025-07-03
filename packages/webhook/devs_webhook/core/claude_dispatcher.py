@@ -209,36 +209,18 @@ class ClaudeDispatcher:
         repo_name = event.repository.full_name
         workspace_path = f"/workspaces/{workspace_name}"
         
-        prompt = f"""You are an AI assistant helping with GitHub repository tasks. You have been mentioned in a GitHub issue/PR and need to take action.
+        prompt = f"""You are an AI developer helping build a software project in a GitHub repository. You have been mentioned in a GitHub issue/PR and need to take action.
+
+You should ensure you're on the latest main branch if starting a fresh task (git pull origin main), and generally 
+work on feature branches for changes. Submit your changes as a draft pull request when done (mention that it closes an issue number if it does).
+
+If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the issue/PR.
+
+You should always comment back in any case. The `gh` CLI is available for GitHub operations, and you can use `git` too.
+
 
 {task_description}
 
-IMPORTANT SETUP INSTRUCTIONS:
-1. You are already in the workspace directory: {workspace_path}
-2. Set up Git configuration if needed:
-   git config --global user.name "Claude AI Assistant"
-   git config --global user.email "claude@anthropic.com"
-3. Ensure you're on the latest main/master branch: git pull origin main || git pull origin master
-
-AVAILABLE TOOLS:
-- `gh` CLI for GitHub operations (already authenticated)
-- `git` for version control operations
-- Standard Unix tools and development environment
-- The repository is already cloned in your current workspace
-
-WORKFLOW GUIDELINES:
-- Always start by understanding the current codebase structure
-- Read relevant files to understand the context
-- If making changes, create a feature branch: git checkout -b claude/fix-issue-[number]
-- Make targeted, well-tested changes
-- Write clear commit messages
-- Push your branch and create a PR if appropriate
-- Always comment back on the original issue/PR with your findings
-
-GitHub Repository: {repo_name}
-Workspace Location: {workspace_path}
-
-Please proceed with analyzing and addressing this request step by step.
 """
         
         return prompt
@@ -256,28 +238,28 @@ Please proceed with analyzing and addressing this request step by step.
         """
         try:
             # Extract useful information from Claude's output
-            summary = self._extract_summary(claude_output)
+            #summary = self._extract_summary(claude_output)
             
             # Comment on the original issue/PR
-            comment = f"""🤖 **Claude AI Assistant Update**
+#             comment = f"""🤖 **Claude AI Assistant Update**
 
-I've processed your request and taken the following actions:
+# I've processed your request and taken the following actions:
 
-{summary}
+# {summary}
 
-<details>
-<summary>Full execution log</summary>
+# <details>
+# <summary>Full execution log</summary>
 
-```
-{claude_output[-2000:]}  # Last 2000 chars to avoid huge comments
-```
+# ```
+# {claude_output[-2000:]}  # Last 2000 chars to avoid huge comments
+# ```
 
-</details>
+# </details>
 
-This response was generated automatically by the devs webhook handler.
-"""
+# This response was generated automatically by the devs webhook handler.
+# """
             
-            await self._post_github_comment(event, comment)
+            await self._post_github_comment(event, claude_output)
             
         except Exception as e:
             logger.error("Error handling task completion",

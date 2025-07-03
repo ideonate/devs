@@ -188,3 +188,14 @@ Action: {self.action}
 Repository: {self.repository.full_name}
 Clone URL: {self.repository.clone_url}
 """
+    
+class TestIssueEvent(IssueEvent):
+    """Test event for issues, used in unit tests."""
+    
+    class Config:
+        arbitrary_types_allowed = True
+        extra = "allow"
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        self.action = "opened"  # Default action for test events

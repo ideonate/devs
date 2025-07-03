@@ -190,7 +190,7 @@ async def test_event(
     )
     
     # Create a minimal mock webhook event
-    from .github.models import GitHubRepository, GitHubUser, GitHubIssue, IssueEvent
+    from .github.models import GitHubRepository, GitHubUser, GitHubIssue, TestIssueEvent
     
     # Mock repository
     mock_repo = GitHubRepository(
@@ -228,7 +228,7 @@ async def test_event(
     )
     
     # Mock issue event
-    mock_event = IssueEvent(
+    mock_event = TestIssueEvent(
         action="opened",
         issue=mock_issue,
         repository=mock_repo,
