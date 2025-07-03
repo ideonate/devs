@@ -60,6 +60,7 @@
   "mounts": [
     "source=claude-code-bashhistory,target=/commandhistory,type=volume",
     "source=${localEnv:HOME}/.devs/claudeconfig,target=/home/node/claudeconfig,type=bind",
+    "source=${localEnv:DEVS_ENV_MOUNT_PATH},target=/home/node/.devs-env,type=bind",
     "source=claude-code-vscode-extensions,target=/home/node/.vscode-server/extensions,type=volume",
     "source=claude-code-vscode-data,target=/home/node/.vscode-server,type=volume"
   ],
@@ -70,7 +71,6 @@
     "LC_ALL": "en_US.UTF-8",
     "GIT_REMOTE_URL": "${localEnv:GIT_REMOTE_URL}",
     "WORKSPACE_FOLDER_NAME": "${localEnv:WORKSPACE_FOLDER_NAME}",
-    "GH_TOKEN": "${localEnv:GH_TOKEN}",
     "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}"
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",

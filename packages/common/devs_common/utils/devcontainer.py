@@ -100,9 +100,20 @@ class DevContainerCLI:
                 'WORKSPACE_FOLDER_NAME': f"{workspace_folder.name}",
             })
             
-            # Pass through GH_TOKEN if available (for runtime access inside container)
-            if 'GH_TOKEN' in os.environ:
-                env['GH_TOKEN'] = os.environ['GH_TOKEN']
+            # Set environment mount path
+            env_mount_path = Path.home() / '.devs' / 'envs' / project_name
+            if not env_mount_path.exists():
+                env_mount_path = Path.home() / '.devs' / 'envs' / 'default'
+                # Create default directory and .env file if needed
+                env_mount_path.mkdir(parents=True, exist_ok=True)
+                env_file = env_mount_path / '.env'
+                if not env_file.exists():
+                    # Create default .env file with GH_TOKEN if available
+                    env_content = ""
+                    if 'GH_TOKEN' in os.environ:
+                        env_content = f"GH_TOKEN={os.environ['GH_TOKEN']}\n"
+                    env_file.write_text(env_content)
+            env['DEVS_ENV_MOUNT_PATH'] = str(env_mount_path)
             
             # Pass debug mode to container scripts
             if debug:

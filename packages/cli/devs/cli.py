@@ -312,9 +312,12 @@ def status() -> None:
 
 @cli.command()
 @click.argument('dev_names', nargs=-1)
-@click.option('--unused', is_flag=True, help='Clean up unused workspaces')
-def clean(dev_names: tuple, unused: bool) -> None:
+@click.option('--aborted', is_flag=True, help='Clean up aborted/failed containers instead of unused workspaces')
+@click.option('--all-projects', is_flag=True, help='Clean aborted containers from all projects (use with --aborted)')
+def clean(dev_names: tuple, aborted: bool, all_projects: bool) -> None:
     """Clean up workspaces and containers.
+    
+    By default, cleans up unused workspaces (workspaces without running containers).
     
     DEV_NAMES: Specific development environments to clean up
     """
@@ -322,19 +325,29 @@ def clean(dev_names: tuple, unused: bool) -> None:
     project = get_project()
     
     workspace_manager = WorkspaceManager(project, config)
+    container_manager = ContainerManager(project, config)
     
-    if unused:
-        # Get active containers to determine which workspaces are still needed
-        container_manager = ContainerManager(project, config)
+    if aborted:
+        # Clean up aborted/failed containers
         try:
-            containers = container_manager.list_containers()
-            active_dev_names = {c.dev_name for c in containers if c.status == 'running'}
+            console.print("🔍 Looking for aborted containers...")
+            aborted_containers = container_manager.find_aborted_containers(all_projects=all_projects)
             
-            cleaned_count = workspace_manager.cleanup_unused_workspaces(active_dev_names)
-            console.print(f"🗑️  Cleaned up {cleaned_count} unused workspaces")
+            if not aborted_containers:
+                scope = "all projects" if all_projects else f"project: {project.info.name}"
+                console.print(f"✅ No aborted containers found for {scope}")
+                return
+            
+            console.print(f"Found {len(aborted_containers)} aborted container(s):")
+            for container in aborted_containers:
+                console.print(f"   - {container.name} ({container.project_name}/{container.dev_name}) - Status: {container.status}")
+            
+            console.print("")
+            removed_count = container_manager.remove_aborted_containers(aborted_containers)
+            console.print(f"🗑️  Removed {removed_count} aborted container(s)")
             
         except ContainerError as e:
-            console.print(f"❌ Error during cleanup: {e}")
+            console.print(f"❌ Error cleaning aborted containers: {e}")
     
     elif dev_names:
         # Clean specific dev environments
@@ -343,7 +356,20 @@ def clean(dev_names: tuple, unused: bool) -> None:
             workspace_manager.remove_workspace(dev_name)
     
     else:
-        console.print("❌ Specify --unused or provide dev environment names to clean")
+        # Default behavior: clean unused workspaces
+        try:
+            console.print("🔍 Looking for unused workspaces...")
+            containers = container_manager.list_containers()
+            active_dev_names = {c.dev_name for c in containers if c.status == 'running'}
+            
+            cleaned_count = workspace_manager.cleanup_unused_workspaces(active_dev_names)
+            if cleaned_count > 0:
+                console.print(f"🗑️  Cleaned up {cleaned_count} unused workspace(s)")
+            else:
+                console.print("✅ No unused workspaces found")
+            
+        except ContainerError as e:
+            console.print(f"❌ Error during cleanup: {e}")
 
 
 def main() -> None:

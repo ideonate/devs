@@ -305,6 +305,87 @@ class ContainerManager:
         except DockerError as e:
             raise ContainerError(f"Failed to list containers: {e}")
     
+    def find_aborted_containers(self, all_projects: bool = False) -> List[ContainerInfo]:
+        """Find aborted devs containers that failed during setup.
+        
+        Args:
+            all_projects: If True, find aborted containers for all projects
+            
+        Returns:
+            List of ContainerInfo objects for aborted containers
+        """
+        try:
+            # Look for containers with devs labels that are in failed states
+            base_labels = {"devs.managed": "true"}
+            if not all_projects:
+                base_labels["devs.project"] = self.project.info.name
+            
+            containers = self.docker.find_containers_by_labels(base_labels)
+            
+            aborted_containers = []
+            for container_data in containers:
+                dev_name = container_data['labels'].get('devs.dev', 'unknown')
+                project_name = container_data['labels'].get('devs.project', 'unknown')
+                status = container_data['status'].lower()
+                container_name = container_data['name']
+                
+                # Consider containers aborted if they are:
+                # 1. In failed states: exited, dead, created but never started
+                # 2. Running but with wrong name (indicates setup failure)
+                is_failed_status = status in ['exited', 'dead', 'created']
+                
+                # Check if container has expected name for its dev environment
+                expected_name = self.project.get_container_name(dev_name, self.config.project_prefix if self.config else "dev")
+                has_wrong_name = container_name != expected_name and dev_name != 'unknown'
+                
+                if is_failed_status or has_wrong_name:
+                    container_info = ContainerInfo(
+                        name=container_name,
+                        dev_name=dev_name,
+                        project_name=project_name,
+                        status=container_data['status'],
+                        container_id=container_data['id'],
+                        created=datetime.fromisoformat(container_data['created'].replace('Z', '+00:00')),
+                        labels=container_data['labels']
+                    )
+                    
+                    aborted_containers.append(container_info)
+            
+            return aborted_containers
+            
+        except DockerError as e:
+            raise ContainerError(f"Failed to find aborted containers: {e}")
+    
+    def remove_aborted_containers(self, containers: List[ContainerInfo]) -> int:
+        """Remove a list of aborted containers.
+        
+        Args:
+            containers: List of ContainerInfo objects to remove
+            
+        Returns:
+            Number of containers successfully removed
+        """
+        removed_count = 0
+        
+        for container in containers:
+            try:
+                console.print(f"   🗑️  Removing aborted container: {container.name} ({container.status})")
+                
+                # Stop container first if it's running
+                if container.status.lower() in ['running', 'restarting']:
+                    console.print(f"   🛑 Stopping running container: {container.name}")
+                    self.docker.stop_container(container.name)
+                
+                # Remove the container
+                self.docker.remove_container(container.name)
+                removed_count += 1
+                
+            except DockerError as e:
+                console.print(f"   ❌ Failed to remove {container.name}: {e}")
+                continue
+        
+        return removed_count
+    
     def exec_shell(self, dev_name: str, workspace_dir: Path, debug: bool = False) -> None:
         """Execute a shell in the container.
         

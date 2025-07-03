@@ -98,9 +98,13 @@ RUN echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> /home/node/.z
 
 
 # Copy and set up scripts
-COPY init-firewall.sh setup-workspace.sh webapp-screenshot.py screenshot-webapp.sh python-venv-integration.sh copy-ssh.sh post-create-wrapper.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/setup-workspace.sh /usr/local/bin/webapp-screenshot.py /usr/local/bin/screenshot-webapp.sh /usr/local/bin/python-venv-integration.sh /usr/local/bin/copy-ssh.sh /usr/local/bin/post-create-wrapper.sh && \
-  echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh, /usr/local/bin/setup-workspace.sh" > /etc/sudoers.d/node-scripts && \
+COPY scripts/ /usr/local/bin/
+COPY sudo-scripts/ /usr/local/bin/
+RUN chmod +x /usr/local/bin/*.sh /usr/local/bin/*.py && \
+  { echo "# Allow node user to run sudo scripts without password"; \
+    for script in sudo-scripts/*; do \
+      [ -f "$script" ] && echo "node ALL=(root) NOPASSWD: /usr/local/bin/$(basename "$script")"; \
+    done; } > /etc/sudoers.d/node-scripts && \
   chmod 0440 /etc/sudoers.d/node-scripts
 
 USER node
