@@ -290,6 +290,58 @@ class WorkspaceManager:
         
         return cleaned_count
     
+    def cleanup_unused_workspaces_all_projects(self, docker_client) -> int:
+        """Clean up workspace directories across all projects that are no longer in use.
+        
+        Args:
+            docker_client: DockerClient instance to check for active containers
+            
+        Returns:
+            Number of workspaces cleaned up
+        """
+        from ..utils.docker_client import DockerError
+        
+        workspaces_dir = self.get_workspace_dir("").parent  # Get parent to list all workspaces
+        if not workspaces_dir.exists():
+            return 0
+        
+        cleaned_count = 0
+        
+        try:
+            # Get all active containers with devs labels across all projects
+            active_containers = docker_client.find_containers_by_labels({"devs.managed": "true"})
+            active_workspaces = set()
+            
+            # Build set of active workspace names from running containers
+            for container in active_containers:
+                if container['status'].lower() == 'running':
+                    project_name = container['labels'].get('devs.project', '')
+                    dev_name = container['labels'].get('devs.dev', '')
+                    if project_name and dev_name:
+                        workspace_name = f"{project_name}-{dev_name}"
+                        active_workspaces.add(workspace_name)
+            
+            # Check all workspace directories
+            for workspace_dir in workspaces_dir.iterdir():
+                if workspace_dir.is_dir() and not workspace_dir.name.startswith('.'):
+                    workspace_name = workspace_dir.name
+                    
+                    # If this workspace doesn't have a corresponding running container, remove it
+                    if workspace_name not in active_workspaces:
+                        try:
+                            console.print(f"   🗑️  Removed workspace: {workspace_dir}")
+                            shutil.rmtree(workspace_dir)
+                            cleaned_count += 1
+                        except OSError as e:
+                            console.print(f"   ❌ Failed to remove workspace {workspace_dir}: {e}")
+                            continue
+            
+            return cleaned_count
+            
+        except (OSError, DockerError) as e:
+            console.print(f"❌ Error during cross-project workspace cleanup: {e}")
+            return 0
+    
     def sync_workspace(self, dev_name: str, files_to_sync: Optional[List[str]] = None) -> bool:
         """Sync specific files from project to workspace.
         
