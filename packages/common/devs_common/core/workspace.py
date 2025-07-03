@@ -16,7 +16,6 @@ from ..utils.file_utils import (
     is_directory_empty
 )
 from ..utils.git_utils import get_tracked_files, is_git_repository
-# from ..utils.devcontainer_template import ensure_devcontainer_config  # No longer used
 from .project import Project
 
 console = Console()
