@@ -62,7 +62,7 @@ class ClaudeDispatcher:
             repo_path = self.config.repo_cache_dir / event.repository.full_name.replace("/", "-")
 
             # Execute Claude Code CLI in the container
-            result = await self._execute_claude_cli(dev_name, workspace_name, prompt, repo_path)
+            result = await self._execute_claude_cli(dev_name, workspace_name, prompt, repo_path, event)
             
             if result.success:
                 # Post-process results
@@ -94,7 +94,8 @@ class ClaudeDispatcher:
         dev_name: str,
         workspace_name: str,
         prompt: str,
-        repo_path: Path
+        repo_path: Path,
+        event: WebhookEvent
     ) -> TaskResult:
         """Execute Claude Code CLI inside a container using docker exec.
         
@@ -112,18 +113,27 @@ class ClaudeDispatcher:
             project = Project(repo_path)
             full_container_name = project.get_container_name(dev_name)
 
-            # Escape the prompt for shell safety
-            escaped_prompt = shlex.quote(prompt)
-            
-            # Build docker exec command
-            cmd = [
-                "docker", "exec", "-i",  # -i for stdin, no TTY
-                "-w", f"/workspaces/{workspace_name}",  # Set working directory
-                full_container_name,
-                "claude",
-                "--dangerously-skip-permissions",
-                "-p", escaped_prompt
-            ]
+            if not event.is_test:
+
+                # Escape the prompt for shell safety
+                escaped_prompt = shlex.quote(prompt)
+                
+                # Build docker exec command
+                cmd = [
+                    "docker", "exec", "-i",  # -i for stdin, no TTY
+                    "-w", f"/workspaces/{workspace_name}",  # Set working directory
+                    full_container_name,
+                    "claude",
+                    "--dangerously-skip-permissions",
+                    "-p", escaped_prompt
+                ]
+            else:
+                # For test events, use a simplified command
+                cmd = [
+                    "docker", "exec", "-i",
+                    full_container_name,
+                    "echo", "Test event received, no execution"
+                 ]
             
             if self.config.dev_mode:
                 # In dev mode, log the full command for debugging
@@ -134,36 +144,88 @@ class ClaudeDispatcher:
                             workspace=workspace_name,
                             cmd_preview=f"docker exec {full_container_name} claude -p '...'")
             
-            # Execute command
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            # Wait for completion with timeout
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=self.config.container_timeout_minutes * 60
-                )
-            except asyncio.TimeoutError:
-                # Kill the process if it times out
-                process.kill()
-                await process.wait()
-                return TaskResult(
-                    success=False,
-                    output="",
-                    error=f"Task timed out after {self.config.container_timeout_minutes} minutes"
-                )
-            
-            # Decode output
-            output = stdout.decode('utf-8', errors='replace') if stdout else ""
-            error = stderr.decode('utf-8', errors='replace') if stderr else ""
-            
+            # Execute command with streaming output in dev mode
             if self.config.dev_mode:
-                logger.info("Claude CLI stdout", output=output)
-                logger.info("Claude CLI stderr", stderr=error)
+                # In dev mode, stream output to console in real-time
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                # Stream output in real-time
+                output_lines = []
+                error_lines = []
+                
+                async def stream_output():
+                    """Stream stdout to console and collect for return."""
+                    if process.stdout:
+                        async for line in process.stdout:
+                            line_str = line.decode('utf-8', errors='replace').rstrip()
+                            if line_str:
+                                print(f"[{dev_name}] {line_str}")  # Stream to console
+                                output_lines.append(line_str)
+                
+                async def stream_error():
+                    """Stream stderr to console and collect for return."""
+                    if process.stderr:
+                        async for line in process.stderr:
+                            line_str = line.decode('utf-8', errors='replace').rstrip()
+                            if line_str:
+                                print(f"[{dev_name}] ERROR: {line_str}")  # Stream to console
+                                error_lines.append(line_str)
+                
+                # Run streaming tasks concurrently
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(
+                            stream_output(),
+                            stream_error(),
+                            process.wait()
+                        ),
+                        timeout=self.config.container_timeout_minutes * 60
+                    )
+                except asyncio.TimeoutError:
+                    # Kill the process if it times out
+                    process.kill()
+                    await process.wait()
+                    return TaskResult(
+                        success=False,
+                        output="",
+                        error=f"Task timed out after {self.config.container_timeout_minutes} minutes"
+                    )
+                
+                # Combine collected output
+                output = '\n'.join(output_lines)
+                error = '\n'.join(error_lines)
+                
+            else:
+                # Normal mode - capture output without streaming
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                # Wait for completion with timeout
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=self.config.container_timeout_minutes * 60
+                    )
+                except asyncio.TimeoutError:
+                    # Kill the process if it times out
+                    process.kill()
+                    await process.wait()
+                    return TaskResult(
+                        success=False,
+                        output="",
+                        error=f"Task timed out after {self.config.container_timeout_minutes} minutes"
+                    )
+                
+                # Decode output
+                output = stdout.decode('utf-8', errors='replace') if stdout else ""
+                error = stderr.decode('utf-8', errors='replace') if stderr else ""
 
             success = process.returncode == 0
             
@@ -237,6 +299,12 @@ You should always comment back in any case. The `gh` CLI is available for GitHub
             claude_output: Output from Claude Code execution
         """
         try:
+            # Skip GitHub operations for test events
+            if event.is_test:
+                logger.info("Skipping GitHub comment for test event", 
+                           output_preview=claude_output[:100])
+                return
+            
             # Extract useful information from Claude's output
             #summary = self._extract_summary(claude_output)
             
@@ -277,6 +345,12 @@ You should always comment back in any case. The `gh` CLI is available for GitHub
             error_msg: Error message
         """
         try:
+            # Skip GitHub operations for test events
+            if event.is_test:
+                logger.info("Skipping GitHub comment for test event failure", 
+                           error=error_msg)
+                return
+            
             comment = f"""🤖 **Claude AI Assistant Error**
 
 I encountered an error while trying to process your request:

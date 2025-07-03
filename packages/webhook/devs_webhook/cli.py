@@ -273,7 +273,6 @@ def test(prompt: str, repo: str, host: str, port: int):
             data = response.json()
             click.echo(f"\n✅ Test event accepted!")
             click.echo(f"🆔 Delivery ID: {data['delivery_id']}")
-            click.echo(f"🏗️  Workspace: {data['workspace']}")
             click.echo(f"📋 Status: {data['status']}")
             click.echo(f"\n💡 Check logs or /status endpoint for processing updates")
             

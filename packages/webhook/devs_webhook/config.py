@@ -27,7 +27,7 @@ class WebhookConfig(BaseSettings):
     github_token: str = Field(default="", description="GitHub personal access token")
     github_mentioned_user: str = Field(default="", description="GitHub username to watch for @mentions")
     
-    # Runtime settings (not from env)
+    # Runtime settings
     dev_mode: bool = Field(default=False, description="Development mode enabled")
     
     # Workspace settings (shared with CLI for interoperability)

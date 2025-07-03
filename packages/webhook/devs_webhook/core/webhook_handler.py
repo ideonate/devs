@@ -59,10 +59,8 @@ class WebhookHandler:
                        action=event.action,
                        delivery_id=delivery_id)
             
-            # Extract task description for Claude
-            task_description = WebhookParser.extract_task_description(
-                event, self.config.github_mentioned_user
-            )
+            # Get context from the event for Claude
+            task_description = event.get_context_for_claude()
             
             # Generate workspace name for this task
             repo_slug = event.repository.full_name.replace("/", "-")

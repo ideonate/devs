@@ -68,6 +68,7 @@ class WebhookEvent(BaseModel):
     action: str
     repository: GitHubRepository
     sender: GitHubUser
+    is_test: bool = Field(default=False, description="Indicates if this is a test event")
     
     def extract_mentions(self, target_user: str) -> List[str]:
         """Extract @mentions of target user from relevant text."""
@@ -191,7 +192,9 @@ Clone URL: {self.repository.clone_url}
     
 class TestIssueEvent(IssueEvent):
     """Test event for issues, used in unit tests."""
-    
+
+    is_test: bool = True # Mark as test event
+   
     class Config:
         arbitrary_types_allowed = True
         extra = "allow"
@@ -199,3 +202,6 @@ class TestIssueEvent(IssueEvent):
     def __init__(self, **data):
         super().__init__(**data)
         self.action = "opened"  # Default action for test events
+
+    def get_context_for_claude(self) -> str:
+        return f"""Test event. """
