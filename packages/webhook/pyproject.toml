@@ -37,6 +37,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "httpx>=0.24.0",
     "GitPython>=3.1.0",
+    "PyGithub>=1.55.0",
     "cryptography>=3.4.0",
     "structlog>=21.1.0",
     "tenacity>=8.0.0",
