@@ -154,3 +154,5 @@ Desktop.ini
 .devs/
 loclx-config.yaml
 .devmode.zsh
+
+.claude/

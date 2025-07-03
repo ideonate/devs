@@ -39,6 +39,7 @@ devs/
 **Installation**: `pip install devs` (when published) or `pip install -e packages/cli/` (development)
 
 **Package Structure**:
+
 ```
 packages/cli/
 ├── devs/
@@ -58,11 +59,11 @@ packages/cli/
 │       └── file_utils.py       # File operation utilities
 ├── tests/                      # Test suite
 ├── pyproject.toml             # Package configuration
-├── README.md                  # Package documentation
-└── MIGRATION.md               # Migration guide from shell script
+└── README.md                  # Package documentation
 ```
 
 **Key Classes**:
+
 - `Project`: Handles project detection, git info, naming conventions
 - `ContainerManager`: Manages Docker container lifecycle using python-docker API
 - `WorkspaceManager`: Handles workspace copying and isolation
@@ -72,23 +73,28 @@ packages/cli/
 ## Architecture
 
 ### Container Naming
+
 Containers follow the pattern: `dev-<org>-<repo>-<dev-name>`
 
 Example: `dev-ideonate-devs-sally`, `dev-ideonate-devs-bob`
 
 ### Workspace Management
+
 Each dev environment gets its own isolated workspace:
+
 - **Location**: `~/.devs/workspaces/<project-name>-<dev-name>/`
 - **Content**: Git-tracked files (or all files for non-git projects)
 - **Special dirs**: `.git`, `.claude`, `.devcontainer` extras copied
 - **Exclusions**: Build/cache directories excluded for non-git projects
 
 ### VS Code Integration
+
 - **URI Format**: `vscode-remote://dev-container+${hex_path}/workspaces/${workspace_name}`
 - **Unique Paths**: Each dev environment gets unique workspace path for VS Code separation
 - **Window Titles**: Custom titles based on dev environment names
 
 ### Python Dependencies
+
 - **Docker Operations**: `docker` package (native Python API)
 - **Git Operations**: `GitPython` (robust git handling)
 - **CLI Framework**: `click` (better argument parsing and help)
@@ -98,6 +104,7 @@ Each dev environment gets its own isolated workspace:
 ## Commands
 
 ### Core Commands (CLI Package)
+
 - `devs start <name...>` - Start named devcontainers
 - `devs vscode <name...>` - Open devcontainers in VS Code
 - `devs stop <name...>` - Stop and remove devcontainers
@@ -108,6 +115,7 @@ Each dev environment gets its own isolated workspace:
 - `devs help` - Show usage information
 
 ### Example Workflow
+
 ```bash
 # Start development environments
 devs start frontend backend
@@ -128,6 +136,7 @@ devs stop frontend backend
 ## Development
 
 ### Development Setup
+
 ```bash
 # Quick setup for all packages
 ./scripts/setup-dev.sh
@@ -138,12 +147,14 @@ pip install -e ".[dev]"
 ```
 
 ### Development Scripts
+
 - `./scripts/setup-dev.sh` - Install all packages in development mode
 - `./scripts/test-all.sh` - Run tests across all packages
 - `./scripts/lint-all.sh` - Lint and format all packages
 - `./scripts/clean.sh` - Clean build artifacts and cache files
 
 ### Testing
+
 ```bash
 # Test all packages
 ./scripts/test-all.sh
@@ -153,6 +164,7 @@ cd packages/cli && pytest -v
 ```
 
 ### Code Quality
+
 ```bash
 # Lint all packages
 ./scripts/lint-all.sh
@@ -169,11 +181,13 @@ flake8 devs tests      # Linting
 ### Environment Variables
 
 #### Core Configuration
+
 - `DEVS_WORKSPACES_DIR`: Custom workspace directory (default: `~/.devs/workspaces`)
 - `DEVS_PROJECT_PREFIX`: Container name prefix (default: `dev`)
 - `DEVS_CLAUDE_CONFIG_DIR`: Claude config directory (default: `~/.devs/claudeconfig`)
 
 #### GitHub Integration
+
 - `GH_TOKEN`: GitHub personal access token (for private repositories and GitHub CLI authentication)
   ```bash
   export GH_TOKEN=your_github_token_here
@@ -181,13 +195,16 @@ flake8 devs tests      # Linting
   ```
 
 #### Webhook Configuration
+
 - `GITHUB_WEBHOOK_SECRET`: GitHub webhook secret
 - `GITHUB_TOKEN`: GitHub personal access token (same as GH_TOKEN)
 - `GITHUB_MENTIONED_USER`: GitHub username to watch for @mentions
 - `CLAUDE_API_KEY`: Claude API key for webhook responses
 
 ### DevContainer Support
+
 The devcontainer.json should support `DEVCONTAINER_NAME` for custom naming and `GH_TOKEN` for runtime GitHub access:
+
 ```json
 {
   "name": "${localEnv:DEVCONTAINER_NAME:Default} - Project Name",
@@ -198,9 +215,11 @@ The devcontainer.json should support `DEVCONTAINER_NAME` for custom naming and `
 ```
 
 ### Migrating from .env Files
+
 Previous versions required creating `.devcontainer/.env` files with `GH_TOKEN=...`. This is no longer needed:
 
 **Old approach (deprecated):**
+
 ```bash
 # Create .devcontainer/.env file
 echo "GH_TOKEN=your_token" > .devcontainer/.env
@@ -208,6 +227,7 @@ devs start mydev
 ```
 
 **New approach (recommended):**
+
 ```bash
 # Set environment variable (persists across sessions if added to ~/.bashrc or ~/.zshrc)
 export GH_TOKEN=your_github_token_here
@@ -215,6 +235,7 @@ devs start mydev  # Token automatically available in container at runtime
 ```
 
 **How it works:**
+
 - The `GH_TOKEN` is passed as a **runtime environment variable** (not build-time)
 - Available inside the running container for tools like `gh` CLI
 - More secure than storing tokens in Docker image layers
@@ -225,6 +246,7 @@ Note: `.devcontainer/.env` files are still copied if they exist (for other custo
 ## Dependencies
 
 ### Runtime Dependencies
+
 - **Python 3.8+**: Required for the package
 - **Docker**: Container runtime
 - **VS Code**: With `code` command in PATH
@@ -232,6 +254,7 @@ Note: `.devcontainer/.env` files are still copied if they exist (for other custo
 - **Project Requirements**: `.devcontainer/devcontainer.json` in target projects
 
 ### Development Dependencies
+
 - `pytest>=6.0`: Testing framework
 - `pytest-cov`: Coverage reporting
 - `black`: Code formatting
@@ -241,7 +264,9 @@ Note: `.devcontainer/.env` files are still copied if they exist (for other custo
 ## Key Implementation Details
 
 ### Project Detection (Python)
+
 Uses `GitPython` for robust git operations:
+
 ```python
 # Extract org-repo format from git URL
 def _extract_project_name_from_url(self, git_url: str) -> str:
@@ -250,7 +275,9 @@ def _extract_project_name_from_url(self, git_url: str) -> str:
 ```
 
 ### Container Management (Python)
+
 Uses `docker` Python package for native API access:
+
 ```python
 # Direct Docker API calls instead of CLI
 def ensure_container_running(self, dev_name: str, workspace_dir: Path) -> bool:
@@ -260,7 +287,9 @@ def ensure_container_running(self, dev_name: str, workspace_dir: Path) -> bool:
 ```
 
 ### Workspace Creation (Python)
+
 Uses native Python file operations:
+
 ```python
 # Git-aware file copying
 def create_workspace(self, dev_name: str) -> Path:
@@ -272,6 +301,7 @@ def create_workspace(self, dev_name: str) -> Path:
 ## Error Handling
 
 ### Custom Exception Hierarchy
+
 - `DevsError`: Base exception
 - `ProjectNotFoundError`: Project detection issues
 - `DevcontainerConfigError`: Missing devcontainer.json
@@ -281,15 +311,18 @@ def create_workspace(self, dev_name: str) -> Path:
 - `DependencyError`: Missing dependencies
 
 ### Dependency Checking
+
 The CLI automatically checks for required dependencies and provides installation instructions for missing tools.
 
 ## Future Enhancements
 
 ### Planned Packages
+
 - **Webhook Package** (`packages/webhook/`): GitHub App webhook handler for automated devcontainer operations
 - **Common Package** (`packages/common/`): Shared utilities between CLI and webhook
 
 ### Potential Features
+
 - **Plugin System**: Extensible plugin architecture
 - **Configuration Files**: YAML/TOML configuration files
 - **Container Templates**: Custom devcontainer templates per project
@@ -297,32 +330,22 @@ The CLI automatically checks for required dependencies and provides installation
 - **Multi-Project Support**: Managing containers across multiple projects
 - **Web Interface**: Optional web UI for container management
 
-## Migration Notes
-
-### From Shell Script to Python
-The original zsh script (`./devs`) is preserved for backward compatibility but will be removed in a future version. The Python CLI tool (`packages/cli/`) provides:
-
-- **Better Error Handling**: Comprehensive exception handling with helpful messages
-- **Enhanced Dependencies**: Native Python APIs instead of shell command wrapping
-- **Object-Oriented Design**: Maintainable and extensible architecture
-- **Testing**: Comprehensive test suite with pytest
-- **Type Safety**: Full type hints with mypy checking
-
-See `packages/cli/MIGRATION.md` for detailed migration information.
-
 ## Troubleshooting
 
 ### Python Package Issues
+
 - **Import Errors**: Ensure package installed with `pip install -e packages/cli/`
 - **Dependency Issues**: Run `devs status` to check dependency availability
 - **Permission Issues**: Ensure Docker daemon is running and accessible
 
 ### Container Issues
+
 - **Container not found**: Check `devs list` and verify project detection
 - **VS Code connection issues**: Verify devcontainer configuration exists
 - **Workspace issues**: Check `~/.devs/workspaces/` for workspace copies
 
 ### Development Issues
+
 - **Test failures**: Run `./scripts/test-all.sh` to see detailed output
 - **Linting failures**: Run `./scripts/lint-all.sh` to identify and fix issues
 - **Type checking**: Use `mypy devs` in the CLI package directory

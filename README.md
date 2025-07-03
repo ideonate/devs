@@ -109,10 +109,6 @@ black devs tests
 mypy devs
 ```
 
-## Migration from Shell Script
-
-If you're upgrading from the original zsh script, see [MIGRATION.md](packages/cli/MIGRATION.md) for detailed migration information.
-
 ## Architecture
 
 ### Container Naming
@@ -154,4 +150,3 @@ MIT License - see individual package directories for details.
 
 - [Issues](https://github.com/ideonate/devs/issues)
 - [CLI Documentation](packages/cli/README.md)
-- [Migration Guide](packages/cli/MIGRATION.md)

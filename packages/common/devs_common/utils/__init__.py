@@ -16,9 +16,6 @@ from .git_utils import (
 
 from .docker_client import DockerClient
 from .devcontainer import DevContainerCLI
-from .devcontainer_template import (
-    has_devcontainer_config
-)
 
 __all__ = [
     "copy_file_list",
@@ -30,6 +27,5 @@ __all__ = [
     "get_tracked_files",
     "is_git_repository",
     "DockerClient",
-    "DevContainerCLI",
-    "has_devcontainer_config"
+    "DevContainerCLI"
 ]
