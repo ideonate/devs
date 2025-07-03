@@ -2,6 +2,7 @@
 
 import asyncio
 import shlex
+import re
 from typing import NamedTuple, Optional
 import structlog
 from pathlib import Path
@@ -113,7 +114,7 @@ class ClaudeDispatcher:
             project = Project(repo_path)
             full_container_name = project.get_container_name(dev_name)
 
-            if False:
+            if not event.is_test:
 
                 # Escape the prompt for shell safety
                 escaped_prompt = shlex.quote(prompt)
@@ -133,6 +134,7 @@ class ClaudeDispatcher:
                     "docker", "exec", "-i",
                     full_container_name,
                     "echo", "Test event received, no execution"
+                    #"sh", "-c", "echo 'Error message' >&2; exit 1"
                  ]
             
             if self.config.dev_mode:
@@ -287,6 +289,30 @@ You should always comment back in any case. The `gh` CLI is available for GitHub
         
         return prompt
     
+    def _sanitize_outgoing_comment(self, comment: str, mentioned_user: str) -> str:
+        """Sanitize outgoing comment to prevent feedback loops.
+        
+        Args:
+            comment: The comment text to sanitize
+            mentioned_user: The bot username to remove mentions of
+            
+        Returns:
+            Sanitized comment text
+        """
+        # Replace @mention with just the username to prevent loops
+        # Use negative lookbehind to avoid replacing @@mentions (which are already escaped)
+        pattern = re.compile(rf"(?<!@)@{re.escape(mentioned_user)}\b", re.IGNORECASE)
+        sanitized = pattern.sub(mentioned_user, comment)
+        
+        # Log if we made any changes
+        if sanitized != comment:
+            logger.info("Sanitized outgoing comment to prevent feedback loop",
+                       original_length=len(comment),
+                       sanitized_length=len(sanitized),
+                       mentioned_user=mentioned_user)
+        
+        return sanitized
+    
     async def _handle_task_completion(
         self,
         event: WebhookEvent,
@@ -327,7 +353,9 @@ You should always comment back in any case. The `gh` CLI is available for GitHub
 # This response was generated automatically by the devs webhook handler.
 # """
             
-            await self._post_github_comment(event, claude_output)
+            # Sanitize output to prevent feedback loops
+            sanitized_output = self._sanitize_outgoing_comment(claude_output, self.config.github_mentioned_user)
+            await self._post_github_comment(event, sanitized_output)
             
         except Exception as e:
             logger.error("Error handling task completion",
@@ -351,20 +379,18 @@ You should always comment back in any case. The `gh` CLI is available for GitHub
                            error=error_msg)
                 return
             
-            comment = f"""🤖 **Claude AI Assistant Error**
-
-I encountered an error while trying to process your request:
+            comment = f"""I encountered an error while trying to process your request:
 
 ```
 {error_msg}
 ```
 
 Please check the webhook handler logs for more details, or try mentioning me again with a more specific request.
-
-This response was generated automatically by the devs webhook handler.
 """
             
-            await self._post_github_comment(event, comment)
+            # Sanitize comment to prevent feedback loops
+            sanitized_comment = self._sanitize_outgoing_comment(comment, self.config.github_mentioned_user)
+            await self._post_github_comment(event, sanitized_comment)
             
         except Exception as e:
             logger.error("Error handling task failure",
