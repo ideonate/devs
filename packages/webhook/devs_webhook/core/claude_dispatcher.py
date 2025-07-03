@@ -115,18 +115,11 @@ class ClaudeDispatcher:
             full_container_name = project.get_container_name(dev_name)
 
             if not event.is_test:
-
-                # Escape the prompt for shell safety
-                escaped_prompt = shlex.quote(prompt)
-                
-                # Build docker exec command
+                # Build docker exec command with cd and stdin for prompt
                 cmd = [
                     "docker", "exec", "-i",  # -i for stdin, no TTY
-                    "-w", f"/workspaces/{workspace_name}",  # Set working directory
                     full_container_name,
-                    "claude",
-                    "--dangerously-skip-permissions",
-                    "-p", escaped_prompt
+                    "sh", "-c", f"cd /workspaces/{workspace_name} && claude --dangerously-skip-permissions"
                 ]
             else:
                 # For test events, use a simplified command
@@ -146,14 +139,25 @@ class ClaudeDispatcher:
                             workspace=workspace_name,
                             cmd_preview=f"docker exec {full_container_name} claude -p '...'")
             
+            # Prepare prompt as bytes for stdin (only for non-test events)
+            prompt_input = None
+            if not event.is_test:
+                prompt_input = prompt.encode('utf-8')
+
             # Execute command with streaming output in dev mode
             if self.config.dev_mode:
                 # In dev mode, stream output to console in real-time
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
+                    stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
+                
+                # Send prompt via stdin and close it
+                if prompt_input:
+                    process.stdin.write(prompt_input)
+                    process.stdin.close()
                 
                 # Stream output in real-time
                 output_lines = []
@@ -205,14 +209,15 @@ class ClaudeDispatcher:
                 # Normal mode - capture output without streaming
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
+                    stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
                 
-                # Wait for completion with timeout
+                # Wait for completion with timeout, sending prompt via stdin
                 try:
                     stdout, stderr = await asyncio.wait_for(
-                        process.communicate(),
+                        process.communicate(input=prompt_input),
                         timeout=self.config.container_timeout_minutes * 60
                     )
                 except asyncio.TimeoutError:
