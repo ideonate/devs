@@ -235,24 +235,18 @@ async def test_event(
         sender=mock_issue.user
     )
     
-    # Generate workspace name for this test task
-    repo_slug = request.repo.replace("/", "-")
-    workspace_name = f"{repo_slug}-{delivery_id}"
-    
     # Queue the task directly in the container pool
     success = await get_webhook_handler().container_pool.queue_task(
         task_id=delivery_id,
         repo_name=request.repo,
         task_description=request.prompt,
         event=mock_event,
-        workspace_name=workspace_name
     )
     
     if success:
         logger.info("Test task queued successfully",
                    delivery_id=delivery_id,
-                   repo=request.repo,
-                   workspace=workspace_name)
+                   repo=request.repo)
         
         return JSONResponse(
             status_code=202,
@@ -261,7 +255,6 @@ async def test_event(
                 "delivery_id": delivery_id,
                 "repo": request.repo,
                 "prompt": request.prompt[:100] + "..." if len(request.prompt) > 100 else request.prompt,
-                "workspace": workspace_name,
                 "message": "Test task queued for processing"
             }
         )

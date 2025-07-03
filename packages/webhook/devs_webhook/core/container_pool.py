@@ -24,7 +24,7 @@ class QueuedTask(NamedTuple):
     repo_name: str
     task_description: str
     event: WebhookEvent
-    workspace_name: str
+
 
 
 class ContainerPool:
@@ -34,131 +34,29 @@ class ContainerPool:
         """Initialize container pool."""
         self.config = get_config()
         self.claude_dispatcher = ClaudeDispatcher()
+
+        # Track running containers for idle cleanup
+        self.running_containers: Dict[str, Dict[str, Any]] = {}
+        self._lock = asyncio.Lock()
         
-        # Track container status
-        self.available_containers: Set[str] = set(self.config.container_pool)
-        self.busy_containers: Dict[str, Dict[str, Any]] = {}
-        
-        # Task queues - one per container
+        # Task queues - one per dev name
         self.container_queues: Dict[str, asyncio.Queue] = {
-            container: asyncio.Queue() for container in self.config.container_pool
+            dev_name: asyncio.Queue() for dev_name in self.config.container_pool
         }
         
-        # Container workers - one per container
+        # Container workers - one per dev name
         self.container_workers: Dict[str, asyncio.Task] = {}
-        
-        # Lock for thread safety
-        self._lock = asyncio.Lock()
         
         # Start worker tasks for each container
         self._start_workers()
+
+        # Start the idle container cleanup task
+        self.cleanup_worker = asyncio.create_task(self._idle_cleanup_worker())
         
         logger.info("Container pool initialized", 
                    containers=self.config.container_pool)
     
-    async def allocate_container(
-        self, 
-        repo_name: str, 
-        repo_path: Path
-    ) -> Optional[str]:
-        """Allocate a container for a task.
-        
-        Args:
-            repo_name: Repository name (owner/repo)
-            repo_path: Path to repository on host
-            
-        Returns:
-            Container name if allocated, None if none available
-        """
-        async with self._lock:
-            # Clean up expired containers first
-            await self._cleanup_expired_containers()
-            
-            if not self.available_containers:
-                logger.warning("No available containers", 
-                              available=len(self.available_containers),
-                              busy=len(self.busy_containers))
-                return None
-            
-            # Get next available container (round-robin)
-            container_name = self.available_containers.pop()
-            
-            # Set up container for this repository
-            try:
-                success = await self._setup_container(
-                    container_name, repo_name, repo_path
-                )
-                
-                if not success:
-                    # Return container to available pool
-                    self.available_containers.add(container_name)
-                    return None
-                
-                # Mark as busy
-                self.busy_containers[container_name] = {
-                    "repo_name": repo_name,
-                    "repo_path": str(repo_path),
-                    "allocated_at": datetime.now(),
-                    "expires_at": datetime.now() + timedelta(
-                        minutes=self.config.container_timeout_minutes
-                    )
-                }
-                
-                logger.info("Container allocated",
-                           container=container_name,
-                           repo=repo_name,
-                           expires_in_minutes=self.config.container_timeout_minutes)
-                
-                return container_name
-                
-            except Exception as e:
-                # Return container to available pool on error
-                self.available_containers.add(container_name)
-                logger.error("Failed to setup container",
-                            container=container_name,
-                            repo=repo_name,
-                            error=str(e))
-                return None
     
-    async def release_container(self, container_name: str) -> None:
-        """Release a container back to the available pool.
-        
-        Args:
-            container_name: Name of container to release
-        """
-        async with self._lock:
-            if container_name in self.busy_containers:
-                # Clean up container
-                await self._cleanup_container(container_name)
-                
-                # Move back to available
-                del self.busy_containers[container_name]
-                self.available_containers.add(container_name)
-                
-                logger.info("Container released", container=container_name)
-            else:
-                logger.warning("Attempted to release unknown container",
-                              container=container_name)
-    
-    async def force_stop_container(self, container_name: str) -> bool:
-        """Force stop a container.
-        
-        Args:
-            container_name: Name of container to stop
-            
-        Returns:
-            True if stopped successfully
-        """
-        async with self._lock:
-            if container_name in self.busy_containers:
-                await self._cleanup_container(container_name)
-                del self.busy_containers[container_name]
-                self.available_containers.add(container_name)
-                
-                logger.info("Container force stopped", container=container_name)
-                return True
-            
-            return False
     
     async def queue_task(
         self,
@@ -166,7 +64,6 @@ class ContainerPool:
         repo_name: str,
         task_description: str,
         event: WebhookEvent,
-        workspace_name: str
     ) -> bool:
         """Queue a task for execution in the next available container.
         
@@ -175,7 +72,6 @@ class ContainerPool:
             repo_name: Repository name (owner/repo)
             task_description: Task description for Claude
             event: Original webhook event
-            workspace_name: Workspace directory name
             
         Returns:
             True if task was queued successfully
@@ -185,11 +81,11 @@ class ContainerPool:
             best_container = None
             min_queue_size = float('inf')
             
-            for container_name in self.config.container_pool:
-                queue_size = self.container_queues[container_name].qsize()
+            for dev_name in self.config.container_pool:
+                queue_size = self.container_queues[dev_name].qsize()
                 if queue_size < min_queue_size:
                     min_queue_size = queue_size
-                    best_container = container_name
+                    best_container = dev_name
             
             if best_container is None:
                 logger.error("No containers available for task queuing")
@@ -201,7 +97,6 @@ class ContainerPool:
                 repo_name=repo_name,
                 task_description=task_description,
                 event=event,
-                workspace_name=workspace_name
             )
             
             # Add to queue
@@ -223,100 +118,111 @@ class ContainerPool:
     
     def _start_workers(self) -> None:
         """Start worker tasks for each container."""
-        for container_name in self.config.container_pool:
+        for dev_name in self.config.container_pool:
             worker_task = asyncio.create_task(
-                self._container_worker(container_name)
+                self._container_worker(dev_name)
             )
-            self.container_workers[container_name] = worker_task
+            self.container_workers[dev_name] = worker_task
             
-            logger.info("Started worker for container", container=container_name)
+            logger.info("Started worker for container", container=dev_name)
     
-    async def _container_worker(self, container_name: str) -> None:
+    async def _container_worker(self, dev_name: str) -> None:
         """Worker process for a specific container.
         
         Args:
-            container_name: Name of the container this worker manages
+            dev_name: Name of the container this worker manages
         """
-        logger.info("Container worker started", container=container_name)
+        logger.info("Container worker started", container=dev_name)
         
         try:
             while True:
                 # Wait for a task from the queue
                 try:
-                    queued_task = await self.container_queues[container_name].get()
+                    queued_task = await self.container_queues[dev_name].get()
                     
                     logger.info("Worker processing task",
-                               container=container_name,
+                               container=dev_name,
                                task_id=queued_task.task_id,
                                repo=queued_task.repo_name)
                     
                     # Process the task
-                    await self._process_task(container_name, queued_task)
+                    await self._process_task(dev_name, queued_task)
                     
                     # Mark task as done
-                    self.container_queues[container_name].task_done()
+                    self.container_queues[dev_name].task_done()
                     
                 except asyncio.CancelledError:
-                    logger.info("Container worker cancelled", container=container_name)
+                    logger.info("Container worker cancelled", container=dev_name)
                     break
                 except Exception as e:
                     logger.error("Error in container worker",
-                                container=container_name,
+                                container=dev_name,
                                 error=str(e))
                     # Continue processing other tasks
                     continue
                     
         except Exception as e:
             logger.error("Container worker failed",
-                        container=container_name,
+                        container=dev_name,
                         error=str(e))
     
-    async def _process_task(self, container_name: str, queued_task: QueuedTask) -> None:
+    async def _process_task(self, dev_name: str, queued_task: QueuedTask) -> None:
         """Process a single task in a container.
         
         Args:
-            container_name: Name of container to execute in
+            dev_name: Name of container to execute in
             queued_task: Task to process
         """
+        repo_name = queued_task.repo_name
+        repo_path = self.config.repo_cache_dir / repo_name.replace("/", "-")
+        
+        # The workspace name is determined by the project and the dev_name
+        project = Project(repo_path)
+        workspace_name = f"{project.info.name}-{dev_name}"
+
         try:
-            # Setup container for the repository if needed
-            repo_path = self.config.repo_cache_dir / queued_task.repo_name.replace("/", "-")
-            
             # Ensure repository is cloned
-            await self._ensure_repository_cloned(queued_task.repo_name, repo_path)
-            
-            # Allocate container for this task
-            allocated = await self.allocate_container(queued_task.repo_name, repo_path)
-            
-            if not allocated:
-                logger.error("Failed to allocate container for task",
-                            task_id=queued_task.task_id,
-                            container=container_name)
+            await self._ensure_repository_cloned(repo_name, repo_path)
+
+            # Set up container for this repository
+            setup_success = await self._setup_container(
+                dev_name, repo_name, repo_path
+            )
+
+            if not setup_success:
+                logger.error("Failed to set up container for task",
+                             task_id=queued_task.task_id,
+                             container=dev_name)
                 return
+
+            # Mark container as active
+            async with self._lock:
+                self.running_containers[dev_name] = {
+                    "repo_path": repo_path,
+                    "last_used": datetime.now(),
+                }
+
+            # Execute the task
+            result = await self.claude_dispatcher.execute_task(
+                dev_name=dev_name,
+                workspace_name=workspace_name,
+                task_description=queued_task.task_description,
+                event=queued_task.event
+            )
             
-            try:
-                # Execute the task
-                result = await self.claude_dispatcher.execute_task(
-                    container_name=container_name,
-                    workspace_name=queued_task.workspace_name,
-                    task_description=queued_task.task_description,
-                    event=queued_task.event
-                )
-                
-                logger.info("Task execution completed",
-                           task_id=queued_task.task_id,
-                           container=container_name,
-                           success=result.success)
-                
-            finally:
-                # Always release the container
-                await self.release_container(container_name)
+            logger.info("Task execution completed",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       success=result.success)
                 
         except Exception as e:
             logger.error("Task processing failed",
                         task_id=queued_task.task_id,
-                        container=container_name,
+                        container=dev_name,
                         error=str(e))
+            
+            # If setup failed, we might have a mess. Clean up.
+            await self._cleanup_container(dev_name, repo_path)
     
     async def _ensure_repository_cloned(
         self,
@@ -383,8 +289,15 @@ class ContainerPool:
         """Shutdown the container pool and all workers."""
         logger.info("Shutting down container pool")
         
+        # Cancel the cleanup worker
+        self.cleanup_worker.cancel()
+        try:
+            await self.cleanup_worker
+        except asyncio.CancelledError:
+            pass
+
         # Cancel all worker tasks
-        for container_name, worker_task in self.container_workers.items():
+        for dev_name, worker_task in self.container_workers.items():
             worker_task.cancel()
             
             try:
@@ -392,40 +305,69 @@ class ContainerPool:
             except asyncio.CancelledError:
                 pass
             
-            logger.info("Worker shut down", container=container_name)
+            logger.info("Worker shut down", container=dev_name)
         
-        # Clean up all containers
-        for container_name in list(self.busy_containers.keys()):
-            await self.release_container(container_name)
-        
+        # Clean up any remaining running containers
+        async with self._lock:
+            for dev_name, info in self.running_containers.items():
+                await self._cleanup_container(dev_name, info["repo_path"])
+
         logger.info("Container pool shutdown complete")
     
     async def get_status(self) -> Dict[str, Any]:
         """Get current pool status."""
         async with self._lock:
             return {
-                "available": list(self.available_containers),
-                "busy": {
+                "container_queues": {
+                    name: queue.qsize()
+                    for name, queue in self.container_queues.items()
+                },
+                "running_containers": {
                     name: {
-                        "repo": info["repo_name"],
-                        "allocated_at": info["allocated_at"].isoformat(),
-                        "expires_at": info["expires_at"].isoformat(),
+                        "repo_path": str(info["repo_path"]),
+                        "last_used": info["last_used"].isoformat(),
                     }
-                    for name, info in self.busy_containers.items()
+                    for name, info in self.running_containers.items()
                 },
                 "total_containers": len(self.config.container_pool),
             }
+
+    async def _idle_cleanup_worker(self) -> None:
+        """Periodically clean up idle containers."""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Check every minute
+                
+                async with self._lock:
+                    now = datetime.now()
+                    idle_timeout = timedelta(minutes=self.config.container_timeout_minutes)
+                    
+                    idle_containers = []
+                    for dev_name, info in self.running_containers.items():
+                        if now - info["last_used"] > idle_timeout:
+                            idle_containers.append((dev_name, info["repo_path"]))
+                    
+                    for dev_name, repo_path in idle_containers:
+                        logger.info("Container idle, cleaning up", container=dev_name)
+                        await self._cleanup_container(dev_name, repo_path)
+                        del self.running_containers[dev_name]
+
+            except asyncio.CancelledError:
+                logger.info("Idle cleanup worker cancelled")
+                break
+            except Exception as e:
+                logger.error("Error in idle cleanup worker", error=str(e))
     
     async def _setup_container(
         self, 
-        container_name: str, 
+        dev_name: str, 
         repo_name: str, 
         repo_path: Path
     ) -> bool:
         """Set up a container for a repository.
         
         Args:
-            container_name: Name of container to set up
+            dev_name: Name of container to set up
             repo_name: Repository name
             repo_path: Path to repository
             
@@ -441,10 +383,10 @@ class ContainerPool:
             workspace_manager = WorkspaceManager(project, webhook_config)
             
             # Create workspace for this container
-            # Note: container_name is the pool name (eamonn/harry/darren) which becomes the dev_name
+            # Note: dev_name is the pool name (eamonn/harry/darren)
             # ContainerManager will generate proper Docker container name: dev-org-repo-poolname
             workspace_dir = workspace_manager.create_workspace(
-                container_name, force=True  # Always recreate for fresh start
+                dev_name, force=True
             )
             
             # Set up container manager
@@ -452,12 +394,12 @@ class ContainerPool:
             
             # Ensure container is running using proper container name
             success = container_manager.ensure_container_running(
-                container_name, workspace_dir, force_rebuild=False
+                dev_name, workspace_dir, force_rebuild=False
             )
             
             if success:
                 logger.info("Container setup complete",
-                           container=container_name,
+                           container=dev_name,
                            repo=repo_name,
                            workspace=str(workspace_dir))
             
@@ -465,25 +407,19 @@ class ContainerPool:
             
         except Exception as e:
             logger.error("Container setup failed",
-                        container=container_name,
+                        container=dev_name,
                         repo=repo_name,
                         error=str(e))
             return False
     
-    async def _cleanup_container(self, container_name: str) -> None:
+    async def _cleanup_container(self, dev_name: str, repo_path: Path) -> None:
         """Clean up a container after use.
         
         Args:
-            container_name: Name of container to clean up
+            dev_name: Name of container to clean up
+            repo_path: Path to repository on host
         """
         try:
-            # Get container info
-            container_info = self.busy_containers.get(container_name)
-            if not container_info:
-                return
-            
-            repo_path = Path(container_info["repo_path"])
-            
             # Create project and managers for cleanup
             project = Project(repo_path)
             
@@ -493,30 +429,14 @@ class ContainerPool:
             container_manager = ContainerManager(project, webhook_config)
             
             # Stop container
-            container_manager.stop_container(container_name)
+            container_manager.stop_container(dev_name)
             
             # Remove workspace
-            workspace_manager.remove_workspace(container_name)
+            workspace_manager.remove_workspace(dev_name)
             
-            logger.info("Container cleanup complete", container=container_name)
+            logger.info("Container cleanup complete", container=dev_name)
             
         except Exception as e:
             logger.error("Container cleanup failed",
-                        container=container_name,
+                        container=dev_name,
                         error=str(e))
-    
-    async def _cleanup_expired_containers(self) -> None:
-        """Clean up containers that have exceeded their timeout."""
-        now = datetime.now()
-        expired_containers = []
-        
-        for container_name, info in self.busy_containers.items():
-            if now > info["expires_at"]:
-                expired_containers.append(container_name)
-        
-        for container_name in expired_containers:
-            logger.info("Container expired, cleaning up",
-                       container=container_name)
-            await self._cleanup_container(container_name)
-            del self.busy_containers[container_name]
-            self.available_containers.add(container_name)

@@ -4,7 +4,9 @@ import asyncio
 import shlex
 from typing import NamedTuple, Optional
 import structlog
+from pathlib import Path
 
+from devs_common.core.project import Project
 from ..config import get_config
 from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent
 from ..github.client import GitHubClient
@@ -31,7 +33,7 @@ class ClaudeDispatcher:
     
     async def execute_task(
         self,
-        container_name: str,
+        dev_name: str,
         workspace_name: str,
         task_description: str,
         event: WebhookEvent
@@ -39,7 +41,7 @@ class ClaudeDispatcher:
         """Execute a task using Claude Code CLI in a container.
         
         Args:
-            container_name: Name of container to execute in
+            dev_name: Name of dev container (e.g., eamonn)
             workspace_name: Workspace directory name inside container
             task_description: Task description for Claude
             event: Original webhook event
@@ -49,27 +51,30 @@ class ClaudeDispatcher:
         """
         try:
             logger.info("Starting Claude Code CLI task",
-                       container=container_name,
+                       container=dev_name,
                        repo=event.repository.full_name,
                        workspace=workspace_name)
             
             # Build Claude Code prompt with context
             prompt = self._build_claude_prompt(task_description, workspace_name, event)
             
+            # Get repo path for project info
+            repo_path = self.config.repo_cache_dir / event.repository.full_name.replace("/", "-")
+
             # Execute Claude Code CLI in the container
-            result = await self._execute_claude_cli(container_name, workspace_name, prompt)
+            result = await self._execute_claude_cli(dev_name, workspace_name, prompt, repo_path)
             
             if result.success:
                 # Post-process results
                 await self._handle_task_completion(event, result.output)
                 logger.info("Claude Code task completed successfully",
-                           container=container_name,
+                           container=dev_name,
                            repo=event.repository.full_name)
             else:
                 # Handle failure
                 await self._handle_task_failure(event, result.error or "Unknown error")
                 logger.error("Claude Code task failed",
-                           container=container_name,
+                           container=dev_name,
                            error=result.error)
             
             return result
@@ -77,7 +82,7 @@ class ClaudeDispatcher:
         except Exception as e:
             error_msg = f"Task execution failed: {str(e)}"
             logger.error("Task execution error",
-                        container=container_name,
+                        container=dev_name,
                         error=error_msg,
                         exc_info=True)
             
@@ -86,21 +91,27 @@ class ClaudeDispatcher:
     
     async def _execute_claude_cli(
         self,
-        container_name: str,
+        dev_name: str,
         workspace_name: str,
-        prompt: str
+        prompt: str,
+        repo_path: Path
     ) -> TaskResult:
         """Execute Claude Code CLI inside a container using docker exec.
         
         Args:
-            container_name: Name of container to execute in
+            dev_name: Name of dev container (e.g., eamonn)
             workspace_name: Workspace directory name inside container
             prompt: Claude Code prompt to execute
+            repo_path: Path to the repository on the host
             
         Returns:
             Task execution result
         """
         try:
+            # Create a project to get the full container name
+            project = Project(repo_path)
+            full_container_name = project.get_container_name(dev_name)
+
             # Escape the prompt for shell safety
             escaped_prompt = shlex.quote(prompt)
             
@@ -108,16 +119,20 @@ class ClaudeDispatcher:
             cmd = [
                 "docker", "exec", "-i",  # -i for stdin, no TTY
                 "-w", f"/workspaces/{workspace_name}",  # Set working directory
-                container_name,
+                full_container_name,
                 "claude",
                 "--dangerously-skip-permissions",
                 "-p", escaped_prompt
             ]
             
-            logger.debug("Executing Claude CLI command",
-                        container=container_name,
-                        workspace=workspace_name,
-                        cmd_preview=f"docker exec {container_name} claude -p '...'")
+            if self.config.dev_mode:
+                # In dev mode, log the full command for debugging
+                logger.info("Executing command", command=" ".join(shlex.quote(c) for c in cmd))
+            else:
+                logger.debug("Executing Claude CLI command",
+                            container=full_container_name,
+                            workspace=workspace_name,
+                            cmd_preview=f"docker exec {full_container_name} claude -p '...'")
             
             # Execute command
             process = await asyncio.create_subprocess_exec(
@@ -146,15 +161,19 @@ class ClaudeDispatcher:
             output = stdout.decode('utf-8', errors='replace') if stdout else ""
             error = stderr.decode('utf-8', errors='replace') if stderr else ""
             
+            if self.config.dev_mode:
+                logger.info("Claude CLI stdout", output=output)
+                logger.info("Claude CLI stderr", stderr=error)
+
             success = process.returncode == 0
             
             if success:
                 logger.info("Claude CLI execution completed",
-                           container=container_name,
+                           container=full_container_name,
                            output_length=len(output))
             else:
                 logger.warning("Claude CLI execution failed",
-                              container=container_name,
+                              container=full_container_name,
                               return_code=process.returncode,
                               error_preview=error[:200])
             
@@ -167,7 +186,7 @@ class ClaudeDispatcher:
         except Exception as e:
             error_msg = f"Docker exec failed: {str(e)}"
             logger.error("Docker exec error",
-                        container=container_name,
+                        container=dev_name,
                         error=error_msg)
             return TaskResult(success=False, output="", error=error_msg)
     
