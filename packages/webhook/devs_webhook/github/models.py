@@ -1,5 +1,6 @@
 """GitHub webhook payload models."""
 
+import re
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -77,8 +78,12 @@ class WebhookEvent(BaseModel):
         mentions = []
         text_sources = self._get_text_sources()
         
+        # Create regex pattern with word boundary to match exact username
+        # This prevents matching @bot in @botname or @mybotname
+        pattern = re.compile(rf"\b@{re.escape(target_user)}\b", re.IGNORECASE)
+        
         for text in text_sources:
-            if text and f"@{target_user}" in text:
+            if text and pattern.search(text):
                 mentions.append(text)
         
         return mentions
