@@ -33,6 +33,7 @@ class GitHubIssue(BaseModel):
     body: Optional[str] = None
     state: str
     user: GitHubUser
+    assignee: Optional[GitHubUser] = None
     html_url: str
     created_at: datetime
     updated_at: datetime
@@ -46,6 +47,7 @@ class GitHubPullRequest(BaseModel):
     body: Optional[str] = None
     state: str
     user: GitHubUser
+    assignee: Optional[GitHubUser] = None
     html_url: str
     head: Dict[str, Any]
     base: Dict[str, Any]

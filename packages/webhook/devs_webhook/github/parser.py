@@ -82,8 +82,36 @@ class WebhookParser:
         Returns:
             True if the event contains @mentions of the target user
         """
-        # Only process certain actions
-        if event.action not in ["opened", "created", "edited"]:
+        # Process different types of relevant actions
+        relevant_actions = ["opened", "created", "edited"]
+        
+        # For issues and PRs, also process assignments
+        if isinstance(event, (IssueEvent, PullRequestEvent)):
+            relevant_actions.append("assigned")
+        
+        if event.action not in relevant_actions:
+            return False
+        
+        # Special handling for assignment events
+        if event.action == "assigned":
+            # Only process if the bot user was assigned
+            assignee = None
+            if isinstance(event, IssueEvent) and hasattr(event.issue, 'assignee'):
+                assignee = event.issue.assignee
+            elif isinstance(event, PullRequestEvent) and hasattr(event.pull_request, 'assignee'): 
+                assignee = event.pull_request.assignee
+            
+            if assignee and assignee.login == mentioned_user:
+                return True  # Bot was assigned, process it
+            else:
+                return False  # Someone else was assigned, ignore
+        
+        # Prevent feedback loops: Don't process events created by the bot user
+        if event.sender.login == mentioned_user:
+            return False
+        
+        # For comment events, also check if the comment author is the bot
+        if isinstance(event, CommentEvent) and event.comment.user.login == mentioned_user:
             return False
         
         # Check for @mentions
