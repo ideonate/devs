@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Set, Any, NamedTuple
 from pathlib import Path
 import structlog
+import yaml
 
 from devs_common.core.project import Project
 from devs_common.core.container import ContainerManager
@@ -12,7 +13,7 @@ from devs_common.core.workspace import WorkspaceManager
 
 from ..config import get_config
 from .webhook_config import WebhookConfig
-from ..github.models import WebhookEvent
+from ..github.models import WebhookEvent, DevsOptions
 from .claude_dispatcher import ClaudeDispatcher, TaskResult
 
 logger = structlog.get_logger()
@@ -183,8 +184,8 @@ class ContainerPool:
         workspace_name = f"{project.info.name}-{dev_name}"
 
         try:
-            # Ensure repository is cloned
-            await self._ensure_repository_cloned(repo_name, repo_path)
+            # Ensure repository is cloned and get DEVS.yml options
+            devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
 
             # Set up container for this repository
             setup_success = await self._setup_container(
@@ -209,7 +210,8 @@ class ContainerPool:
                 dev_name=dev_name,
                 workspace_name=workspace_name,
                 task_description=queued_task.task_description,
-                event=queued_task.event
+                event=queued_task.event,
+                devs_options=devs_options
             )
             
             logger.info("Task execution completed",
@@ -230,12 +232,15 @@ class ContainerPool:
         self,
         repo_name: str,
         repo_path: Path
-    ) -> None:
+    ) -> DevsOptions:
         """Ensure repository is cloned to the workspace directory.
         
         Args:
             repo_name: Repository name (owner/repo)
             repo_path: Path where repository should be cloned
+            
+        Returns:
+            DevsOptions parsed from DEVS.yml or defaults
         """
         if repo_path.exists():
             # Repository already exists, pull latest changes
@@ -286,6 +291,33 @@ class ContainerPool:
                             repo=repo_name,
                             error=str(e))
                 raise
+        
+        # Check for DEVS.yml file
+        devs_yml_path = repo_path / "DEVS.yml"
+        devs_options = DevsOptions()  # Start with defaults
+        
+        if devs_yml_path.exists():
+            try:
+                with open(devs_yml_path, 'r') as f:
+                    data = yaml.safe_load(f)
+                    if data:
+                        # Update devs_options with values from DEVS.yml
+                        if 'default_branch' in data:
+                            devs_options.default_branch = data['default_branch']
+                        if 'prompt_extra' in data:
+                            devs_options.prompt_extra = data['prompt_extra']
+                        
+                        logger.info("Loaded DEVS.yml configuration",
+                                   repo=repo_name,
+                                   default_branch=devs_options.default_branch,
+                                   has_prompt_extra=bool(devs_options.prompt_extra))
+            except Exception as e:
+                logger.warning("Failed to parse DEVS.yml",
+                              repo=repo_name,
+                              error=str(e))
+                # Continue with defaults if parsing fails
+        
+        return devs_options
     
     async def shutdown(self) -> None:
         """Shutdown the container pool and all workers."""

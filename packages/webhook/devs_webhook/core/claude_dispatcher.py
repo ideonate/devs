@@ -9,7 +9,7 @@ from pathlib import Path
 
 from devs_common.core.project import Project
 from ..config import get_config
-from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent
+from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent, DevsOptions
 from ..github.client import GitHubClient
 
 logger = structlog.get_logger()
@@ -37,7 +37,8 @@ class ClaudeDispatcher:
         dev_name: str,
         workspace_name: str,
         task_description: str,
-        event: WebhookEvent
+        event: WebhookEvent,
+        devs_options: Optional[DevsOptions] = None
     ) -> TaskResult:
         """Execute a task using Claude Code CLI in a container.
         
@@ -46,6 +47,7 @@ class ClaudeDispatcher:
             workspace_name: Workspace directory name inside container
             task_description: Task description for Claude
             event: Original webhook event
+            devs_options: Options from DEVS.yml file
             
         Returns:
             Task execution result
@@ -57,7 +59,7 @@ class ClaudeDispatcher:
                        workspace=workspace_name)
             
             # Build Claude Code prompt with context
-            prompt = self._build_claude_prompt(task_description, workspace_name, event)
+            prompt = self._build_claude_prompt(task_description, workspace_name, event, devs_options)
             
             # Get repo path for project info
             repo_path = self.config.repo_cache_dir / event.repository.full_name.replace("/", "-")
@@ -264,7 +266,8 @@ class ClaudeDispatcher:
         self,
         task_description: str,
         workspace_name: str,
-        event: WebhookEvent
+        event: WebhookEvent,
+        devs_options: Optional[DevsOptions] = None
     ) -> str:
         """Build the complete prompt for Claude Code CLI.
         
@@ -272,6 +275,7 @@ class ClaudeDispatcher:
             task_description: Base task description
             workspace_name: Workspace directory name inside container
             event: Webhook event
+            devs_options: Options from DEVS.yml file
             
         Returns:
             Complete prompt for Claude Code CLI
@@ -281,17 +285,22 @@ class ClaudeDispatcher:
         
         prompt = f"""You are an AI developer helping build a software project in a GitHub repository. You have been mentioned in a GitHub issue/PR and need to take action.
 
-You should ensure you're on the latest main branch if starting a fresh task (git pull origin main), and generally 
+You should ensure you're on the latest {devs_options.default_branch} branch if starting a fresh task (git pull origin {devs_options.default_branch}), and generally 
 work on feature branches for changes. Submit your changes as a draft pull request when done (mention that it closes an issue number if it does).
 
 If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the issue/PR.
 
 You should always comment back in any case. The `gh` CLI is available for GitHub operations, and you can use `git` too.
 
+{devs_options.prompt_extra}
 
 {task_description}
 
 """
+        
+        # Append any extra prompt instructions from DEVS.yml
+        if devs_options and devs_options.prompt_extra:
+            prompt += f"\n{devs_options.prompt_extra}\n"
         
         return prompt
     

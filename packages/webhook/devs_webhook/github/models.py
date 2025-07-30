@@ -212,3 +212,9 @@ class TestIssueEvent(IssueEvent):
 
     def get_context_for_claude(self) -> str:
         return f"""Test event. """
+
+
+class DevsOptions(BaseModel):
+    """DEVS.yml configuration options."""
+    default_branch: str = "main"
+    prompt_extra: str = ""
