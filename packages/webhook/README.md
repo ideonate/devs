@@ -178,6 +178,33 @@ Created  Event     Container   & Setup       Solve Issue    Back
 
 ## Configuration
 
+### Repository Configuration (DEVS.yml)
+
+Repositories can include a `DEVS.yml` file in their root directory to customize how the webhook handler interacts with them:
+
+```yaml
+# DEVS.yml - Repository-specific configuration
+default_branch: develop  # Default branch name (default: main)
+prompt_extra: |          # Additional instructions for Claude
+  This project uses a specific code style:
+  - Always use tabs for indentation
+  - Keep functions under 50 lines
+  - Add JSDoc comments to all public functions
+```
+
+Available options:
+
+- **`default_branch`**: The main branch name for the repository (e.g., `main`, `master`, `develop`)
+  - Used when pulling latest changes before starting work
+  - Default: `main`
+  
+- **`prompt_extra`**: Additional instructions appended to Claude's prompt
+  - Use for project-specific guidelines, coding standards, or constraints
+  - Can be multi-line using YAML's `|` syntax
+  - Default: empty string
+
+The webhook handler automatically detects and uses these settings when processing tasks for the repository.
+
 ### Environment Variables
 
 | Variable                    | Default                      | Description                     |
