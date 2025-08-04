@@ -42,7 +42,7 @@ class ContainerPool:
         
         # Task queues - one per dev name
         self.container_queues: Dict[str, asyncio.Queue] = {
-            dev_name: asyncio.Queue() for dev_name in self.config.container_pool
+            dev_name: asyncio.Queue() for dev_name in self.config.get_container_pool_list()
         }
         
         # Container workers - one per dev name
@@ -55,7 +55,7 @@ class ContainerPool:
         self.cleanup_worker = asyncio.create_task(self._idle_cleanup_worker())
         
         logger.info("Container pool initialized", 
-                   containers=self.config.container_pool)
+                   containers=self.config.get_container_pool_list())
     
     
     
@@ -82,7 +82,7 @@ class ContainerPool:
             best_container = None
             min_queue_size = float('inf')
             
-            for dev_name in self.config.container_pool:
+            for dev_name in self.config.get_container_pool_list():
                 queue_size = self.container_queues[dev_name].qsize()
                 if queue_size < min_queue_size:
                     min_queue_size = queue_size
@@ -119,7 +119,7 @@ class ContainerPool:
     
     def _start_workers(self) -> None:
         """Start worker tasks for each container."""
-        for dev_name in self.config.container_pool:
+        for dev_name in self.config.get_container_pool_list():
             worker_task = asyncio.create_task(
                 self._container_worker(dev_name)
             )
@@ -363,7 +363,7 @@ class ContainerPool:
                     }
                     for name, info in self.running_containers.items()
                 },
-                "total_containers": len(self.config.container_pool),
+                "total_containers": len(self.config.get_container_pool_list()),
             }
 
     async def _idle_cleanup_worker(self) -> None:

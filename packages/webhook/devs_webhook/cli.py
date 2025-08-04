@@ -71,7 +71,7 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
     
     click.echo(f"Starting webhook server on {actual_host}:{actual_port}")
     click.echo(f"Watching for @{config.github_mentioned_user} mentions")
-    click.echo(f"Container pool: {', '.join(config.container_pool)}")
+    click.echo(f"Container pool: {', '.join(config.get_container_pool_list())}")
     if dev:
         click.echo("🔧 Development mode enabled - /testevent endpoint available")
     
@@ -124,7 +124,7 @@ def config():
         
         click.echo("📋 Webhook Handler Configuration")
         click.echo(f"Mentioned user: @{config.github_mentioned_user}")
-        click.echo(f"Container pool: {', '.join(config.container_pool)}")
+        click.echo(f"Container pool: {', '.join(config.get_container_pool_list())}")
         click.echo(f"Container timeout: {config.container_timeout_minutes} minutes")
         click.echo(f"Repository cache: {config.repo_cache_dir}")
         click.echo(f"Workspace directory: {config.workspace_dir}")

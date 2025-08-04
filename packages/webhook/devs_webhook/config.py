@@ -12,13 +12,6 @@ except ImportError:
     SettingsConfigDict = None
 from pydantic import Field, model_validator
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()  # Load .env file if it exists
-    _has_dotenv = True
-except ImportError:
-    _has_dotenv = False
-
 
 class WebhookConfig(BaseSettings):
     """Configuration for the webhook handler."""
@@ -27,6 +20,16 @@ class WebhookConfig(BaseSettings):
     github_webhook_secret: str = Field(default="", description="GitHub webhook secret")
     github_token: str = Field(default="", description="GitHub personal access token")
     github_mentioned_user: str = Field(default="", description="GitHub username to watch for @mentions")
+    
+    # Access control settings
+    allowed_orgs: str = Field(
+        default="",
+        description="Comma-separated list of allowed GitHub organizations"
+    )
+    allowed_users: str = Field(
+        default="", 
+        description="Comma-separated list of allowed GitHub usernames"
+    )
     
     # Runtime settings
     dev_mode: bool = Field(default=False, description="Development mode enabled")
@@ -38,9 +41,9 @@ class WebhookConfig(BaseSettings):
     )
     
     # Container pool settings
-    container_pool: List[str] = Field(
-        default_factory=lambda: ["eamonn", "harry", "darren"],
-        description="Named containers in the pool"
+    container_pool: str = Field(
+        default="eamonn,harry,darren",
+        description="Comma-separated list of named containers in the pool"
     )
     container_timeout_minutes: int = Field(default=30, description="Container timeout in minutes")
     max_concurrent_tasks: int = Field(default=3, description="Maximum concurrent tasks")
@@ -80,6 +83,24 @@ class WebhookConfig(BaseSettings):
             env_ignore_empty=True  # Ignore empty .env values, prefer environment
         )
     
+    def get_allowed_orgs_list(self) -> List[str]:
+        """Get allowed orgs as a list."""
+        if not self.allowed_orgs:
+            return []
+        return [org.strip() for org in self.allowed_orgs.split(',') if org.strip()]
+    
+    def get_allowed_users_list(self) -> List[str]:
+        """Get allowed users as a list."""
+        if not self.allowed_users:
+            return []
+        return [user.strip() for user in self.allowed_users.split(',') if user.strip()]
+    
+    def get_container_pool_list(self) -> List[str]:
+        """Get container pool as a list."""
+        if not self.container_pool:
+            return ["eamonn", "harry", "darren"]  # Default fallback
+        return [container.strip() for container in self.container_pool.split(',') if container.strip()]
+    
     
     def ensure_directories(self) -> None:
         """Ensure required directories exist."""
@@ -97,6 +118,22 @@ class WebhookConfig(BaseSettings):
             missing.append("github_token (GITHUB_TOKEN)")
         if not self.github_mentioned_user:
             missing.append("github_mentioned_user (GITHUB_MENTIONED_USER)")
+    
+    def is_repository_allowed(self, repo_full_name: str, repo_owner: str) -> bool:
+        """Check if a repository is allowed based on allowlist configuration.
+        
+        Args:
+            repo_full_name: Full repository name (e.g., "owner/repo")
+            repo_owner: Repository owner username or organization
+            
+        Returns:
+            True if repository is allowed, False otherwise
+        """
+        allowed_orgs = self.get_allowed_orgs_list()
+        allowed_users = self.get_allowed_users_list()
+        
+        # Check if owner is in allowed orgs or users
+        return repo_owner in allowed_orgs or repo_owner in allowed_users
         
 
 @lru_cache()

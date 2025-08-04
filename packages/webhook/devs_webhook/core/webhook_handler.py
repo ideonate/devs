@@ -20,7 +20,7 @@ class WebhookHandler:
         
         logger.info("Webhook handler initialized", 
                    mentioned_user=self.config.github_mentioned_user,
-                   container_pool=self.config.container_pool)
+                   container_pool=self.config.get_container_pool_list())
     
     async def process_webhook(
         self, 
@@ -43,6 +43,16 @@ class WebhookHandler:
                 logger.info("Unsupported webhook event type", 
                            event_type=headers.get("x-github-event"),
                            delivery_id=delivery_id)
+                return
+            
+            # Check if repository is allowed
+            repo_owner = event.repository.owner.login
+            if not self.config.is_repository_allowed(event.repository.full_name, repo_owner):
+                logger.warning("Repository not in allowlist - rejecting webhook",
+                              repo=event.repository.full_name,
+                              owner=repo_owner,
+                              delivery_id=delivery_id,
+                              event_type=type(event).__name__)
                 return
             
             # Check if we should process this event
@@ -93,12 +103,12 @@ class WebhookHandler:
         # Calculate total queued tasks across all containers
         total_queued = sum(
             self.container_pool.container_queues[container].qsize()
-            for container in self.config.container_pool
+            for container in self.config.get_container_pool_list()
         )
         
         return {
             "queued_tasks": total_queued,
-            "container_pool_size": len(self.config.container_pool),
+            "container_pool_size": len(self.config.get_container_pool_list()),
             "containers": container_status,
             "mentioned_user": self.config.github_mentioned_user,
         }

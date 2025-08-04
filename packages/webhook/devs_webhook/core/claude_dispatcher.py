@@ -283,19 +283,27 @@ class ClaudeDispatcher:
         repo_name = event.repository.full_name
         workspace_path = f"/workspaces/{workspace_name}"
         
-        prompt = f"""You are an AI developer helping build a software project in a GitHub repository. You have been mentioned in a GitHub issue/PR and need to take action.
+        prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
+You have been mentioned in a GitHub issue/PR and need to take action.
 
-You should ensure you're on the latest {devs_options.default_branch} branch if starting a fresh task (git pull origin {devs_options.default_branch}), and generally 
-work on feature branches for changes. Submit your changes as a draft pull request when done (mention that it closes an issue number if it does).
+You should ensure you're on the latest commits in the repo's default branch. 
+Generally work on feature branches for changes. 
+Submit any changes as a pull request when done (mention that it closes an issue number if it does).
 
 If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the issue/PR.
 
-You should always comment back in any case. The `gh` CLI is available for GitHub operations, and you can use `git` too.
+You should always comment back in any case to say what you've done. The `gh` CLI is available for GitHub operations, and you can use `git` too.
 
 {devs_options.prompt_extra}
 
+This is the latest update on the issue/PR, but you should just get the full thread for more details:
+<latest_comment>
 {task_description}
+</latest_comment>
 
+You are working in the repository `{repo_name}`.
+The workspace path is `{workspace_path}`.
+Your GitHub username is `{self.config.github_mentioned_user}`.
 """
         
         # Append any extra prompt instructions from DEVS.yml
