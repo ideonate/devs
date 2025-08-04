@@ -220,16 +220,17 @@ class ContainerPool:
                        container=dev_name,
                        repo_name=repo_name)
             
-            setup_success = await self._setup_container(
+            setup_success, workspace_dir = await self._setup_container(
                 dev_name, repo_name, repo_path
             )
             
             logger.info("Container setup completed",
                        task_id=queued_task.task_id,
                        container=dev_name,
-                       setup_success=setup_success)
+                       setup_success=setup_success,
+                       workspace_dir=str(workspace_dir) if workspace_dir else None)
 
-            if not setup_success:
+            if not setup_success or not workspace_dir:
                 logger.error("Failed to set up container for task",
                              task_id=queued_task.task_id,
                              container=dev_name,
@@ -501,7 +502,7 @@ class ContainerPool:
         dev_name: str, 
         repo_name: str, 
         repo_path: Path
-    ) -> bool:
+    ) -> tuple[bool, Optional[Path]]:
         """Set up a container for a repository.
         
         Args:
@@ -510,7 +511,7 @@ class ContainerPool:
             repo_path: Path to repository
             
         Returns:
-            True if setup successful
+            Tuple of (success, workspace_dir)
         """
         try:
             logger.info("Starting container setup",
@@ -565,7 +566,7 @@ class ContainerPool:
                             repo=repo_name,
                             workspace=str(workspace_dir))
             
-            return success
+            return success, workspace_dir
             
         except Exception as e:
             logger.error("Container setup failed",
@@ -575,7 +576,7 @@ class ContainerPool:
                         error=str(e),
                         error_type=type(e).__name__,
                         exc_info=True)
-            return False
+            return False, None
     
     async def _cleanup_container(self, dev_name: str, repo_path: Path) -> None:
         """Clean up a container after use.
