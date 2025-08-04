@@ -117,12 +117,13 @@ class ClaudeDispatcher:
             full_container_name = project.get_container_name(dev_name)
 
             if not event.is_test:
-                # Build docker exec command with -w flag like exec_shell does
+                # Build docker exec command through shell to get proper environment setup
+                claude_cmd = "claude --dangerously-skip-permissions"
                 cmd = [
                     "docker", "exec", "-i",  # -i for stdin, no TTY
                     "-w", f"/workspaces/{workspace_name}",  # Set working directory at Docker level
                     full_container_name,
-                    "claude", "--dangerously-skip-permissions"
+                    "/bin/bash", "-l", "-c", claude_cmd  # Run through login shell to get environment
                 ]
             else:
                 # For test events, use a simplified command
@@ -133,19 +134,19 @@ class ClaudeDispatcher:
                     #"sh", "-c", "echo 'Error message' >&2; exit 1"
                  ]
             
-            if self.config.dev_mode:
-                # In dev mode, log the full command for debugging
-                logger.info("Executing command", command=" ".join(shlex.quote(c) for c in cmd))
-            else:
-                logger.debug("Executing Claude CLI command",
-                            container=full_container_name,
-                            workspace=workspace_name,
-                            cmd_preview=f"docker exec {full_container_name} claude -p '...'")
+            # Always log the full command and environment for debugging
+            logger.info("Executing Docker command through login shell",
+                       command=" ".join(shlex.quote(c) for c in cmd),
+                       container=full_container_name,
+                       workspace=workspace_name,
+                       prompt_length=len(prompt) if not event.is_test else 0)
             
             # Prepare prompt as bytes for stdin (only for non-test events)
             prompt_input = None
             if not event.is_test:
                 prompt_input = prompt.encode('utf-8')
+                logger.info("Prepared prompt for stdin",
+                           prompt_preview=prompt[:200] + "..." if len(prompt) > 200 else prompt)
 
             # Execute command with streaming output in dev mode
             if self.config.dev_mode:
@@ -242,13 +243,20 @@ class ClaudeDispatcher:
             if success:
                 logger.info("Claude CLI execution completed",
                            container=full_container_name,
-                           output_length=len(output))
+                           return_code=process.returncode,
+                           output_length=len(output),
+                           output_preview=output[:200] + "..." if len(output) > 200 else output)
             else:
-                logger.warning("Claude CLI execution failed",
-                              container=full_container_name,
-                              return_code=process.returncode,
-                              error_preview=error[:200],
-                              full_error=error)
+                logger.error("Claude CLI execution failed",
+                           container=full_container_name,
+                           return_code=process.returncode,
+                           command=" ".join(shlex.quote(c) for c in cmd),
+                           stdout_length=len(output),
+                           stderr_length=len(error),
+                           stdout_preview=output[:500] + "..." if len(output) > 500 else output,
+                           stderr_preview=error[:500] + "..." if len(error) > 500 else error,
+                           stdout_full=output,
+                           stderr_full=error)
             
             return TaskResult(
                 success=success,
