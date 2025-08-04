@@ -247,7 +247,8 @@ class ClaudeDispatcher:
                 logger.warning("Claude CLI execution failed",
                               container=full_container_name,
                               return_code=process.returncode,
-                              error_preview=error[:200])
+                              error_preview=error[:200],
+                              full_error=error)
             
             return TaskResult(
                 success=success,

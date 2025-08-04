@@ -11,10 +11,16 @@ except ImportError:
     from pydantic import BaseSettings
     SettingsConfigDict = None
 from pydantic import Field, model_validator
+from devs_common.config import BaseConfig
 
 
-class WebhookConfig(BaseSettings):
+class WebhookConfig(BaseSettings, BaseConfig):
     """Configuration for the webhook handler."""
+    
+    def __init__(self, **kwargs):
+        """Initialize webhook configuration with both BaseSettings and BaseConfig."""
+        BaseSettings.__init__(self, **kwargs)
+        BaseConfig.__init__(self)
     
     # GitHub settings
     github_webhook_secret: str = Field(default="", description="GitHub webhook secret")
@@ -34,12 +40,6 @@ class WebhookConfig(BaseSettings):
     # Runtime settings
     dev_mode: bool = Field(default=False, description="Development mode enabled")
     
-    # Workspace settings (shared with CLI for interoperability)
-    workspaces_dir: Path = Field(
-        default_factory=lambda: Path.home() / ".devs" / "workspaces",
-        description="Directory for container workspaces (shared with CLI)"
-    )
-    
     # Container pool settings
     container_pool: str = Field(
         default="eamonn,harry,darren",
@@ -52,6 +52,12 @@ class WebhookConfig(BaseSettings):
     repo_cache_dir: Path = Field(
         default_factory=lambda: Path.home() / ".devs" / "repocache",
         description="Directory to cache cloned repositories (shared with CLI)"
+    )
+    
+    # Claude Code settings (shared with CLI for interoperability)
+    claude_config_dir: Path = Field(
+        default_factory=lambda: Path.home() / ".devs" / "claudeconfig",
+        description="Directory for Claude Code configuration (shared with CLI)"
     )
     
     # Server settings
@@ -104,9 +110,12 @@ class WebhookConfig(BaseSettings):
     
     def ensure_directories(self) -> None:
         """Ensure required directories exist."""
+        # Call parent's ensure_directories (creates workspaces_dir)
+        super().ensure_directories()
+        # Create webhook-specific directories
         self.repo_cache_dir.mkdir(parents=True, exist_ok=True)
-        # workspaces_dir is now managed by the base config
-        self.workspaces_dir.mkdir(parents=True, exist_ok=True)
+        # Claude config directory for container mounts
+        self.claude_config_dir.mkdir(parents=True, exist_ok=True)
     
     def validate_required_settings(self) -> None:
         """Validate that required settings are present."""
@@ -134,6 +143,14 @@ class WebhookConfig(BaseSettings):
         
         # Check if owner is in allowed orgs or users
         return repo_owner in allowed_orgs or repo_owner in allowed_users
+    
+    def get_default_workspaces_dir(self) -> Path:
+        """Get default workspaces directory for webhook package."""
+        return Path.home() / ".devs" / "workspaces"
+    
+    def get_default_project_prefix(self) -> str:
+        """Get default project prefix for webhook package."""
+        return "dev"
         
 
 @lru_cache()

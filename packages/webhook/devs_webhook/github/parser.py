@@ -82,6 +82,14 @@ class WebhookParser:
         Returns:
             True if the event contains @mentions of the target user
         """
+        import structlog
+        logger = structlog.get_logger()
+        
+        logger.info("Checking if event should be processed",
+                   event_type=type(event).__name__,
+                   action=event.action,
+                   mentioned_user=mentioned_user)
+        
         # Process different types of relevant actions
         relevant_actions = ["opened", "created", "edited"]
         
@@ -89,32 +97,77 @@ class WebhookParser:
         if isinstance(event, (IssueEvent, PullRequestEvent)):
             relevant_actions.append("assigned")
         
+        logger.info("Relevant actions determined",
+                   relevant_actions=relevant_actions,
+                   event_action=event.action,
+                   action_in_relevant=event.action in relevant_actions)
+        
         if event.action not in relevant_actions:
+            logger.info("Event action not in relevant actions, skipping",
+                       action=event.action,
+                       relevant_actions=relevant_actions)
             return False
         
-        # Special handling for assignment events
-        if event.action == "assigned":
-            # Only process if the bot user was assigned
-            assignee = None
-            if isinstance(event, IssueEvent) and hasattr(event.issue, 'assignee'):
-                assignee = event.issue.assignee
-            elif isinstance(event, PullRequestEvent) and hasattr(event.pull_request, 'assignee'): 
-                assignee = event.pull_request.assignee
+        # Special handling for assignment events AND opened events with assignees
+        if event.action == "assigned" or (event.action == "opened" and isinstance(event, (IssueEvent, PullRequestEvent))):
+            logger.info("Checking for assignee",
+                       event_type=type(event).__name__,
+                       action=event.action)
             
-            if assignee and assignee.login == mentioned_user:
-                return True  # Bot was assigned, process it
-            else:
-                return False  # Someone else was assigned, ignore
+            # Check if the bot user is assigned
+            assignee = None
+            if isinstance(event, IssueEvent):
+                logger.info("Checking issue assignee",
+                           has_issue=hasattr(event, 'issue'),
+                           has_assignee=hasattr(event.issue, 'assignee') if hasattr(event, 'issue') else False)
+                
+                if hasattr(event.issue, 'assignee'):
+                    assignee = event.issue.assignee
+                    logger.info("Issue assignee found",
+                               assignee_login=assignee.login if assignee else None,
+                               assignee_is_none=assignee is None)
+                    
+            elif isinstance(event, PullRequestEvent):
+                logger.info("Checking PR assignee",
+                           has_pr=hasattr(event, 'pull_request'),
+                           has_assignee=hasattr(event.pull_request, 'assignee') if hasattr(event, 'pull_request') else False)
+                
+                if hasattr(event.pull_request, 'assignee'):
+                    assignee = event.pull_request.assignee
+                    logger.info("PR assignee found",
+                               assignee_login=assignee.login if assignee else None,
+                               assignee_is_none=assignee is None)
+            
+            assignee_matches = assignee and assignee.login == mentioned_user
+            logger.info("Assignment check result",
+                       assignee_login=assignee.login if assignee else None,
+                       mentioned_user=mentioned_user,
+                       assignee_matches=assignee_matches)
+            
+            if assignee_matches:
+                logger.info("Bot is assigned, processing event")
+                return True  # Bot is assigned, process it
+            elif event.action == "assigned":
+                # For "assigned" action, only process if bot was assigned
+                logger.info("Bot was not assigned in 'assigned' event, skipping")
+                return False
+            # For "opened" action, continue to check for mentions
         
         # Prevent feedback loops: Don't process events created by the bot user
         if event.sender.login == mentioned_user:
+            logger.info("Event created by bot user, skipping to prevent feedback loop")
             return False
         
         # For comment events, also check if the comment author is the bot
         if isinstance(event, CommentEvent) and event.comment.user.login == mentioned_user:
+            logger.info("Comment created by bot user, skipping to prevent feedback loop")
             return False
         
         # Check for @mentions
         mentions = event.extract_mentions(mentioned_user)
+        logger.info("Checking for mentions",
+                   mentions_found=len(mentions),
+                   should_process=len(mentions) > 0)
+        
         return len(mentions) > 0
     

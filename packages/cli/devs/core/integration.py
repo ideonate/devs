@@ -289,7 +289,7 @@ class ExternalToolIntegration:
                 console.print(f"   ❌ {tool_name}: {info['error']}")
         
         # Check for missing critical dependencies
-        critical_tools = ['docker', 'devcontainer', 'code']
+        critical_tools = ['docker', 'devcontainer']
         missing_critical = [
             tool for tool in critical_tools 
             if not status.get(tool, {}).get('available', False)
@@ -308,7 +308,7 @@ class ExternalToolIntegration:
             List of missing tool names
         """
         status = self.check_dependencies()
-        critical_tools = ['docker', 'devcontainer', 'code']
+        critical_tools = ['docker', 'devcontainer']
         
         return [
             tool for tool in critical_tools

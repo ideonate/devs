@@ -179,26 +179,69 @@ class ContainerPool:
         repo_name = queued_task.repo_name
         repo_path = self.config.repo_cache_dir / repo_name.replace("/", "-")
         
-        # The workspace name is determined by the project and the dev_name
-        project = Project(repo_path)
-        workspace_name = f"{project.info.name}-{dev_name}"
+        logger.info("Starting task processing",
+                   task_id=queued_task.task_id,
+                   container=dev_name,
+                   repo_name=repo_name,
+                   repo_path=str(repo_path))
 
         try:
-            # Ensure repository is cloned and get DEVS.yml options
+            # Ensure repository is cloned FIRST, before creating Project instance
+            logger.info("Ensuring repository is cloned",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       repo_name=repo_name)
+            
             devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
+            
+            logger.info("Repository cloning completed",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       devs_options_present=devs_options is not None)
+
+            # NOW create the project instance after the repository exists
+            logger.info("Creating project instance",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       repo_path=str(repo_path))
+            
+            project = Project(repo_path)
+            workspace_name = f"{project.info.name}-{dev_name}"
+            
+            logger.info("Project created successfully",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       project_name=project.info.name,
+                       workspace_name=workspace_name)
 
             # Set up container for this repository
+            logger.info("Setting up container",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       repo_name=repo_name)
+            
             setup_success = await self._setup_container(
                 dev_name, repo_name, repo_path
             )
+            
+            logger.info("Container setup completed",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       setup_success=setup_success)
 
             if not setup_success:
                 logger.error("Failed to set up container for task",
                              task_id=queued_task.task_id,
-                             container=dev_name)
+                             container=dev_name,
+                             repo_name=repo_name,
+                             repo_path=str(repo_path))
                 return
 
             # Mark container as active
+            logger.info("Marking container as active",
+                       task_id=queued_task.task_id,
+                       container=dev_name)
+            
             async with self._lock:
                 self.running_containers[dev_name] = {
                     "repo_path": repo_path,
@@ -206,6 +249,11 @@ class ContainerPool:
                 }
 
             # Execute the task
+            logger.info("Executing task with Claude dispatcher",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       workspace_name=workspace_name)
+            
             result = await self.claude_dispatcher.execute_task(
                 dev_name=dev_name,
                 workspace_name=workspace_name,
@@ -214,16 +262,26 @@ class ContainerPool:
                 devs_options=devs_options
             )
             
-            logger.info("Task execution completed",
-                       task_id=queued_task.task_id,
-                       container=dev_name,
-                       success=result.success)
+            if result.success:
+                logger.info("Task execution completed successfully",
+                           task_id=queued_task.task_id,
+                           container=dev_name,
+                           output_length=len(result.output) if result.output else 0)
+            else:
+                logger.error("Task execution failed",
+                            task_id=queued_task.task_id,
+                            container=dev_name,
+                            error=result.error)
                 
         except Exception as e:
             logger.error("Task processing failed",
                         task_id=queued_task.task_id,
                         container=dev_name,
-                        error=str(e))
+                        repo_name=repo_name,
+                        repo_path=str(repo_path),
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        exc_info=True)
             
             # If setup failed, we might have a mess. Clean up.
             await self._cleanup_container(dev_name, repo_path)
@@ -242,30 +300,69 @@ class ContainerPool:
         Returns:
             DevsOptions parsed from DEVS.yml or defaults
         """
+        logger.info("Checking repository status",
+                   repo=repo_name,
+                   repo_path=str(repo_path),
+                   exists=repo_path.exists())
+        
         if repo_path.exists():
             # Repository already exists, pull latest changes
             try:
+                logger.info("Repository exists, pulling latest changes",
+                           repo=repo_name,
+                           repo_path=str(repo_path))
+                
+                # Set up authentication for private repos
+                if self.config.github_token:
+                    # Configure the token for this specific repo
+                    remote_url = f"https://{self.config.github_token}@github.com/{repo_name}.git"
+                    set_remote_cmd = ["git", "-C", str(repo_path), "remote", "set-url", "origin", remote_url]
+                    await asyncio.create_subprocess_exec(*set_remote_cmd)
+                
                 cmd = ["git", "-C", str(repo_path), "pull", "origin", "main"]
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                await process.communicate()
+                stdout, stderr = await process.communicate()
+                
+                logger.info("Git pull completed",
+                           repo=repo_name,
+                           return_code=process.returncode,
+                           stdout=stdout.decode()[:200] if stdout else "",
+                           stderr=stderr.decode()[:200] if stderr else "")
                 
                 logger.info("Repository updated", repo=repo_name, path=str(repo_path))
                 
             except Exception as e:
                 logger.warning("Failed to update repository",
                               repo=repo_name,
-                              error=str(e))
+                              error=str(e),
+                              error_type=type(e).__name__)
         else:
             # Clone the repository
             try:
+                logger.info("Repository does not exist, cloning",
+                           repo=repo_name,
+                           repo_path=str(repo_path))
+                
                 repo_path.parent.mkdir(parents=True, exist_ok=True)
                 
-                clone_url = f"https://github.com/{repo_name}.git"
+                # Use GitHub token for authentication
+                if self.config.github_token:
+                    clone_url = f"https://{self.config.github_token}@github.com/{repo_name}.git"
+                else:
+                    clone_url = f"https://github.com/{repo_name}.git"
+                
                 cmd = ["git", "clone", clone_url, str(repo_path)]
+                
+                # Don't log the token!
+                safe_url = f"https://github.com/{repo_name}.git"
+                logger.info("Starting git clone",
+                           repo=repo_name,
+                           clone_url=safe_url,
+                           target_path=str(repo_path))
                 
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
@@ -274,6 +371,12 @@ class ContainerPool:
                 )
                 
                 stdout, stderr = await process.communicate()
+                
+                logger.info("Git clone completed",
+                           repo=repo_name,
+                           return_code=process.returncode,
+                           stdout=stdout.decode()[:200] if stdout else "",
+                           stderr=stderr.decode()[:200] if stderr else "")
                 
                 if process.returncode == 0:
                     logger.info("Repository cloned successfully",
@@ -409,12 +512,29 @@ class ContainerPool:
             True if setup successful
         """
         try:
+            logger.info("Starting container setup",
+                       container=dev_name,
+                       repo=repo_name,
+                       repo_path=str(repo_path))
+            
             # Create a temporary project for this repo
+            logger.info("Creating project instance for container setup",
+                       container=dev_name,
+                       repo_path=str(repo_path))
+            
             project = Project(repo_path)
             
+            logger.info("Project created, setting up webhook config",
+                       container=dev_name,
+                       project_name=project.info.name)
+            
             # Set up shared configuration for CLI interoperability
-            webhook_config = WebhookConfig()
-            workspace_manager = WorkspaceManager(project, webhook_config)
+            # Use the existing config which has directories already created
+            workspace_manager = WorkspaceManager(project, self.config)
+            
+            logger.info("Creating workspace",
+                       container=dev_name,
+                       dev_name=dev_name)
             
             # Create workspace for this container
             # Note: dev_name is the pool name (eamonn/harry/darren)
@@ -423,19 +543,36 @@ class ContainerPool:
                 dev_name, force=True
             )
             
+            logger.info("Workspace created, setting up container manager",
+                       container=dev_name,
+                       workspace_dir=str(workspace_dir))
+            
             # Set up container manager
-            container_manager = ContainerManager(project, webhook_config)
+            container_manager = ContainerManager(project, self.config)
+            
+            logger.info("Ensuring container is running",
+                       container=dev_name,
+                       workspace_dir=str(workspace_dir))
             
             # Ensure container is running using proper container name
             success = container_manager.ensure_container_running(
                 dev_name, workspace_dir, force_rebuild=False
             )
             
+            logger.info("Container running check completed",
+                       container=dev_name,
+                       success=success)
+            
             if success:
                 logger.info("Container setup complete",
                            container=dev_name,
                            repo=repo_name,
                            workspace=str(workspace_dir))
+            else:
+                logger.error("Container failed to start",
+                            container=dev_name,
+                            repo=repo_name,
+                            workspace=str(workspace_dir))
             
             return success
             
@@ -443,7 +580,10 @@ class ContainerPool:
             logger.error("Container setup failed",
                         container=dev_name,
                         repo=repo_name,
-                        error=str(e))
+                        repo_path=str(repo_path),
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        exc_info=True)
             return False
     
     async def _cleanup_container(self, dev_name: str, repo_path: Path) -> None:
