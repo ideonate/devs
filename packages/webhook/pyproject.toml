@@ -41,7 +41,7 @@ dependencies = [
     "cryptography>=3.4.0",
     "structlog>=21.1.0",
     "tenacity>=8.0.0",
-    "devs-common>=0.1.0",  # Our common package
+    # "devs-common>=0.1.0",  # Our common package - uncomment when publishing to PyPI
 ]
 
 [project.optional-dependencies]

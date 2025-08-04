@@ -20,6 +20,13 @@ fi
 PYTHON_VERSION=$(python3 -c "import sys; print('.'.join(map(str, sys.version_info[:2])))")
 echo "🐍 Using Python $PYTHON_VERSION"
 
+# Install common package first (dependency for CLI)
+echo ""
+echo "📦 Installing common package in development mode..."
+cd packages/common
+pip install -e ".[dev]"
+cd ../..
+
 # Install CLI package in development mode
 echo ""
 echo "📦 Installing CLI package in development mode..."
