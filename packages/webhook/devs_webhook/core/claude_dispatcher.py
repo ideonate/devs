@@ -8,6 +8,8 @@ import structlog
 from pathlib import Path
 
 from devs_common.core.project import Project
+from devs_common.core.container import ContainerManager
+from devs_common.core.workspace import WorkspaceManager
 from ..config import get_config
 from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent, DevsOptions
 from ..github.client import GitHubClient
@@ -35,7 +37,8 @@ class ClaudeDispatcher:
     async def execute_task(
         self,
         dev_name: str,
-        workspace_name: str,
+        workspace_dir: Path,
+        repo_path: Path,
         task_description: str,
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None
@@ -44,7 +47,8 @@ class ClaudeDispatcher:
         
         Args:
             dev_name: Name of dev container (e.g., eamonn)
-            workspace_name: Workspace directory name inside container
+            workspace_dir: Workspace directory path on host
+            repo_path: Path to repository on host (already calculated by container_pool)
             task_description: Task description for Claude
             event: Original webhook event
             devs_options: Options from DEVS.yml file
@@ -56,16 +60,14 @@ class ClaudeDispatcher:
             logger.info("Starting Claude Code CLI task",
                        container=dev_name,
                        repo=event.repository.full_name,
-                       workspace=workspace_name)
+                       workspace_dir=str(workspace_dir),
+                       repo_path=str(repo_path))
             
             # Build Claude Code prompt with context
-            prompt = self._build_claude_prompt(task_description, workspace_name, event, devs_options)
-            
-            # Get repo path for project info
-            repo_path = self.config.repo_cache_dir / event.repository.full_name.replace("/", "-")
+            prompt = self._build_claude_prompt(task_description, workspace_dir, event, devs_options)
 
-            # Execute Claude Code CLI in the container
-            result = await self._execute_claude_cli(dev_name, workspace_name, prompt, repo_path, event)
+            # Use ContainerManager like CLI does - repo_path provided by container_pool
+            result = await self._execute_claude_via_container_manager(dev_name, workspace_dir, prompt, repo_path, event)
             
             if result.success:
                 # Post-process results
@@ -92,176 +94,61 @@ class ClaudeDispatcher:
             await self._handle_task_failure(event, error_msg)
             return TaskResult(success=False, output="", error=error_msg)
     
-    async def _execute_claude_cli(
+    async def _execute_claude_via_container_manager(
         self,
         dev_name: str,
-        workspace_name: str,
+        workspace_dir: Path,
         prompt: str,
         repo_path: Path,
         event: WebhookEvent
     ) -> TaskResult:
-        """Execute Claude Code CLI inside a container using docker exec.
+        """Execute Claude Code CLI using ContainerManager (same as CLI shell command).
         
         Args:
             dev_name: Name of dev container (e.g., eamonn)
-            workspace_name: Workspace directory name inside container
+            workspace_dir: Workspace directory path on host
             prompt: Claude Code prompt to execute
             repo_path: Path to the repository on the host
+            event: Original webhook event
             
         Returns:
             Task execution result
         """
         try:
-            # Create a project to get the full container name
+            # Use the same infrastructure as CLI - create project and container manager
             project = Project(repo_path)
-            project_prefix = self.config.project_prefix if self.config else "dev"
-            container_name = project.get_container_name(dev_name, project_prefix)
-            workspace_name = project.get_workspace_name(dev_name)
-            container_workspace_dir = f"/workspaces/{workspace_name}"
-
-            if not event.is_test:
-                # Build docker exec command through shell to get proper environment setup
-                # Use same pattern as exec_shell: cd to workspace directory then run command
-                # CLAUDE_CONFIG_DIR is set in .zshrc/.bashrc during container build
-                claude_cmd = f"cd {container_workspace_dir} && claude --dangerously-skip-permissions"
-                cmd = [
-                    "docker", "exec", "-i",  # -i for stdin, no TTY
-                    container_name,
-                    "/bin/zsh", "-l", "-c", claude_cmd  # Use zsh login shell to get environment
-                ]
-            else:
-                # For test events, use a simplified command
-                cmd = [
-                    "docker", "exec", "-i",
-                    container_name,
-                    "echo", "Test event received, no execution"
-                    #"sh", "-c", "echo 'Error message' >&2; exit 1"
-                 ]
+            container_manager = ContainerManager(project, self.config)
             
-            # Always log the full command and environment for debugging
-            logger.info("Executing Docker command through login shell",
-                       command=" ".join(shlex.quote(c) for c in cmd),
-                       container=container_name,
-                       workspace=workspace_name,
-                       container_workspace_dir=container_workspace_dir,
+            logger.info("Using ContainerManager to execute Claude",
+                       container=dev_name,
+                       workspace_dir=str(workspace_dir),
                        prompt_length=len(prompt) if not event.is_test else 0)
+
+            if event.is_test:
+                # For test events, just return success
+                logger.info("Test event - skipping Claude execution")
+                return TaskResult(success=True, output="Test event received, no execution", error=None)
             
-            # Prepare prompt as bytes for stdin (only for non-test events)
-            prompt_input = None
-            if not event.is_test:
-                prompt_input = prompt.encode('utf-8')
-                logger.info("Prepared prompt for stdin",
-                           prompt_preview=prompt[:200] + "..." if len(prompt) > 200 else prompt)
-
-            # Execute command with streaming output in dev mode
-            if self.config.dev_mode:
-                # In dev mode, stream output to console in real-time
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                # Send prompt via stdin and close it
-                if prompt_input:
-                    process.stdin.write(prompt_input)
-                    process.stdin.close()
-                
-                # Stream output in real-time
-                output_lines = []
-                error_lines = []
-                
-                async def stream_output():
-                    """Stream stdout to console and collect for return."""
-                    if process.stdout:
-                        async for line in process.stdout:
-                            line_str = line.decode('utf-8', errors='replace').rstrip()
-                            if line_str:
-                                print(f"[{dev_name}] {line_str}")  # Stream to console
-                                output_lines.append(line_str)
-                
-                async def stream_error():
-                    """Stream stderr to console and collect for return."""
-                    if process.stderr:
-                        async for line in process.stderr:
-                            line_str = line.decode('utf-8', errors='replace').rstrip()
-                            if line_str:
-                                print(f"[{dev_name}] ERROR: {line_str}")  # Stream to console
-                                error_lines.append(line_str)
-                
-                # Run streaming tasks concurrently
-                try:
-                    await asyncio.wait_for(
-                        asyncio.gather(
-                            stream_output(),
-                            stream_error(),
-                            process.wait()
-                        ),
-                        timeout=self.config.container_timeout_minutes * 60
-                    )
-                except asyncio.TimeoutError:
-                    # Kill the process if it times out
-                    process.kill()
-                    await process.wait()
-                    return TaskResult(
-                        success=False,
-                        output="",
-                        error=f"Task timed out after {self.config.container_timeout_minutes} minutes"
-                    )
-                
-                # Combine collected output
-                output = '\n'.join(output_lines)
-                error = '\n'.join(error_lines)
-                
-            else:
-                # Normal mode - capture output without streaming
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                # Wait for completion with timeout, sending prompt via stdin
-                try:
-                    stdout, stderr = await asyncio.wait_for(
-                        process.communicate(input=prompt_input),
-                        timeout=self.config.container_timeout_minutes * 60
-                    )
-                except asyncio.TimeoutError:
-                    # Kill the process if it times out
-                    process.kill()
-                    await process.wait()
-                    return TaskResult(
-                        success=False,
-                        output="",
-                        error=f"Task timed out after {self.config.container_timeout_minutes} minutes"
-                    )
-                
-                # Decode output
-                output = stdout.decode('utf-8', errors='replace') if stdout else ""
-                error = stderr.decode('utf-8', errors='replace') if stderr else ""
-
-            success = process.returncode == 0
+            # Execute Claude using ContainerManager - same as CLI does
+            success, output, error = container_manager.exec_claude(
+                dev_name, 
+                workspace_dir, 
+                prompt, 
+                debug=self.config.dev_mode
+            )
             
             if success:
-                logger.info("Claude CLI execution completed",
-                           container=container_name,
-                           return_code=process.returncode,
+                logger.info("Claude CLI execution completed via ContainerManager",
+                           container=dev_name,
                            output_length=len(output),
                            output_preview=output[:200] + "..." if len(output) > 200 else output)
             else:
-                logger.error("Claude CLI execution failed",
-                           container=container_name,
-                           return_code=process.returncode,
-                           command=" ".join(shlex.quote(c) for c in cmd),
-                           stdout_length=len(output),
-                           stderr_length=len(error),
-                           stdout_preview=output[:500] + "..." if len(output) > 500 else output,
-                           stderr_preview=error[:500] + "..." if len(error) > 500 else error,
-                           stdout_full=output,
-                           stderr_full=error)
+                logger.error("Claude CLI execution failed via ContainerManager",
+                           container=dev_name,
+                           error_length=len(error),
+                           error_preview=error[:500] + "..." if len(error) > 500 else error,
+                           output_length=len(output),
+                           full_error=error)
             
             return TaskResult(
                 success=success,
@@ -270,16 +157,17 @@ class ClaudeDispatcher:
             )
             
         except Exception as e:
-            error_msg = f"Docker exec failed: {str(e)}"
-            logger.error("Docker exec error",
+            error_msg = f"ContainerManager execution failed: {str(e)}"
+            logger.error("ContainerManager execution error",
                         container=dev_name,
-                        error=error_msg)
+                        error=error_msg,
+                        exc_info=True)
             return TaskResult(success=False, output="", error=error_msg)
     
     def _build_claude_prompt(
         self,
         task_description: str,
-        workspace_name: str,
+        workspace_dir: Path,
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None
     ) -> str:
@@ -287,7 +175,7 @@ class ClaudeDispatcher:
         
         Args:
             task_description: Base task description
-            workspace_name: Workspace directory name inside container
+            workspace_dir: Workspace directory path on host  
             event: Webhook event
             devs_options: Options from DEVS.yml file
             
@@ -295,6 +183,8 @@ class ClaudeDispatcher:
             Complete prompt for Claude Code CLI
         """
         repo_name = event.repository.full_name
+        # Get workspace name from directory name
+        workspace_name = workspace_dir.name
         workspace_path = f"/workspaces/{workspace_name}"
         
         prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 

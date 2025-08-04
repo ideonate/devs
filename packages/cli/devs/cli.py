@@ -223,6 +223,54 @@ def shell(ctx, dev_name: str) -> None:
 
 
 @cli.command()
+@click.argument('dev_name')
+@click.argument('prompt')
+@click.pass_context
+def claude(ctx, dev_name: str, prompt: str) -> None:
+    """Execute Claude CLI in devcontainer.
+    
+    DEV_NAME: Development environment name
+    PROMPT: Prompt to send to Claude
+    
+    Example: devs claude sally "Summarize this codebase"
+    """
+    check_dependencies()
+    project = get_project()
+    debug = ctx.obj.get('DEBUG', False)
+    
+    container_manager = ContainerManager(project, config)
+    workspace_manager = WorkspaceManager(project, config)
+    
+    try:
+        # Ensure workspace exists
+        workspace_dir = workspace_manager.create_workspace(dev_name)
+        
+        # Execute Claude
+        console.print(f"🤖 Executing Claude in {dev_name}...")
+        console.print(f"📝 Prompt: {prompt}")
+        console.print("")
+        
+        success, output, error = container_manager.exec_claude(
+            dev_name, workspace_dir, prompt, debug=debug, stream=True
+        )
+        
+        console.print("")  # Add spacing after streamed output
+        if success:
+            console.print("✅ Claude execution completed")
+        else:
+            console.print("❌ Claude execution failed")
+            if error:
+                console.print("")
+                console.print("🚫 Error:")
+                console.print(error)
+            sys.exit(1)
+        
+    except (ContainerError, WorkspaceError) as e:
+        console.print(f"❌ Error executing Claude in {dev_name}: {e}")
+        sys.exit(1)
+
+
+@cli.command()
 @click.option('--all-projects', is_flag=True, help='List containers for all projects')
 def list(all_projects: bool) -> None:
     """List active devcontainers for current project."""

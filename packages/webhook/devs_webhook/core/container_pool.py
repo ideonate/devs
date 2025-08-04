@@ -256,7 +256,8 @@ class ContainerPool:
             
             result = await self.claude_dispatcher.execute_task(
                 dev_name=dev_name,
-                workspace_name=workspace_name,
+                workspace_dir=workspace_dir,
+                repo_path=repo_path,
                 task_description=queued_task.task_description,
                 event=queued_task.event,
                 devs_options=devs_options
@@ -529,35 +530,25 @@ class ContainerPool:
                        project_name=project.info.name)
             
             # Set up shared configuration for CLI interoperability
-            # Use the existing config which has directories already created
+            # Use the same infrastructure as CLI - this is the proven approach
+            container_manager = ContainerManager(project, self.config)
             workspace_manager = WorkspaceManager(project, self.config)
             
-            logger.info("Creating workspace",
+            logger.info("Creating workspace using CLI infrastructure",
                        container=dev_name,
                        dev_name=dev_name)
             
-            # Create workspace for this container
-            # Note: dev_name is the pool name (eamonn/harry/darren)
-            # ContainerManager will generate proper Docker container name: dev-org-repo-poolname
-            workspace_dir = workspace_manager.create_workspace(
-                dev_name, force=True
-            )
+            # Use the same sequence as CLI shell command:
+            # 1. Create workspace (this handles the timing correctly)
+            workspace_dir = workspace_manager.create_workspace(dev_name, force=True)
             
-            logger.info("Workspace created, setting up container manager",
+            logger.info("Workspace created, container infrastructure ready",
                        container=dev_name,
                        workspace_dir=str(workspace_dir))
             
-            # Set up container manager
-            container_manager = ContainerManager(project, self.config)
-            
-            logger.info("Ensuring container is running",
-                       container=dev_name,
-                       workspace_dir=str(workspace_dir))
-            
-            # Ensure container is running using proper container name
-            success = container_manager.ensure_container_running(
-                dev_name, workspace_dir, force_rebuild=False
-            )
+            # 2. Container setup is handled by exec_claude call (like exec_shell)
+            # No need to manually call ensure_container_running here
+            success = True
             
             logger.info("Container running check completed",
                        container=dev_name,
