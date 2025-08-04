@@ -114,22 +114,26 @@ class ClaudeDispatcher:
         try:
             # Create a project to get the full container name
             project = Project(repo_path)
-            full_container_name = project.get_container_name(dev_name)
+            project_prefix = self.config.project_prefix if self.config else "dev"
+            container_name = project.get_container_name(dev_name, project_prefix)
+            workspace_name = project.get_workspace_name(dev_name)
+            container_workspace_dir = f"/workspaces/{workspace_name}"
 
             if not event.is_test:
                 # Build docker exec command through shell to get proper environment setup
-                claude_cmd = "claude --dangerously-skip-permissions"
+                # Use same pattern as exec_shell: cd to workspace directory then run command
+                # CLAUDE_CONFIG_DIR is set in .zshrc/.bashrc during container build
+                claude_cmd = f"cd {container_workspace_dir} && claude --dangerously-skip-permissions"
                 cmd = [
                     "docker", "exec", "-i",  # -i for stdin, no TTY
-                    "-w", f"/workspaces/{workspace_name}",  # Set working directory at Docker level
-                    full_container_name,
-                    "/bin/bash", "-l", "-c", claude_cmd  # Run through login shell to get environment
+                    container_name,
+                    "/bin/zsh", "-l", "-c", claude_cmd  # Use zsh login shell to get environment
                 ]
             else:
                 # For test events, use a simplified command
                 cmd = [
                     "docker", "exec", "-i",
-                    full_container_name,
+                    container_name,
                     "echo", "Test event received, no execution"
                     #"sh", "-c", "echo 'Error message' >&2; exit 1"
                  ]
@@ -137,8 +141,9 @@ class ClaudeDispatcher:
             # Always log the full command and environment for debugging
             logger.info("Executing Docker command through login shell",
                        command=" ".join(shlex.quote(c) for c in cmd),
-                       container=full_container_name,
+                       container=container_name,
                        workspace=workspace_name,
+                       container_workspace_dir=container_workspace_dir,
                        prompt_length=len(prompt) if not event.is_test else 0)
             
             # Prepare prompt as bytes for stdin (only for non-test events)
@@ -242,13 +247,13 @@ class ClaudeDispatcher:
             
             if success:
                 logger.info("Claude CLI execution completed",
-                           container=full_container_name,
+                           container=container_name,
                            return_code=process.returncode,
                            output_length=len(output),
                            output_preview=output[:200] + "..." if len(output) > 200 else output)
             else:
                 logger.error("Claude CLI execution failed",
-                           container=full_container_name,
+                           container=container_name,
                            return_code=process.returncode,
                            command=" ".join(shlex.quote(c) for c in cmd),
                            stdout_length=len(output),

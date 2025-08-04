@@ -428,10 +428,12 @@ class ContainerManager:
             console.print(f"   Workspace: {container_workspace_dir}")
             
             # Use docker exec to get an interactive shell
+            # Start in the specific workspace directory using shell command
+            shell_cmd = f"cd {container_workspace_dir} && exec /bin/zsh"
             cmd = [
-                'docker', 'exec', '-it', 
-                '-w', container_workspace_dir,
-                container_name, '/bin/zsh'
+                'docker', 'exec', '-it',
+                container_name, 
+                '/bin/bash', '-c', shell_cmd
             ]
             
             if debug:

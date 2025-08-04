@@ -350,4 +350,61 @@ The CLI automatically checks for required dependencies and provides installation
 - **Linting failures**: Run `./scripts/lint-all.sh` to identify and fix issues
 - **Type checking**: Use `mypy devs` in the CLI package directory
 
+### Claude CLI Issues in Containers
+
+#### `uv_cwd` Error in Bind-Mounted Directories
+
+**Problem**: Claude CLI fails with `Error: ENOENT: no such file or directory, uv_cwd` when running in Docker containers with bind-mounted workspace directories.
+
+**Root Cause**: This Node.js error occurs when the current working directory becomes inaccessible due to bind mount timing issues. The sequence is:
+1. Container starts with empty `/workspaces/<workspace-name>` directory
+2. Workspace files are copied to host directory 
+3. Host directory is bind-mounted over the container directory
+4. The original directory handle becomes stale (shows 0 links in `stat`)
+5. Node.js `uv_cwd` system call fails when Claude tries to get current working directory
+
+**Diagnosis**:
+```bash
+# Check if directory has stale mount (Links: 0 indicates problem)
+docker exec <container> stat /workspaces/<workspace-name>
+
+# Compare with host directory (should show Links: >0)
+stat ~/.devs/workspaces/<workspace-name>
+
+# Check if bind mount is empty in container
+docker exec <container> ls -la /workspaces/<workspace-name>/
+```
+
+**Solutions**:
+
+1. **Run Claude from stable directory** (recommended):
+   ```bash
+   # Instead of: cd /workspaces/project && claude
+   # Use: cd /home/node && claude --project /workspaces/project
+   docker exec -i container /bin/zsh -l -c "cd /home/node && claude [commands]"
+   ```
+
+2. **Container restart after workspace creation**:
+   ```bash
+   # After workspace copy, restart container to refresh mounts
+   docker restart <container-name>
+   ```
+
+3. **Remount the directory**:
+   ```bash
+   docker exec container /bin/bash -c "umount /workspaces/<workspace> && mount --bind /host/path /workspaces/<workspace>"
+   ```
+
+**Technical Details**:
+- Error occurs in Node.js libuv `uv_cwd` system call
+- Affects Node.js applications that call `process.cwd()` at startup
+- Claude CLI version with Node.js 22+ still affected
+- Bind mounts over existing directories can create stale filesystem handles
+- Common in Docker containers with dynamic workspace creation
+
+**Prevention**:
+- Ensure workspace directories are created before container starts
+- Use consistent mount ordering in devcontainer configuration  
+- Consider using named volumes instead of bind mounts for workspace data
+
 This architecture provides a solid foundation for both the current CLI tool and future webhook handler while maintaining backward compatibility and providing a much more maintainable codebase.

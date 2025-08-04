@@ -206,7 +206,7 @@ class ContainerPool:
                        repo_path=str(repo_path))
             
             project = Project(repo_path)
-            workspace_name = f"{project.info.name}-{dev_name}"
+            workspace_name = project.get_workspace_name(dev_name)
             
             logger.info("Project created successfully",
                        task_id=queued_task.task_id,
