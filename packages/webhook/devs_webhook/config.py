@@ -14,6 +14,7 @@ from pydantic import Field, model_validator
 
 try:
     from dotenv import load_dotenv
+    load_dotenv()  # Load .env file if it exists
     _has_dotenv = True
 except ImportError:
     _has_dotenv = False
