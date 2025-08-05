@@ -255,6 +255,26 @@ docker run -d \
   devs-webhook
 ```
 
+### Production with Systemd (Ubuntu/Debian)
+
+For running as a system service on Ubuntu:
+
+```bash
+# Install the webhook package
+pip install -e packages/webhook/
+
+# Use the systemd setup script
+cd packages/webhook/systemd
+./setup-systemd.sh --user dan --working-dir /home/dan/Dev/devs --env-file /home/dan/Dev/devs/.env
+
+# Manage the service
+sudo systemctl start devs-webhook    # Start service
+sudo systemctl status devs-webhook   # Check status
+sudo journalctl -u devs-webhook -f   # View logs
+```
+
+See [`systemd/README.md`](systemd/README.md) for detailed systemd setup instructions.
+
 ## Security
 
 - **Webhook Signatures**: All webhooks are verified using HMAC signatures
