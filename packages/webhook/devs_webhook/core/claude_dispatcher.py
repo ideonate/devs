@@ -196,7 +196,7 @@ Submit any changes as a pull request when done (mention that it closes an issue 
 
 If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the issue/PR.
 
-You should always comment back in any case to say what you've done. The `gh` CLI is available for GitHub operations, and you can use `git` too.
+You should always comment back in any case to say what you've done (unless you are sure it wasn't intended for you). The `gh` CLI is available for GitHub operations, and you can use `git` too.
 
 {devs_options.prompt_extra}
 
@@ -215,30 +215,6 @@ Your GitHub username is `{self.config.github_mentioned_user}`.
             prompt += f"\n{devs_options.prompt_extra}\n"
         
         return prompt
-    
-    def _sanitize_outgoing_comment(self, comment: str, mentioned_user: str) -> str:
-        """Sanitize outgoing comment to prevent feedback loops.
-        
-        Args:
-            comment: The comment text to sanitize
-            mentioned_user: The bot username to remove mentions of
-            
-        Returns:
-            Sanitized comment text
-        """
-        # Replace @mention with just the username to prevent loops
-        # Use negative lookbehind to avoid replacing @@mentions (which are already escaped)
-        pattern = re.compile(rf"(?<!@)@{re.escape(mentioned_user)}\b", re.IGNORECASE)
-        sanitized = pattern.sub(mentioned_user, comment)
-        
-        # Log if we made any changes
-        if sanitized != comment:
-            logger.info("Sanitized outgoing comment to prevent feedback loop",
-                       original_length=len(comment),
-                       sanitized_length=len(sanitized),
-                       mentioned_user=mentioned_user)
-        
-        return sanitized
     
     async def _handle_task_completion(
         self,
@@ -279,10 +255,8 @@ Your GitHub username is `{self.config.github_mentioned_user}`.
 
 # This response was generated automatically by the devs webhook handler.
 # """
-            
-            # Sanitize output to prevent feedback loops
-            sanitized_output = self._sanitize_outgoing_comment(claude_output, self.config.github_mentioned_user)
-            await self._post_github_comment(event, sanitized_output)
+
+            # Let's assume the real Claude task already added a comment somewhere
             
         except Exception as e:
             logger.error("Error handling task completion",
@@ -315,9 +289,7 @@ Your GitHub username is `{self.config.github_mentioned_user}`.
 Please check the webhook handler logs for more details, or try mentioning me again with a more specific request.
 """
             
-            # Sanitize comment to prevent feedback loops
-            sanitized_comment = self._sanitize_outgoing_comment(comment, self.config.github_mentioned_user)
-            await self._post_github_comment(event, sanitized_comment)
+            await self._post_github_comment(event, comment)
             
         except Exception as e:
             logger.error("Error handling task failure",
