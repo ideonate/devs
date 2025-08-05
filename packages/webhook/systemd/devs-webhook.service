@@ -1,0 +1,34 @@
+[Unit]
+Description=DevS Webhook Handler Service
+Documentation=https://github.com/ideonate/devs
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=exec
+User=%USER%
+Group=%GROUP%
+WorkingDirectory=%WORKING_DIR%
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+ExecStart=%PYTHON_PATH% -m devs_webhook.cli serve --reload --env-file=%ENV_FILE%
+Restart=on-failure
+RestartSec=5
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%WORKING_DIR%/.devs %WORKING_DIR%/.cache
+
+# Resource limits
+MemoryLimit=2G
+CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=devs-webhook
+
+[Install]
+WantedBy=multi-user.target
