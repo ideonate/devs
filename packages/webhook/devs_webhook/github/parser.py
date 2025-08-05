@@ -153,6 +153,7 @@ class WebhookParser:
             
             elif isinstance(event, CommentEvent):
                 # For comment events, check if the parent issue/PR is assigned to the bot
+                # For PRs, also check if the bot created it (comments are likely feedback)
                 if event.issue:
                     logger.info("Checking comment's issue assignee",
                                has_assignee=hasattr(event.issue, 'assignee'))
@@ -164,14 +165,22 @@ class WebhookParser:
                                    assignee_is_none=assignee is None)
                 
                 elif event.pull_request:
-                    logger.info("Checking comment's PR assignee",
-                               has_assignee=hasattr(event.pull_request, 'assignee'))
+                    logger.info("Checking comment's PR assignee and author",
+                               has_assignee=hasattr(event.pull_request, 'assignee'),
+                               pr_author=event.pull_request.user.login)
                     
                     if hasattr(event.pull_request, 'assignee'):
                         assignee = event.pull_request.assignee
                         logger.info("Comment's PR assignee found",
                                    assignee_login=assignee.login if assignee else None,
                                    assignee_is_none=assignee is None)
+                    
+                    # Also check if bot is the PR author (comments are likely feedback/reviews)
+                    if event.pull_request.user.login == mentioned_user:
+                        logger.info("Comment on bot-created PR, processing",
+                                   pr_author=event.pull_request.user.login,
+                                   mentioned_user=mentioned_user)
+                        assignee = event.pull_request.user  # Treat author as assignee for processing
             
             assignee_matches = assignee and assignee.login == mentioned_user
             logger.info("Assignment check result",
