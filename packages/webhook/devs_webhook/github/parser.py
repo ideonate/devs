@@ -108,8 +108,21 @@ class WebhookParser:
                        relevant_actions=relevant_actions)
             return False
         
-        # Special handling for assignment events AND opened events with assignees
-        if event.action == "assigned" or (event.action == "opened" and isinstance(event, (IssueEvent, PullRequestEvent))):
+        # Prevent feedback loops: Don't process events created by the bot user
+        if event.sender.login == mentioned_user:
+            logger.info("Event created by bot user, skipping to prevent feedback loop")
+            return False
+        
+        # For comment events, also check if the comment author is the bot
+        if isinstance(event, CommentEvent) and event.comment.user.login == mentioned_user:
+            logger.info("Comment created by bot user, skipping to prevent feedback loop")
+            return False
+        
+        # Special handling for assignment events, opened events with assignees, AND comment events on assigned issues/PRs
+        if (event.action == "assigned" or 
+            (event.action == "opened" and isinstance(event, (IssueEvent, PullRequestEvent))) or
+            (event.action == "created" and isinstance(event, CommentEvent))):
+            
             logger.info("Checking for assignee",
                        event_type=type(event).__name__,
                        action=event.action)
@@ -138,6 +151,28 @@ class WebhookParser:
                                assignee_login=assignee.login if assignee else None,
                                assignee_is_none=assignee is None)
             
+            elif isinstance(event, CommentEvent):
+                # For comment events, check if the parent issue/PR is assigned to the bot
+                if event.issue:
+                    logger.info("Checking comment's issue assignee",
+                               has_assignee=hasattr(event.issue, 'assignee'))
+                    
+                    if hasattr(event.issue, 'assignee'):
+                        assignee = event.issue.assignee
+                        logger.info("Comment's issue assignee found",
+                                   assignee_login=assignee.login if assignee else None,
+                                   assignee_is_none=assignee is None)
+                
+                elif event.pull_request:
+                    logger.info("Checking comment's PR assignee",
+                               has_assignee=hasattr(event.pull_request, 'assignee'))
+                    
+                    if hasattr(event.pull_request, 'assignee'):
+                        assignee = event.pull_request.assignee
+                        logger.info("Comment's PR assignee found",
+                                   assignee_login=assignee.login if assignee else None,
+                                   assignee_is_none=assignee is None)
+            
             assignee_matches = assignee and assignee.login == mentioned_user
             logger.info("Assignment check result",
                        assignee_login=assignee.login if assignee else None,
@@ -151,17 +186,7 @@ class WebhookParser:
                 # For "assigned" action, only process if bot was assigned
                 logger.info("Bot was not assigned in 'assigned' event, skipping")
                 return False
-            # For "opened" action, continue to check for mentions
-        
-        # Prevent feedback loops: Don't process events created by the bot user
-        if event.sender.login == mentioned_user:
-            logger.info("Event created by bot user, skipping to prevent feedback loop")
-            return False
-        
-        # For comment events, also check if the comment author is the bot
-        if isinstance(event, CommentEvent) and event.comment.user.login == mentioned_user:
-            logger.info("Comment created by bot user, skipping to prevent feedback loop")
-            return False
+            # For "opened" and "created" actions, continue to check for mentions
         
         # Check for @mentions
         mentions = event.extract_mentions(mentioned_user)
