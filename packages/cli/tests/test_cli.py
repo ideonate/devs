@@ -22,6 +22,9 @@ class TestCLI:
         assert "stop" in result.output
         assert "shell" in result.output
         assert "list" in result.output
+        assert "claude" in result.output
+        assert "clean" in result.output
+        assert "status" in result.output
     
     def test_cli_version(self):
         """Test that CLI version command works."""
@@ -66,6 +69,16 @@ class TestCLI:
         assert result.exit_code == 0
         assert "Open shell in devcontainer" in result.output
         assert "DEV_NAME" in result.output
+    
+    def test_claude_command_help(self):
+        """Test claude command help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ['claude', '--help'])
+        
+        assert result.exit_code == 0
+        assert "Execute Claude CLI in devcontainer" in result.output
+        assert "DEV_NAME" in result.output
+        assert "PROMPT" in result.output
     
     def test_list_command_help(self):
         """Test list command help."""
