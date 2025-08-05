@@ -45,7 +45,7 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default="eamonn,harry,darren",
         description="Comma-separated list of named containers in the pool"
     )
-    container_timeout_minutes: int = Field(default=30, description="Container timeout in minutes")
+    container_timeout_minutes: int = Field(default=60, description="Container timeout in minutes")
     max_concurrent_tasks: int = Field(default=3, description="Maximum concurrent tasks")
     
     # Repository settings
