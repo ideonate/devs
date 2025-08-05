@@ -1,6 +1,7 @@
 """GitHub webhook payload models."""
 
 import re
+import hashlib
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -38,6 +39,7 @@ class GitHubIssue(BaseModel):
     html_url: str
     created_at: datetime
     updated_at: datetime
+    comments: int = 0
 
 
 class GitHubPullRequest(BaseModel):
@@ -95,6 +97,10 @@ class WebhookEvent(BaseModel):
     def get_context_for_claude(self) -> str:
         """Get formatted context for Claude Code. Override in subclasses."""
         return f"Repository: {self.repository.full_name}\nAction: {self.action}"
+    
+    def get_content_hash(self) -> Optional[str]:
+        """Get hash of content that would be sent to Claude for deduplication."""
+        return None
 
 
 class IssueEvent(WebhookEvent):
@@ -119,6 +125,21 @@ Action: {self.action}
 Repository: {self.repository.full_name}
 Clone URL: {self.repository.clone_url}
 """
+
+    def get_content_hash(self) -> str:
+        """Get hash of issue content for deduplication."""
+        # Hash the content that matters to Claude - excludes action field
+        content_parts = [
+            str(self.repository.full_name),
+            str(self.issue.number),
+            str(self.issue.title),
+            str(self.issue.body or ""),
+            str(self.issue.assignee.login if self.issue.assignee else ""),
+            str(self.issue.updated_at),
+            str(self.issue.comments)
+        ]
+        content_string = "|".join(content_parts)
+        return hashlib.sha256(content_string.encode()).hexdigest()[:16]
 
 
 class PullRequestEvent(WebhookEvent):
@@ -146,6 +167,21 @@ Action: {self.action}
 Repository: {self.repository.full_name}
 Clone URL: {self.repository.clone_url}
 """
+
+    def get_content_hash(self) -> str:
+        """Get hash of PR content for deduplication."""
+        content_parts = [
+            str(self.repository.full_name),
+            str(self.pull_request.number),
+            str(self.pull_request.title),
+            str(self.pull_request.body or ""),
+            str(self.pull_request.assignee.login if self.pull_request.assignee else ""),
+            str(self.pull_request.updated_at),
+            str(self.pull_request.head.get('ref', '')),
+            str(self.pull_request.base.get('ref', ''))
+        ]
+        content_string = "|".join(content_parts)
+        return hashlib.sha256(content_string.encode()).hexdigest()[:16]
 
 
 class CommentEvent(WebhookEvent):
@@ -196,6 +232,35 @@ Action: {self.action}
 Repository: {self.repository.full_name}
 Clone URL: {self.repository.clone_url}
 """
+    
+    def get_content_hash(self) -> str:
+        """Get hash of comment content for deduplication."""
+        # Comments are always processed since they represent new input
+        # But include timestamp to distinguish different comments
+        content_parts = [
+            str(self.repository.full_name),
+            str(self.comment.id),
+            str(self.comment.body),
+            str(self.comment.created_at),
+            str(self.comment.user.login)
+        ]
+        
+        # Include parent issue/PR info if available
+        if self.issue:
+            content_parts.extend([
+                "issue",
+                str(self.issue.number),
+                str(self.issue.updated_at)
+            ])
+        elif self.pull_request:
+            content_parts.extend([
+                "pr", 
+                str(self.pull_request.number),
+                str(self.pull_request.updated_at)
+            ])
+            
+        content_string = "|".join(content_parts)
+        return hashlib.sha256(content_string.encode()).hexdigest()[:16]
     
 class TestIssueEvent(IssueEvent):
     """Test event for issues, used in unit tests."""

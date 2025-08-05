@@ -6,6 +6,7 @@ import structlog
 from ..config import get_config
 from ..github.parser import WebhookParser
 from .container_pool import ContainerPool
+from .deduplication import is_duplicate_content, get_cache_stats
 
 logger = structlog.get_logger()
 
@@ -63,6 +64,24 @@ class WebhookHandler:
                            delivery_id=delivery_id)
                 return
             
+            # Check for duplicate content
+            content_hash = event.get_content_hash()
+            if content_hash:
+                event_description = f"{type(event).__name__}({event.action}) {event.repository.full_name}"
+                if hasattr(event, 'issue'):
+                    event_description += f" issue#{event.issue.number}"
+                elif hasattr(event, 'pull_request'):
+                    event_description += f" pr#{event.pull_request.number}"
+                
+                if is_duplicate_content(content_hash, event_description):
+                    logger.info("Duplicate content detected, skipping processing",
+                               event_type=type(event).__name__,
+                               action=event.action,
+                               content_hash=content_hash,
+                               event_description=event_description,
+                               delivery_id=delivery_id)
+                    return
+            
             logger.info("Processing webhook event",
                        event_type=type(event).__name__,
                        repo=event.repository.full_name,
@@ -111,6 +130,7 @@ class WebhookHandler:
             "container_pool_size": len(self.config.get_container_pool_list()),
             "containers": container_status,
             "mentioned_user": self.config.github_mentioned_user,
+            "deduplication_cache": get_cache_stats(),
         }
     
     async def stop_container(self, container_name: str) -> bool:

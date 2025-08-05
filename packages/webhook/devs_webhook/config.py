@@ -93,13 +93,13 @@ class WebhookConfig(BaseSettings, BaseConfig):
         """Get allowed orgs as a list."""
         if not self.allowed_orgs:
             return []
-        return [org.strip() for org in self.allowed_orgs.split(',') if org.strip()]
+        return [org.strip().lower() for org in self.allowed_orgs.split(',') if org.strip()]
     
     def get_allowed_users_list(self) -> List[str]:
         """Get allowed users as a list."""
         if not self.allowed_users:
             return []
-        return [user.strip() for user in self.allowed_users.split(',') if user.strip()]
+        return [user.strip().lower() for user in self.allowed_users.split(',') if user.strip()]
     
     def get_container_pool_list(self) -> List[str]:
         """Get container pool as a list."""
@@ -142,7 +142,7 @@ class WebhookConfig(BaseSettings, BaseConfig):
         allowed_users = self.get_allowed_users_list()
         
         # Check if owner is in allowed orgs or users
-        return repo_owner in allowed_orgs or repo_owner in allowed_users
+        return repo_owner.lower() in allowed_orgs or repo_owner.lower() in allowed_users
     
     def get_default_workspaces_dir(self) -> Path:
         """Get default workspaces directory for webhook package."""
