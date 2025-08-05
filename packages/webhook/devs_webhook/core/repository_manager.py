@@ -7,6 +7,7 @@ import structlog
 
 from ..config import get_config
 from ..github.client import GitHubClient
+from ..utils.async_utils import run_git_async
 
 logger = structlog.get_logger()
 
@@ -107,35 +108,26 @@ class RepositoryManager:
             True if update successful
         """
         try:
-            # Use git to pull latest changes
-            import subprocess
-            
-            # Fetch all remotes
-            result = subprocess.run(
-                ["git", "fetch", "--all"],
-                cwd=repo_dir,
-                capture_output=True,
-                text=True,
-                check=False
+            # Fetch all remotes using async git
+            success, _, stderr = await run_git_async(
+                ["fetch", "--all"],
+                str(repo_dir)
             )
             
-            if result.returncode != 0:
+            if not success:
                 logger.warning("Git fetch failed",
                               path=str(repo_dir),
-                              error=result.stderr)
+                              error=stderr)
                 return False
             
             # Reset to origin/main or origin/master
             for branch in ["main", "master"]:
-                result = subprocess.run(
-                    ["git", "reset", "--hard", f"origin/{branch}"],
-                    cwd=repo_dir,
-                    capture_output=True,
-                    text=True,
-                    check=False
+                success, _, _ = await run_git_async(
+                    ["reset", "--hard", f"origin/{branch}"],
+                    str(repo_dir)
                 )
                 
-                if result.returncode == 0:
+                if success:
                     logger.info("Repository updated",
                                path=str(repo_dir),
                                branch=branch)

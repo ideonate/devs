@@ -3,6 +3,7 @@
 import asyncio
 import shlex
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple, Optional
 import structlog
 from pathlib import Path
@@ -31,6 +32,11 @@ class ClaudeDispatcher:
         """Initialize Claude dispatcher."""
         self.config = get_config()
         self.github_client = GitHubClient(self.config.github_token)
+        # Create a thread pool for blocking operations - use configured max concurrent tasks
+        self.executor = ThreadPoolExecutor(
+            max_workers=self.config.max_concurrent_tasks,
+            thread_name_prefix="claude-exec-"
+        )
         
         logger.info("Claude dispatcher initialized")
     
@@ -129,12 +135,16 @@ class ClaudeDispatcher:
                 logger.info("Test event - skipping Claude execution")
                 return TaskResult(success=True, output="Test event received, no execution", error=None)
             
-            # Execute Claude using ContainerManager - same as CLI does
-            success, output, error = container_manager.exec_claude(
+            # Execute Claude using ContainerManager in a thread to avoid blocking
+            # the async event loop
+            loop = asyncio.get_event_loop()
+            success, output, error = await loop.run_in_executor(
+                self.executor,
+                container_manager.exec_claude,
                 dev_name, 
                 workspace_dir, 
                 prompt, 
-                debug=self.config.dev_mode
+                self.config.dev_mode
             )
             
             if success:
