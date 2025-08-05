@@ -43,6 +43,46 @@ class DevContainerCLI:
                 "DevContainer CLI not found. Install with: npm install -g @devcontainers/cli"
             )
     
+    def _check_github_token_setup(self, env_mount_path: Path) -> None:
+        """Check if GH_TOKEN is properly configured and warn if missing.
+        
+        Args:
+            env_mount_path: Path to the environment directory containing .env file
+        """
+        env_file = env_mount_path / '.env'
+        
+        # Check if GH_TOKEN is in environment or .env file
+        has_env_token = 'GH_TOKEN' in os.environ and os.environ['GH_TOKEN'].strip()
+        has_file_token = False
+        
+        if env_file.exists():
+            try:
+                env_content = env_file.read_text()
+                # Simple check for GH_TOKEN=something (non-empty)
+                for line in env_content.splitlines():
+                    line = line.strip()
+                    if line.startswith('GH_TOKEN=') and len(line) > len('GH_TOKEN='):
+                        has_file_token = True
+                        break
+            except Exception:
+                # If we can't read the file, continue without error
+                pass
+        
+        if not has_env_token and not has_file_token:
+            from rich.console import Console
+            console = Console()
+            console.print()
+            console.print("⚠️  [bold yellow]GitHub Token Not Configured[/bold yellow]")
+            console.print("   GitHub operations (private repos, API access) may fail.")
+            console.print()
+            console.print("   [bold]To fix this:[/bold]")
+            console.print(f"   1. Set environment variable: [cyan]export GH_TOKEN=your_token_here[/cyan]")
+            console.print(f"   2. Or add to file: [cyan]{env_file}[/cyan]")
+            console.print("      [dim]GH_TOKEN=your_token_here[/dim]")
+            console.print()
+            console.print("   Get a token at: [link]https://github.com/settings/tokens[/link]")
+            console.print()
+
     def up(
         self,
         workspace_folder: Path,
@@ -119,6 +159,10 @@ class DevContainerCLI:
                     if 'GH_TOKEN' in os.environ:
                         env_content = f"GH_TOKEN={os.environ['GH_TOKEN']}\n"
                     env_file.write_text(env_content)
+            
+            # Check if GH_TOKEN is configured and warn if missing
+            self._check_github_token_setup(env_mount_path)
+            
             env['DEVS_ENV_MOUNT_PATH'] = str(env_mount_path)
             
             # Pass debug mode to container scripts
