@@ -87,8 +87,8 @@ class WorkspaceManager:
         # Check if workspace already exists
         if self.workspace_exists(dev_name):
             if force:
-                console.print(f"   🗑️  Removing existing workspace for {dev_name}...")
-                self.remove_workspace(dev_name)
+                console.print(f"   🗑️  Resetting existing workspace for {dev_name}...")
+                self.remove_workspace(dev_name, contents_only=True)
             else:
                 console.print(f"   📁 Using existing workspace at {workspace_dir}")
                 return workspace_dir
@@ -220,11 +220,12 @@ class WorkspaceManager:
                 except Exception as e:
                     console.print(f"   ⚠️  Warning: Could not copy {extra_path}: {e}")
     
-    def remove_workspace(self, dev_name: str) -> bool:
+    def remove_workspace(self, dev_name: str, contents_only: bool = False) -> bool:
         """Remove workspace directory for a dev environment.
         
         Args:
             dev_name: Development environment name
+            contents_only: If True, remove only contents but keep the directory
             
         Returns:
             True if workspace was removed
@@ -235,10 +236,19 @@ class WorkspaceManager:
             return False
         
         try:
-            safe_remove_directory(workspace_dir)
-            console.print(f"   🗑️  Removed workspace: {workspace_dir}")
+            if contents_only:
+                # Remove all contents but keep the directory itself
+                for item in workspace_dir.iterdir():
+                    if item.is_dir():
+                        safe_remove_directory(item)
+                    else:
+                        item.unlink()
+                console.print(f"   🗑️  Removed workspace contents: {workspace_dir}")
+            else:
+                safe_remove_directory(workspace_dir)
+                console.print(f"   🗑️  Removed workspace: {workspace_dir}")
             return True
-        except WorkspaceError as e:
+        except (WorkspaceError, OSError) as e:
             console.print(f"   ❌ Failed to remove workspace for {dev_name}: {e}")
             return False
     
