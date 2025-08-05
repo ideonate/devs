@@ -40,6 +40,13 @@ class GitHubIssue(BaseModel):
     created_at: datetime
     updated_at: datetime
     comments: int = 0
+    
+    # Additional fields that may be present for PRs treated as issues
+    draft: Optional[bool] = None
+    pull_request: Optional[Dict[str, Any]] = None
+    
+    class Config:
+        extra = "ignore"  # Ignore additional fields not in model
 
 
 class GitHubPullRequest(BaseModel):

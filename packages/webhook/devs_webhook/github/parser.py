@@ -37,6 +37,12 @@ class WebhookParser:
                 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             # Invalid payload format
+            import structlog
+            logger = structlog.get_logger()
+            logger.error("Failed to parse webhook payload",
+                        event_type=event_type,
+                        error=str(e),
+                        exc_info=True)
             return None
     
     @staticmethod
@@ -52,12 +58,15 @@ class WebhookParser:
     @staticmethod
     def _parse_issue_comment_event(data: Dict[str, Any]) -> CommentEvent:
         """Parse an issue comment webhook event."""
+        issue_data = data.get("issue")
+        
+        # Always treat as issue - we'll detect PR nature in the processing logic
         return CommentEvent(
             action=data["action"],
             repository=data["repository"],
             sender=data["sender"],
             comment=data["comment"],
-            issue=data.get("issue")  # Present for issue comments
+            issue=issue_data  # Keep as issue, detect PR in logic
         )
     
     @staticmethod
@@ -118,10 +127,10 @@ class WebhookParser:
             logger.info("Comment created by bot user, skipping to prevent feedback loop")
             return False
         
-        # Special handling for assignment events, opened events with assignees, AND comment events on assigned issues/PRs
+        # Special handling for assignment events, opened events with assignees, AND comment events on assigned/authored issues/PRs
         if (event.action == "assigned" or 
             (event.action == "opened" and isinstance(event, (IssueEvent, PullRequestEvent))) or
-            (event.action == "created" and isinstance(event, CommentEvent))):
+            (event.action in ["created", "edited"] and isinstance(event, CommentEvent))):
             
             logger.info("Checking for assignee",
                        event_type=type(event).__name__,
@@ -155,14 +164,38 @@ class WebhookParser:
                 # For comment events, check if the parent issue/PR is assigned to the bot
                 # For PRs, also check if the bot created it (comments are likely feedback)
                 if event.issue:
-                    logger.info("Checking comment's issue assignee",
-                               has_assignee=hasattr(event.issue, 'assignee'))
+                    # Check if this "issue" is actually a PR (has pull_request field)
+                    is_pr = hasattr(event.issue, 'pull_request') and event.issue.pull_request is not None
                     
-                    if hasattr(event.issue, 'assignee'):
-                        assignee = event.issue.assignee
-                        logger.info("Comment's issue assignee found",
-                                   assignee_login=assignee.login if assignee else None,
-                                   assignee_is_none=assignee is None)
+                    if is_pr:
+                        logger.info("Checking comment's PR assignee and author",
+                                   has_assignee=hasattr(event.issue, 'assignee'),
+                                   pr_author=event.issue.user.login,
+                                   is_pr=True)
+                        
+                        if hasattr(event.issue, 'assignee'):
+                            assignee = event.issue.assignee
+                            logger.info("Comment's PR assignee found",
+                                       assignee_login=assignee.login if assignee else None,
+                                       assignee_is_none=assignee is None)
+                        
+                        # Also check if bot is the PR author (comments are likely feedback/reviews)
+                        if event.issue.user.login == mentioned_user:
+                            logger.info("Comment on bot-created PR, processing",
+                                       pr_author=event.issue.user.login,
+                                       mentioned_user=mentioned_user)
+                            assignee = event.issue.user  # Treat author as assignee for processing
+                    else:
+                        # True issue comment
+                        logger.info("Checking comment's issue assignee",
+                                   has_assignee=hasattr(event.issue, 'assignee'),
+                                   is_pr=False)
+                        
+                        if hasattr(event.issue, 'assignee'):
+                            assignee = event.issue.assignee
+                            logger.info("Comment's issue assignee found",
+                                       assignee_login=assignee.login if assignee else None,
+                                       assignee_is_none=assignee is None)
                 
                 elif event.pull_request:
                     logger.info("Checking comment's PR assignee and author",
