@@ -6,12 +6,16 @@ from pathlib import Path
 
 from .config import get_config
 from .utils.logging import setup_logging
+from .cli.worker import worker
 
 
 @click.group()
 def cli():
     """DevContainer Webhook Handler CLI."""
     pass
+
+# Add worker command to the CLI group
+cli.add_command(worker)
 
 
 @cli.command()

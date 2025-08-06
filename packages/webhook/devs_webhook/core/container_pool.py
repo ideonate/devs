@@ -1,6 +1,8 @@
 """Container pool management for webhook tasks."""
 
 import asyncio
+import json
+import sys
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Set, Any, NamedTuple
 from pathlib import Path
@@ -147,8 +149,8 @@ class ContainerPool:
                                    task_id=queued_task.task_id,
                                    repo=queued_task.repo_name)
                         
-                        # Process the task
-                        await self._process_task(dev_name, queued_task)
+                        # Process the task via subprocess for Docker safety
+                        await self._process_task_subprocess(dev_name, queued_task)
                         
                     finally:
                         # Always mark task as done, regardless of success/failure
@@ -265,6 +267,135 @@ class ContainerPool:
                         exc_info=True)
             
             # Task execution failed, but no cleanup needed since setup is deferred to exec_claude
+    
+    async def _process_task_subprocess(self, dev_name: str, queued_task: QueuedTask) -> None:
+        """Process a single task via subprocess for Docker safety.
+        
+        Args:
+            dev_name: Name of container to execute in
+            queued_task: Task to process
+        """
+        repo_name = queued_task.repo_name
+        repo_path = self.config.repo_cache_dir / repo_name.replace("/", "-")
+        
+        logger.info("Starting task processing via subprocess",
+                   task_id=queued_task.task_id,
+                   container=dev_name,
+                   repo_name=repo_name,
+                   repo_path=str(repo_path))
+
+        try:
+            # Ensure repository is cloned FIRST, before launching subprocess
+            logger.info("Ensuring repository is cloned",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       repo_name=repo_name)
+            
+            devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
+            
+            logger.info("Repository cloning completed, launching worker subprocess",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       devs_options_present=devs_options is not None)
+
+            # Build JSON payload for stdin (no base64 encoding needed)
+            stdin_payload = {
+                "task_description": queued_task.task_description,
+                "event": queued_task.event.model_dump(),
+            }
+            if devs_options:
+                stdin_payload["devs_options"] = devs_options.model_dump()
+            
+            stdin_json = json.dumps(stdin_payload)
+            
+            # Build subprocess command (only basic args, large data via stdin)
+            cmd = [
+                sys.executable, "-m", "devs_webhook.cli.worker",
+                "--task-id", queued_task.task_id,
+                "--dev-name", dev_name,
+                "--repo-name", repo_name,
+                "--repo-path", str(repo_path),
+                "--timeout", str(1800)  # 30 minute timeout
+            ]
+            
+            logger.info("Launching worker subprocess",
+                       task_id=queued_task.task_id,
+                       container=dev_name,
+                       command_length=len(' '.join(cmd)),
+                       stdin_payload_size=len(stdin_json))
+
+            # Launch subprocess with timeout
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            try:
+                # Wait for subprocess with timeout, sending JSON via stdin
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(input=stdin_json.encode('utf-8')),
+                    timeout=1800  # 30 minute timeout
+                )
+                
+                # Parse result
+                if process.returncode == 0:
+                    # Success - parse JSON output
+                    try:
+                        result_data = json.loads(stdout.decode('utf-8'))
+                        logger.info("Subprocess task completed successfully",
+                                   task_id=queued_task.task_id,
+                                   container=dev_name,
+                                   output_length=len(result_data.get('output', '')))
+                    except json.JSONDecodeError as e:
+                        logger.error("Failed to parse subprocess JSON output",
+                                    task_id=queued_task.task_id,
+                                    container=dev_name,
+                                    stdout=stdout.decode('utf-8')[:500],
+                                    json_error=str(e))
+                        raise Exception(f"Subprocess JSON parsing failed: {e}")
+                else:
+                    # Failure - log error details
+                    try:
+                        error_data = json.loads(stdout.decode('utf-8'))
+                        error_msg = error_data.get('error', 'Unknown subprocess error')
+                    except json.JSONDecodeError:
+                        error_msg = f"Subprocess failed with return code {process.returncode}"
+                    
+                    logger.error("Subprocess task failed",
+                                task_id=queued_task.task_id,
+                                container=dev_name,
+                                return_code=process.returncode,
+                                error=error_msg,
+                                stderr=stderr.decode('utf-8')[:500] if stderr else '')
+                    
+                    # Don't raise exception here - just log the failure
+                    # The task is considered processed even if it failed
+                    
+            except asyncio.TimeoutError:
+                logger.error("Subprocess task timed out",
+                            task_id=queued_task.task_id,
+                            container=dev_name,
+                            timeout_seconds=1800)
+                
+                # Kill the subprocess
+                process.kill()
+                await process.wait()
+                
+                # Don't raise exception - just log the timeout
+                
+        except Exception as e:
+            logger.error("Subprocess task processing failed",
+                        task_id=queued_task.task_id,
+                        container=dev_name,
+                        repo_name=repo_name,
+                        repo_path=str(repo_path),
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        exc_info=True)
+            
+            # Task execution failed, but we've logged it - don't re-raise
     
     async def _ensure_repository_cloned(
         self,
