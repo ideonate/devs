@@ -2,8 +2,8 @@
 
 import re
 import hashlib
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, List, Union, Annotated
+from pydantic import BaseModel, Field, Discriminator, Tag
 from datetime import datetime
 
 
@@ -290,3 +290,26 @@ class DevsOptions(BaseModel):
     """DEVS.yml configuration options."""
     default_branch: str = "main"
     prompt_extra: str = ""
+
+
+# Discriminated union for automatic event type detection
+def get_webhook_event_discriminator(v: Any) -> str:
+    """Discriminator function to determine webhook event type."""
+    if isinstance(v, dict):
+        if 'comment' in v:
+            return 'comment'
+        elif 'issue' in v and ('pull_request' not in v or v.get('pull_request') is None):
+            return 'issue'
+        elif 'pull_request' in v and v.get('pull_request') is not None:
+            return 'pull_request'
+    return 'comment'  # Default fallback
+
+
+AnyWebhookEvent = Annotated[
+    Union[
+        Annotated[CommentEvent, Tag('comment')],
+        Annotated[IssueEvent, Tag('issue')],
+        Annotated[PullRequestEvent, Tag('pull_request')]
+    ],
+    Discriminator(get_webhook_event_discriminator)
+]

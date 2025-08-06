@@ -10,11 +10,12 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+from pydantic import TypeAdapter
 from devs_common.core.project import Project
 
 from ..config import get_config
 from ..core.claude_dispatcher import ClaudeDispatcher
-from ..github.models import IssueEvent, PullRequestEvent, CommentEvent, DevsOptions
+from ..github.models import AnyWebhookEvent, DevsOptions
 
 logger = structlog.get_logger()
 
@@ -91,16 +92,12 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, timeout:
         if not event_data:
             raise ValueError("event required in stdin JSON")
         
-        # Parse webhook event directly from JSON
+        # Parse webhook event directly from JSON - let Pydantic figure out the type!
         logger.info("Parsing webhook event from JSON", task_id=task_id)
         
-        # Determine event type and create appropriate object
-        if 'issue' in event_data and 'pull_request' not in event_data:
-            event = IssueEvent.model_validate(event_data)
-        elif 'pull_request' in event_data:
-            event = PullRequestEvent.model_validate(event_data)
-        else:
-            event = CommentEvent.model_validate(event_data)
+        # Use TypeAdapter to handle the union type automatically
+        webhook_adapter = TypeAdapter(AnyWebhookEvent)
+        event = webhook_adapter.validate_python(event_data)
         
         parsed_devs_options = None
         if devs_options_data:

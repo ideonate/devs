@@ -301,10 +301,10 @@ class ContainerPool:
             # Build JSON payload for stdin (no base64 encoding needed)
             stdin_payload = {
                 "task_description": queued_task.task_description,
-                "event": queued_task.event.model_dump(),
+                "event": queued_task.event.model_dump(mode='json'),  # Use JSON mode for datetime serialization
             }
             if devs_options:
-                stdin_payload["devs_options"] = devs_options.model_dump()
+                stdin_payload["devs_options"] = devs_options.model_dump(mode='json')
             
             stdin_json = json.dumps(stdin_payload)
             
