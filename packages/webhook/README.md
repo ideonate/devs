@@ -255,6 +255,20 @@ docker run -d \
   devs-webhook
 ```
 
+### Semi-permanent with nohup
+
+```bash
+# Start in background
+nohup devs-webhook serve &
+
+# View logs
+tail -f nohup.out
+
+# Find and kill the process
+ps aux | grep devs-webhook
+kill <PID>
+```
+
 ### Production with Systemd (Ubuntu/Debian)
 
 For running as a system service on Ubuntu:
