@@ -14,8 +14,8 @@ This is a **multi-package monorepo** with the following structure:
 devs/
 ├── packages/
 │   ├── cli/                    # Main CLI tool (Python package)
-│   ├── webhook/               # GitHub webhook handler (planned)
-│   └── common/                # Shared utilities (planned)
+│   ├── webhook/               # GitHub webhook handler (fully implemented)
+│   └── common/                # Shared utilities between CLI and webhook
 ├── docs/                      # Documentation
 ├── scripts/                   # Development scripts
 ├── devs                       # Legacy zsh script (to be removed)
@@ -69,6 +69,32 @@ packages/cli/
 - `WorkspaceManager`: Handles workspace copying and isolation
 - `VSCodeIntegration`: Manages VS Code launching and devcontainer URIs
 - `DockerClient`: Docker API wrapper with comprehensive error handling
+
+### Webhook Package (`packages/webhook/`)
+
+**Installation**: `pip install devs-webhook` (when published) or `pip install -e packages/webhook/` (development)
+
+**Key Components**:
+
+- **GitHub Webhook Handler**: Processes @mentions in issues/PRs
+- **Container Pool**: Manages named containers (eamonn, harry, darren by default)
+- **Worker Architecture**: Subprocess-based worker for Docker safety
+- **Claude Code Integration**: Uses Claude Code SDK for automated development
+- **Repository Cache**: Shared cache with CLI for repository cloning
+
+**Deployment Options**:
+- Systemd service with setup script (`packages/webhook/systemd/`)
+- Docker Compose for containerized deployment
+- Standalone Flask application
+
+### Common Package (`packages/common/`)
+
+**Shared Components**:
+
+- **Core Classes**: Project, WorkspaceManager, ContainerManager
+- **Templates**: Devcontainer templates with post-creation scripts
+- **Configuration**: Base configuration classes for both packages
+- **Utilities**: Shared git, Docker, and file operations
 
 ## Architecture
 
@@ -196,10 +222,34 @@ flake8 devs tests      # Linting
 
 #### Webhook Configuration
 
-- `GITHUB_WEBHOOK_SECRET`: GitHub webhook secret
+**Core Settings**:
+- `GITHUB_WEBHOOK_SECRET`: GitHub webhook secret for validation
 - `GITHUB_TOKEN`: GitHub personal access token (same as GH_TOKEN)
 - `GITHUB_MENTIONED_USER`: GitHub username to watch for @mentions
 - `CLAUDE_API_KEY`: Claude API key for webhook responses
+
+**Container Pool**:
+- `CONTAINER_POOL`: Comma-separated container names (default: eamonn,harry,darren)
+- `CONTAINER_TIMEOUT_MINUTES`: Idle timeout for containers (default: 60)
+- `MAX_CONCURRENT_TASKS`: Maximum parallel tasks (default: 3)
+
+**Access Control**:
+- `ALLOWED_ORGS`: Comma-separated GitHub organizations
+- `ALLOWED_USERS`: Comma-separated GitHub usernames
+
+**Server Settings**:
+- `WEBHOOK_HOST`: Server bind address (default: 0.0.0.0)
+- `WEBHOOK_PORT`: Server port (default: 8000)
+
+### Project Configuration (DEVS.yml)
+
+Projects can include a `DEVS.yml` file in their repository root:
+
+```yaml
+default_branch: develop  # Override default branch (default: main)
+prompt_extra: |          # Additional Claude instructions
+  This project uses specific coding standards...
+```
 
 ### DevContainer Support
 
@@ -314,12 +364,46 @@ def create_workspace(self, dev_name: str) -> Path:
 
 The CLI automatically checks for required dependencies and provides installation instructions for missing tools.
 
+## Webhook Operation
+
+### How It Works
+
+1. **GitHub Event**: User @mentions the configured username in an issue/PR
+2. **Webhook Reception**: Server validates signature and queues task
+3. **Container Assignment**: Task assigned to available container from pool
+4. **Repository Setup**: Repository cloned/updated in container
+5. **Claude Execution**: Claude Code analyzes issue and implements solution
+6. **Response**: Results posted back to GitHub issue/PR
+
+### Worker Architecture
+
+The webhook uses a subprocess-based worker system for Docker safety:
+
+```bash
+devs-webhook-worker --container-name eamonn --task-json-stdin < task.json
+```
+
+- **Process Isolation**: Prevents Docker operations from blocking web server
+- **JSON Communication**: Large payloads passed via stdin
+- **Timeout Protection**: 60-minute timeout for tasks
+- **Deduplication**: Content hashing prevents duplicate processing
+
+## Testing
+
+The project now includes comprehensive test coverage:
+
+```bash
+# Test all packages
+./scripts/test-all.sh
+
+# Test webhook package  
+pytest packages/webhook/tests/ -v
+
+# Test CLI package
+pytest packages/cli/tests/ -v
+```
+
 ## Future Enhancements
-
-### Planned Packages
-
-- **Webhook Package** (`packages/webhook/`): GitHub App webhook handler for automated devcontainer operations
-- **Common Package** (`packages/common/`): Shared utilities between CLI and webhook
 
 ### Potential Features
 
