@@ -1,9 +1,5 @@
 """Claude Code CLI integration for executing tasks in containers."""
 
-import asyncio
-import shlex
-import re
-from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple, Optional
 import structlog
 from pathlib import Path
@@ -32,11 +28,6 @@ class ClaudeDispatcher:
         """Initialize Claude dispatcher."""
         self.config = get_config()
         self.github_client = GitHubClient(self.config.github_token)
-        # Create a thread pool for blocking operations - use configured max concurrent tasks
-        self.executor = ThreadPoolExecutor(
-            max_workers=self.config.max_concurrent_tasks,
-            thread_name_prefix="claude-exec-"
-        )
         
         logger.info("Claude dispatcher initialized")
     
@@ -66,11 +57,8 @@ class ClaudeDispatcher:
                        repo=event.repository.full_name,
                        repo_path=str(repo_path))
             
-            # Execute everything in thread pool - prompt building, workspace setup, container startup, Claude execution
-            loop = asyncio.get_event_loop()
-            success, output, error = await loop.run_in_executor(
-                self.executor,
-                self._execute_claude_sync,
+            # Execute Claude directly - prompt building, workspace setup, container startup, Claude execution
+            success, output, error = self._execute_claude_sync(
                 repo_path,
                 dev_name,
                 task_description,
@@ -117,7 +105,7 @@ class ClaudeDispatcher:
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None
     ) -> tuple[bool, str, str]:
-        """Execute complete Claude workflow synchronously in thread pool.
+        """Execute complete Claude workflow synchronously.
         
         This mirrors the CLI approach exactly:
         1. Create project, workspace manager, and container manager
@@ -141,14 +129,14 @@ class ClaudeDispatcher:
             workspace_manager = WorkspaceManager(project, self.config)
             container_manager = ContainerManager(project, self.config)
             
-            logger.info("Created project and managers in thread pool",
+            logger.info("Created project and managers",
                        container=dev_name,
                        project_name=project.info.name)
             
             # 2. Ensure workspace exists (force=True for webhook to reset contents like CLI)
             workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=True)
             
-            logger.info("Workspace created/reset in thread pool",
+            logger.info("Workspace created/reset",
                        container=dev_name,
                        workspace_dir=str(workspace_dir))
             
@@ -180,7 +168,7 @@ The workspace path is `{workspace_path}`.
 Your GitHub username is `{self.config.github_mentioned_user}`.
 """
             
-            logger.info("Built Claude prompt in thread pool",
+            logger.info("Built Claude prompt",
                        container=dev_name,
                        prompt_length=len(prompt))
             
@@ -198,7 +186,7 @@ Your GitHub username is `{self.config.github_mentioned_user}`.
             
         except Exception as e:
             error_msg = f"Claude execution failed: {str(e)}"
-            logger.error("Claude execution error in thread pool",
+            logger.error("Claude execution error",
                         container=dev_name,
                         error=error_msg,
                         exc_info=True)
