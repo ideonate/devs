@@ -140,6 +140,26 @@ class DevContainerCLI:
             
             # Set environment variables
             env = os.environ.copy()
+            
+            # Debug logging: show environment context
+            from rich.console import Console
+            console = Console()
+            console.print(f"[yellow]🔍 DevContainer Environment Debug for {dev_name}:[/yellow]")
+            console.print(f"   Process type: {'CLI' if 'devs' in str(os.environ.get('_', '')) else 'Webhook/Other'}")
+            console.print(f"   Total env vars: {len(env)}")
+            
+            # Log key environment variables that might affect Docker
+            key_vars = ['HOME', 'USER', 'PATH', 'GH_TOKEN', 'DOCKER_HOST', 'DOCKER_CONTEXT', 
+                       'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS', 'DISPLAY']
+            console.print("   Key variables:")
+            for var in key_vars:
+                value = env.get(var, '<not set>')
+                if var == 'GH_TOKEN' and value != '<not set>':
+                    value = '***'
+                elif var == 'PATH' and len(value) > 100:
+                    value = value[:50] + '...' + value[-50:]
+                console.print(f"     {var}: {value}")
+            
             env.update({
                 'DEVCONTAINER_NAME': dev_name,
                 'GIT_REMOTE_URL': git_remote_url,
@@ -169,11 +189,18 @@ class DevContainerCLI:
             if debug:
                 env['DEVS_DEBUG'] = 'true'
             
+            # Always show command for debugging EBADF issues
+            from rich.console import Console
+            console = Console()
+            console.print(f"[yellow]🐳 DevContainer Command Debug:[/yellow]")
+            console.print(f"   Command: {' '.join(cmd)}")
+            console.print(f"   Working Dir: {workspace_folder}")
+            console.print(f"   Environment variables: DEVCONTAINER_NAME={env.get('DEVCONTAINER_NAME')}, GIT_REMOTE_URL={env.get('GIT_REMOTE_URL')}, GH_TOKEN={'***' if env.get('GH_TOKEN') else 'not set'}, DEVS_DEBUG={env.get('DEVS_DEBUG', 'not set')}")
+            console.print(f"   Process ID: {os.getpid()}, Parent PID: {os.getppid()}")
+            console.print(f"   Stdin isatty: {os.isatty(0) if hasattr(os, 'isatty') else 'unknown'}")
+            
             if debug:
-                from rich.console import Console
-                console = Console()
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-                console.print(f"[dim]Environment variables: DEVCONTAINER_NAME={env.get('DEVCONTAINER_NAME')}, GIT_REMOTE_URL={env.get('GIT_REMOTE_URL')}, GH_TOKEN={'***' if env.get('GH_TOKEN') else 'not set'}, DEVS_DEBUG={env.get('DEVS_DEBUG', 'not set')}[/dim]")
+                console.print(f"[dim]Full environment ({len(env)} vars): {list(env.keys())[:10]}...[/dim]")
             
             if debug:
                 # In debug mode, stream output in real-time
@@ -195,9 +222,19 @@ class DevContainerCLI:
                     check=False
                 )
             
+            # Always show result for debugging EBADF issues
+            console.print(f"\n[yellow]🐳 DevContainer Result:[/yellow]")
+            console.print(f"   Exit code: {result.returncode}")
+            if hasattr(result, 'stdout') and result.stdout:
+                console.print(f"   STDOUT length: {len(result.stdout)} chars")
+                if debug:
+                    console.print(f"   STDOUT: {result.stdout[:500]}..." if len(result.stdout) > 500 else f"   STDOUT: {result.stdout}")
+            if hasattr(result, 'stderr') and result.stderr:
+                console.print(f"   STDERR length: {len(result.stderr)} chars")
+                if debug:
+                    console.print(f"   STDERR: {result.stderr[:500]}..." if len(result.stderr) > 500 else f"   STDERR: {result.stderr}")
+            
             if debug and result.returncode == 0:
-                from rich.console import Console
-                console = Console()
                 console.print("[dim]DevContainer up completed successfully[/dim]")
             
             if result.returncode != 0:

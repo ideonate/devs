@@ -3,7 +3,6 @@
 import asyncio
 import shlex
 import re
-from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple, Optional
 import structlog
 from pathlib import Path
@@ -32,13 +31,12 @@ class ClaudeDispatcher:
         """Initialize Claude dispatcher."""
         self.config = get_config()
         self.github_client = GitHubClient(self.config.github_token)
-        # Create a thread pool for blocking operations - use configured max concurrent tasks
-        self.executor = ThreadPoolExecutor(
-            max_workers=self.config.max_concurrent_tasks,
-            thread_name_prefix="claude-exec-"
-        )
         
-        logger.info("Claude dispatcher initialized")
+        logger.info("Claude dispatcher initialized (async mode)")
+    
+    async def shutdown(self):
+        """Shutdown the Claude dispatcher."""
+        logger.info("Claude dispatcher shutdown complete")
     
     async def execute_task(
         self,
@@ -66,22 +64,13 @@ class ClaudeDispatcher:
                        repo=event.repository.full_name,
                        repo_path=str(repo_path))
             
-            # Execute everything in thread pool - prompt building, workspace setup, container startup, Claude execution
-            loop = asyncio.get_event_loop()
-            success, output, error = await loop.run_in_executor(
-                self.executor,
-                self._execute_claude_sync,
-                repo_path,
-                dev_name,
-                task_description,
-                event,
-                devs_options
-            )
-            
-            result = TaskResult(
-                success=success,
-                output=output,
-                error=error if not success else None
+            # Execute everything async - no thread pool needed
+            result = await self._execute_claude_async(
+                repo_path=repo_path,
+                dev_name=dev_name,
+                task_description=task_description,
+                event=event,
+                devs_options=devs_options
             )
             
             if result.success:
@@ -109,21 +98,21 @@ class ClaudeDispatcher:
             await self._handle_task_failure(event, error_msg)
             return TaskResult(success=False, output="", error=error_msg)
     
-    def _execute_claude_sync(
+    async def _execute_claude_async(
         self,
         repo_path: Path,
         dev_name: str,
         task_description: str,
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None
-    ) -> tuple[bool, str, str]:
-        """Execute complete Claude workflow synchronously in thread pool.
+    ) -> TaskResult:
+        """Execute complete Claude workflow asynchronously.
         
-        This mirrors the CLI approach exactly:
-        1. Create project, workspace manager, and container manager
-        2. Create/reset workspace (force=True for webhook)
+        This avoids thread pool file descriptor issues by keeping everything async:
+        1. Create project and workspace manager
+        2. Create/reset workspace
         3. Build prompt
-        4. Execute Claude (which handles container startup)
+        4. Execute Claude via async subprocess (no file descriptor inheritance issues)
         
         Args:
             repo_path: Path to repository
@@ -133,22 +122,22 @@ class ClaudeDispatcher:
             devs_options: Options from DEVS.yml
             
         Returns:
-            Tuple of (success, stdout, stderr)
+            TaskResult object
         """
         try:
-            # 1. Create project, workspace manager, and container manager like CLI
+            # 1. Create project, workspace manager, and container manager
             project = Project(repo_path)
             workspace_manager = WorkspaceManager(project, self.config)
             container_manager = ContainerManager(project, self.config)
             
-            logger.info("Created project and managers in thread pool",
+            logger.info("Created project and managers (async)",
                        container=dev_name,
                        project_name=project.info.name)
             
-            # 2. Ensure workspace exists (force=True for webhook to reset contents like CLI)
+            # 2. Ensure workspace exists (reset_contents=True for webhook)
             workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=True)
             
-            logger.info("Workspace created/reset in thread pool",
+            logger.info("Workspace created/reset (async)",
                        container=dev_name,
                        workspace_dir=str(workspace_dir))
             
@@ -180,29 +169,34 @@ The workspace path is `{workspace_path}`.
 Your GitHub username is `{self.config.github_mentioned_user}`.
 """
             
-            logger.info("Built Claude prompt in thread pool",
+            logger.info("Built Claude prompt (async)",
                        container=dev_name,
                        prompt_length=len(prompt))
             
-            # 4. Execute Claude (like CLI pattern)
-            logger.info("Executing Claude via ContainerManager (like CLI)",
+            # 4. Execute Claude via async ContainerManager (avoids thread pool issues)
+            logger.info("Executing Claude via async ContainerManager",
                        container=dev_name)
             
-            return container_manager.exec_claude(
+            success, output, error = await container_manager.exec_claude_async(
                 dev_name=dev_name,
                 workspace_dir=workspace_dir,
                 prompt=prompt,
-                debug=self.config.dev_mode,
-                stream=False  # Don't stream in webhook mode
+                debug=self.config.dev_mode
+            )
+            
+            return TaskResult(
+                success=success,
+                output=output,
+                error=error if not success else None
             )
             
         except Exception as e:
             error_msg = f"Claude execution failed: {str(e)}"
-            logger.error("Claude execution error in thread pool",
+            logger.error("Claude execution error (async)",
                         container=dev_name,
                         error=error_msg,
                         exc_info=True)
-            return False, "", error_msg
+            return TaskResult(success=False, output="", error=error_msg)
     
     
     async def _handle_task_completion(

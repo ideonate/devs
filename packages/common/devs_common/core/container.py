@@ -4,7 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import subprocess
-
+import aiodocker
+import asyncio
 from rich.console import Console
 
 from ..config import BaseConfig
@@ -123,7 +124,7 @@ class ContainerManager:
         force_rebuild: bool = False,
         debug: bool = False
     ) -> bool:
-        """Ensure a container is running for the specified dev environment.
+        """Ensure a container is running (sync wrapper around async version).
         
         Args:
             dev_name: Development environment name
@@ -137,127 +138,14 @@ class ContainerManager:
         Raises:
             ContainerError: If container operations fail
         """
-        project_prefix = self.config.project_prefix if self.config else "dev"
-        container_name = self.project.get_container_name(dev_name, project_prefix)
-        project_labels = {
-            "devs.project": self.project.info.name,
-            "devs.dev": dev_name,
-        }
-        
-        if self.config:
-            project_labels.update(self.config.container_labels)
-        
         try:
-            # Check if we need to rebuild
-            rebuild_needed, rebuild_reason = self.should_rebuild_image(dev_name)
-            if rebuild_needed or force_rebuild:
-                if force_rebuild:
-                    console.print(f"   🔄 Forcing image rebuild for {dev_name}...")
-                else:
-                    console.print(f"   🔄 {rebuild_reason}, rebuilding image...")
-                
-                # Stop existing container if running
-                existing_containers = self.docker.find_containers_by_labels(project_labels)
-                for container_info in existing_containers:
-                    if debug:
-                        console.print(f"[dim]Stopping container: {container_info['name']}[/dim]")
-                    self.docker.stop_container(container_info['name'])
-                    if debug:
-                        console.print(f"[dim]Removing container: {container_info['name']}[/dim]")
-                    self.docker.remove_container(container_info['name'])
-            
-            # Check if container is already running
-            if debug:
-                console.print(f"[dim]Checking for existing containers with labels: {project_labels}[/dim]")
-            existing_containers = self.docker.find_containers_by_labels(project_labels)
-            if existing_containers and not (rebuild_needed or force_rebuild):
-                container_info = existing_containers[0]
-                if debug:
-                    console.print(f"[dim]Found existing container: {container_info['name']} (status: {container_info['status']})[/dim]")
-                if container_info['status'] == 'running':
-                    if debug:
-                        console.print(f"[dim]Container already running, skipping startup[/dim]")
-                    return True
-                else:
-                    # Container exists but not running, remove it
-                    if debug:
-                        console.print(f"[dim]Container exists but not running, removing: {container_info['name']}[/dim]")
-                    self.docker.remove_container(container_info['name'], force=True)
-            
-            console.print(f"   🚀 Starting container for {dev_name}...")
-            
-            # Determine config path based on whether .devcontainer was copied to workspace
-            config_path = None
-            workspace_devcontainer = workspace_dir / ".devcontainer"
-            project_devcontainer = self.project.project_dir / ".devcontainer"
-            
-            if workspace_devcontainer.exists():
-                # .devcontainer was copied to workspace, use it (config_path = None)
-                config_path = None
-            elif project_devcontainer.exists():
-                # .devcontainer exists in project but not copied (gitignored), use original
-                config_path = project_devcontainer / "devcontainer.json"
-            else:
-                # No .devcontainer in project, use devs template
-                config_path = get_template_dir() / "devcontainer.json"
-            
-            # Start devcontainer
-            success = self.devcontainer.up(
-                workspace_folder=workspace_dir,
+            return asyncio.run(self.ensure_container_running_async(
                 dev_name=dev_name,
-                project_name=self.project.info.name,
-                git_remote_url=self.project.info.git_remote_url,
-                rebuild=rebuild_needed or force_rebuild,
-                remove_existing=True,
-                debug=debug,
-                config_path=config_path
-            )
-            
-            if not success:
-                raise ContainerError(f"Failed to start devcontainer for {dev_name}")
-            
-            # Get the created container and verify it's healthy
-            if debug:
-                console.print(f"[dim]Looking for created containers with labels: {project_labels}[/dim]")
-            created_containers = self.docker.find_containers_by_labels(project_labels)
-            if not created_containers:
-                raise ContainerError(f"No container found after devcontainer up for {dev_name}")
-            
-            created_container = created_containers[0]
-            container_name_actual = created_container['name']
-            
-            if debug:
-                console.print(f"[dim]Found created container: {container_name_actual}[/dim]")
-            
-            # Test container health
-            console.print(f"   🔍 Checking container health for {dev_name}...")
-            if debug:
-                console.print(f"[dim]Running health check: docker exec {container_name_actual} echo 'Container ready'[/dim]")
-            if not self.docker.exec_command(container_name_actual, "echo 'Container ready'"):
-                raise ContainerError(f"Container {dev_name} is not responding")
-            
-            # Rename container if needed
-            if container_name_actual != container_name:
-                try:
-                    if debug:
-                        console.print(f"[dim]Renaming container from {container_name_actual} to {container_name}[/dim]")
-                    self.docker.rename_container(container_name_actual, container_name)
-                except DockerError:
-                    console.print(f"   ⚠️  Could not rename container to {container_name}")
-            
-            console.print(f"   ✅ Started: {dev_name}")
-            return True
-            
-        except (DockerError, ContainerError) as e:
-            # Clean up any failed containers
-            try:
-                failed_containers = self.docker.find_containers_by_labels(project_labels)
-                for container_info in failed_containers:
-                    self.docker.stop_container(container_info['name'])
-                    self.docker.remove_container(container_info['name'])
-            except DockerError:
-                pass
-            
+                workspace_dir=workspace_dir,
+                force_rebuild=force_rebuild,
+                debug=debug
+            ))
+        except Exception as e:
             raise ContainerError(f"Failed to ensure container running for {dev_name}: {e}")
     
     def stop_container(self, dev_name: str) -> bool:
@@ -465,7 +353,11 @@ class ContainerManager:
             raise ContainerError(f"Failed to exec shell in {dev_name}: {e}")
     
     def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True) -> tuple[bool, str, str]:
-        """Execute Claude CLI in the container.
+        """Execute Claude CLI in the container (sync wrapper around async version).
+        
+        This is a sync wrapper that internally uses the async implementation
+        to avoid file descriptor inheritance issues while maintaining the
+        sync interface for CLI compatibility.
         
         Args:
             dev_name: Development environment name
@@ -480,22 +372,69 @@ class ContainerManager:
         Raises:
             ContainerError: If Claude execution fails
         """
+        import asyncio
+        
+        # Run the async version in a new event loop
+        try:
+            success, stdout, stderr = asyncio.run(self.exec_claude_async(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir, 
+                prompt=prompt,
+                debug=debug
+            ))
+            
+            # Show output in CLI mode (when stream=True)
+            if stream and stdout:
+                console.print(stdout)
+            
+            if stderr:
+                console.print(f"[red]Error: {stderr}[/red]")
+            
+            return success, stdout, stderr
+            
+        except Exception as e:
+            raise ContainerError(f"Failed to exec Claude in {dev_name}: {e}")
+    
+    async def exec_claude_async(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False) -> tuple[bool, str, str]:
+        """Execute Claude CLI in the container asynchronously.
+        
+        This is an async version that avoids file descriptor inheritance issues
+        that can occur when running in thread pools.
+        
+        Args:
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            prompt: Prompt to send to Claude
+            debug: Show debug output for devcontainer operations
+            
+        Returns:
+            Tuple of (success, stdout, stderr)
+            
+        Raises:
+            ContainerError: If Claude execution fails
+        """
+        import asyncio
+        
+        # Handle workspace creation/reset if needed
+        if workspace_dir is None:
+            from .workspace import WorkspaceManager
+            workspace_manager = WorkspaceManager(self.project, self.config)
+            workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=False)
+        
         project_prefix = self.config.project_prefix if self.config else "dev"
         container_name = self.project.get_container_name(dev_name, project_prefix)
         workspace_name = self.project.get_workspace_name(dev_name)
         container_workspace_dir = f"/workspaces/{workspace_name}"
         
         try:
-            # Ensure container is running
-            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug):
+            # Ensure container is running (async)
+            if not await self.ensure_container_running_async(dev_name, workspace_dir, debug=debug):
                 raise ContainerError(f"Failed to start container for {dev_name}")
             
             console.print(f"🤖 Running Claude in: {dev_name} (container: {container_name})")
             console.print(f"   Workspace: {container_workspace_dir}")
             
-            # Execute Claude CLI in the container
-            # Use same pattern as exec_shell: cd to workspace directory then run command
-            # Explicitly source .zshrc to ensure CLAUDE_CONFIG_DIR is set in non-interactive mode
+            # Execute Claude CLI in the container using async subprocess
             claude_cmd = f"source ~/.zshrc && cd {container_workspace_dir} && claude --dangerously-skip-permissions"
             cmd = [
                 'docker', 'exec', '-i',  # -i for stdin, no TTY
@@ -504,73 +443,244 @@ class ContainerManager:
             ]
             
             if debug:
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+                console.print(f"[dim]Running async: {' '.join(cmd)}[/dim]")
             
-            if stream:
-                # Stream output in real-time
-                process = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1  # Line buffered
-                )
-                
-                # Send prompt and close stdin
-                if process.stdin:
-                    process.stdin.write(prompt)
-                    process.stdin.close()
-                
-                # Collect output while streaming
-                stdout_lines = []
-                stderr_lines = []
-                
-                # Stream stdout
-                if process.stdout:
-                    for line in iter(process.stdout.readline, ''):
-                        line = line.rstrip()
-                        if line:
-                            console.print(line)  # Stream to console
-                            stdout_lines.append(line)
-                    process.stdout.close()
-                
-                # Wait for process to complete
-                process.wait()
-                
-                # Collect any stderr
-                if process.stderr:
-                    stderr_content = process.stderr.read()
-                    if stderr_content:
-                        console.print(f"[red]Error: {stderr_content}[/red]")
-                        stderr_lines.append(stderr_content)
-                    process.stderr.close()
-                
-                stdout = '\n'.join(stdout_lines)
-                stderr = '\n'.join(stderr_lines)
-                success = process.returncode == 0
-                
-            else:
-                # Non-streaming mode (original behavior)
-                process = subprocess.run(
-                    cmd, 
-                    input=prompt.encode('utf-8'),
-                    capture_output=True
-                )
-                
-                stdout = process.stdout.decode('utf-8', errors='replace') if process.stdout else ""
-                stderr = process.stderr.decode('utf-8', errors='replace') if process.stderr else ""
-                success = process.returncode == 0
+            # Use async subprocess to avoid file descriptor inheritance issues
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Send prompt and get results
+            stdout_data, stderr_data = await process.communicate(prompt.encode('utf-8'))
+            
+            stdout = stdout_data.decode('utf-8', errors='replace') if stdout_data else ""
+            stderr = stderr_data.decode('utf-8', errors='replace') if stderr_data else ""
+            success = process.returncode == 0
             
             if debug:
-                console.print(f"[dim]Claude exit code: {process.returncode}[/dim]")
-                if not stream:  # Only show this in debug if not already streamed
-                    if stdout:
-                        console.print(f"[dim]Claude stdout: {stdout[:200]}...[/dim]")
-                    if stderr:
-                        console.print(f"[dim]Claude stderr: {stderr[:200]}...[/dim]")
+                console.print(f"[dim]Claude async exit code: {process.returncode}[/dim]")
+                if stdout:
+                    console.print(f"[dim]Claude async stdout: {stdout[:200]}...[/dim]")
+                if stderr:
+                    console.print(f"[dim]Claude async stderr: {stderr[:200]}...[/dim]")
             
             return success, stdout, stderr
             
-        except (DockerError, subprocess.SubprocessError) as e:
-            raise ContainerError(f"Failed to exec Claude in {dev_name}: {e}")
+        except (DockerError, Exception) as e:
+            raise ContainerError(f"Failed to exec Claude async in {dev_name}: {e}")
+    
+    async def ensure_container_running_async(
+        self, 
+        dev_name: str,
+        workspace_dir: Path,
+        force_rebuild: bool = False,
+        debug: bool = False
+    ) -> bool:
+        """Ensure a container is running for the specified dev environment (async version).
+        
+        Args:
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            force_rebuild: Force rebuild even if not needed
+            debug: Show debug output for devcontainer operations
+            
+        Returns:
+            True if container is running successfully
+            
+        Raises:
+            ContainerError: If container operations fail
+        """
+        
+        project_prefix = self.config.project_prefix if self.config else "dev"
+        container_name = self.project.get_container_name(dev_name, project_prefix)
+        project_labels = {
+            "devs.project": self.project.info.name,
+            "devs.dev": dev_name,
+        }
+        
+        if self.config:
+            project_labels.update(self.config.container_labels)
+        
+        try:
+            console.print(f"[yellow]🔍 Starting async container setup for {dev_name}[/yellow]")
+            # Use aiodocker for async Docker operations
+            docker = aiodocker.Docker()
+            console.print(f"   🐳 Connected to Docker daemon via aiodocker")
+            
+            try:
+                # Check if we need to rebuild (still sync for now)
+                rebuild_needed, rebuild_reason = self.should_rebuild_image(dev_name)
+                if rebuild_needed or force_rebuild:
+                    if force_rebuild:
+                        console.print(f"   🔄 Forcing image rebuild for {dev_name}...")
+                    else:
+                        console.print(f"   🔄 {rebuild_reason}, rebuilding image...")
+                    
+                    # Stop existing container if running (async)
+                    containers = await self._find_containers_by_labels_async(docker, project_labels)
+                    for container_info in containers:
+                        if debug:
+                            console.print(f"[dim]Stopping container: {container_info['name']}[/dim]")
+                        await self._stop_container_async(docker, container_info['name'])
+                        if debug:
+                            console.print(f"[dim]Removing container: {container_info['name']}[/dim]")
+                        await self._remove_container_async(docker, container_info['name'])
+                
+                # Check if container is already running (async)
+                if debug:
+                    console.print(f"[dim]Checking for existing containers with labels: {project_labels}[/dim]")
+                existing_containers = await self._find_containers_by_labels_async(docker, project_labels)
+                if existing_containers and not (rebuild_needed or force_rebuild):
+                    container_info = existing_containers[0]
+                    if debug:
+                        console.print(f"[dim]Found existing container: {container_info['name']} (status: {container_info['status']})[/dim]")
+                    if container_info['status'] == 'running':
+                        if debug:
+                            console.print(f"[dim]Container already running, skipping startup[/dim]")
+                        return True
+                    else:
+                        # Container exists but not running, remove it
+                        if debug:
+                            console.print(f"[dim]Container exists but not running, removing: {container_info['name']}[/dim]")
+                        await self._remove_container_async(docker, container_info['name'], force=True)
+                
+                console.print(f"   🚀 Starting container for {dev_name}...")
+                
+                # Use async devcontainer up
+                success = await self._devcontainer_up_async(
+                    workspace_dir=workspace_dir,
+                    dev_name=dev_name,
+                    rebuild=rebuild_needed or force_rebuild,
+                    debug=debug
+                )
+                
+                if not success:
+                    raise ContainerError(f"Failed to start devcontainer for {dev_name}")
+                
+                # Get the created container and verify it's healthy (async)
+                if debug:
+                    console.print(f"[dim]Looking for created containers with labels: {project_labels}[/dim]")
+                created_containers = await self._find_containers_by_labels_async(docker, project_labels)
+                if not created_containers:
+                    raise ContainerError(f"No container found after devcontainer up for {dev_name}")
+                
+                created_container = created_containers[0]
+                container_name_actual = created_container['name']
+                
+                if debug:
+                    console.print(f"[dim]Found created container: {container_name_actual}[/dim]")
+                
+                # Test container health (async)
+                console.print(f"   🔍 Checking container health for {dev_name}...")
+                if debug:
+                    console.print(f"[dim]Running health check: docker exec {container_name_actual} echo 'Container ready'[/dim]")
+                if not await self._exec_command_async(docker, container_name_actual, "echo 'Container ready'"):
+                    raise ContainerError(f"Container {dev_name} is not responding")
+                
+                console.print(f"   ✅ Started: {dev_name}")
+                return True
+            
+            finally:
+                await docker.close()
+                
+        except Exception as e:
+            # Clean up any failed containers (async)
+            try:
+                docker = aiodocker.Docker()
+                try:
+                    failed_containers = await self._find_containers_by_labels_async(docker, project_labels)
+                    for container_info in failed_containers:
+                        await self._stop_container_async(docker, container_info['name'])
+                        await self._remove_container_async(docker, container_info['name'])
+                finally:
+                    await docker.close()
+            except Exception:
+                pass
+            
+            raise ContainerError(f"Failed to ensure container running for {dev_name}: {e}")
+    
+    async def _find_containers_by_labels_async(self, docker, labels: dict) -> list:
+        """Find containers by labels using aiodocker."""
+        try:
+            containers = await docker.containers.list()
+            matching_containers = []
+            
+            for container in containers:
+                container_labels = container._container.get('Labels', {})
+                if container_labels and all(container_labels.get(k) == v for k, v in labels.items()):
+                    matching_containers.append({
+                        'name': container._container['Names'][0].lstrip('/'),
+                        'status': container._container['State'].lower(),
+                        'id': container._container['Id'],
+                        'labels': container_labels
+                    })
+            
+            return matching_containers
+        except Exception as e:
+            console.print(f"[red]Error finding containers by labels: {e}[/red]")
+            return []
+    
+    async def _stop_container_async(self, docker, container_name: str) -> bool:
+        """Stop a container using aiodocker."""
+        try:
+            container = await docker.containers.get(container_name)
+            await container.stop()
+            return True
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not stop container {container_name}: {e}[/yellow]")
+            return False
+    
+    async def _remove_container_async(self, docker, container_name: str, force: bool = False) -> bool:
+        """Remove a container using aiodocker."""
+        try:
+            container = await docker.containers.get(container_name)
+            await container.delete(force=force)
+            return True
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not remove container {container_name}: {e}[/yellow]")
+            return False
+    
+    async def _exec_command_async(self, docker, container_name: str, command: str) -> bool:
+        """Execute a command in a container using aiodocker."""
+        try:
+            container = await docker.containers.get(container_name)
+            result = await container.exec(['/bin/sh', '-c', command])
+            return result.get('ExitCode', 1) == 0
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not exec command in {container_name}: {e}[/yellow]")
+            return False
+    
+    async def _devcontainer_up_async(self, workspace_dir: Path, dev_name: str, rebuild: bool, debug: bool) -> bool:
+        """Run devcontainer up using async subprocess."""
+        import asyncio
+        from ..utils.devcontainer import DevContainerCLI
+        
+        try:
+            # For now, use the existing DevContainerCLI but in an async subprocess
+            devcontainer_cli = DevContainerCLI(self.config)
+            
+            # Run the devcontainer up in an async subprocess to avoid blocking
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(
+                None,  # Use default thread pool executor
+                lambda: devcontainer_cli.up(
+                    workspace_folder=workspace_dir,
+                    dev_name=dev_name,
+                    project_name=self.project.info.name,
+                    git_remote_url=self.project.info.git_remote_url,
+                    rebuild=rebuild,
+                    remove_existing=True,
+                    debug=debug,
+                    config_path=None  # Use workspace devcontainer if available
+                )
+            )
+            
+            return success
+            
+        except Exception as e:
+            console.print(f"[red]Async devcontainer up failed: {e}[/red]")
+            return False
+    
