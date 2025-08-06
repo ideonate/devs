@@ -115,3 +115,106 @@ class GitHubClient:
         except Exception as e:
             logger.error("Unexpected error getting repository info", repo=repo, error=str(e))
             return None
+    
+    async def add_reaction_to_issue(
+        self,
+        repo: str,
+        issue_number: int,
+        reaction: str = "eyes"
+    ) -> bool:
+        """Add a reaction to a GitHub issue.
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            issue_number: Issue number
+            reaction: Reaction type (eyes, +1, -1, laugh, confused, heart, hooray, rocket)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            repository = self.github.get_repo(repo)
+            issue = repository.get_issue(issue_number)
+            issue.create_reaction(reaction)
+            
+            logger.info("Reaction added to issue", 
+                       repo=repo, issue=issue_number, reaction=reaction)
+            return True
+            
+        except GithubException as e:
+            logger.error("Failed to add reaction to issue",
+                        repo=repo, issue=issue_number, reaction=reaction, error=str(e))
+            return False
+        except Exception as e:
+            logger.error("Unexpected error adding reaction to issue",
+                        repo=repo, issue=issue_number, reaction=reaction, error=str(e))
+            return False
+    
+    async def add_reaction_to_pr(
+        self,
+        repo: str,
+        pr_number: int,
+        reaction: str = "eyes"
+    ) -> bool:
+        """Add a reaction to a GitHub pull request.
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            pr_number: Pull request number
+            reaction: Reaction type (eyes, +1, -1, laugh, confused, heart, hooray, rocket)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            repository = self.github.get_repo(repo)
+            # PRs are issues in GitHub's API, so we can use get_issue
+            pr_as_issue = repository.get_issue(pr_number)
+            pr_as_issue.create_reaction(reaction)
+            
+            logger.info("Reaction added to PR",
+                       repo=repo, pr=pr_number, reaction=reaction)
+            return True
+            
+        except GithubException as e:
+            logger.error("Failed to add reaction to PR",
+                        repo=repo, pr=pr_number, reaction=reaction, error=str(e))
+            return False
+        except Exception as e:
+            logger.error("Unexpected error adding reaction to PR",
+                        repo=repo, pr=pr_number, reaction=reaction, error=str(e))
+            return False
+    
+    async def add_reaction_to_comment(
+        self,
+        repo: str,
+        comment_id: int,
+        reaction: str = "eyes"
+    ) -> bool:
+        """Add a reaction to a GitHub comment.
+        
+        Args:
+            repo: Repository in format "owner/repo"
+            comment_id: Comment ID
+            reaction: Reaction type (eyes, +1, -1, laugh, confused, heart, hooray, rocket)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            repository = self.github.get_repo(repo)
+            comment = repository.get_issue_comment(comment_id)
+            comment.create_reaction(reaction)
+            
+            logger.info("Reaction added to comment",
+                       repo=repo, comment_id=comment_id, reaction=reaction)
+            return True
+            
+        except GithubException as e:
+            logger.error("Failed to add reaction to comment",
+                        repo=repo, comment_id=comment_id, reaction=reaction, error=str(e))
+            return False
+        except Exception as e:
+            logger.error("Unexpected error adding reaction to comment",
+                        repo=repo, comment_id=comment_id, reaction=reaction, error=str(e))
+            return False
