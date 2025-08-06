@@ -261,7 +261,7 @@ class ContainerManager:
             raise ContainerError(f"Failed to ensure container running for {dev_name}: {e}")
     
     def stop_container(self, dev_name: str) -> bool:
-        """Stop and remove a container.
+        """Stop and remove a container by labels (more reliable than names).
         
         Args:
             dev_name: Development environment name
@@ -269,19 +269,39 @@ class ContainerManager:
         Returns:
             True if container was stopped/removed
         """
-        project_prefix = self.config.project_prefix if self.config else "dev"
-        container_name = self.project.get_container_name(dev_name, project_prefix)
+        project_labels = {
+            "devs.project": self.project.info.name,
+            "devs.dev": dev_name,
+        }
         
         try:
-            if self.docker.container_exists(container_name):
-                console.print(f"   🛑 Stopping container: {container_name}")
-                self.docker.stop_container(container_name)
-                console.print(f"   🗑️  Removing container: {container_name}")
-                self.docker.remove_container(container_name)
+            console.print(f"   🔍 Looking for containers with labels: {project_labels}")
+            existing_containers = self.docker.find_containers_by_labels(project_labels)
+            console.print(f"   📋 Found {len(existing_containers)} containers")
+            
+            if existing_containers:
+                for container_info in existing_containers:
+                    container_name = container_info['name']
+                    container_status = container_info['status']
+                    
+                    console.print(f"   🛑 Stopping container: {container_name} (status: {container_status})")
+                    try:
+                        stop_result = self.docker.stop_container(container_name)
+                        console.print(f"   📋 Stop result: {stop_result}")
+                    except DockerError as stop_e:
+                        console.print(f"   ⚠️  Stop failed for {container_name}: {stop_e}")
+                    
+                    console.print(f"   🗑️  Removing container: {container_name}")
+                    try:
+                        remove_result = self.docker.remove_container(container_name)
+                        console.print(f"   📋 Remove result: {remove_result}")
+                    except DockerError as remove_e:
+                        console.print(f"   ⚠️  Remove failed for {container_name}: {remove_e}")
+                    
                 console.print(f"   ✅ Stopped and removed: {dev_name}")
                 return True
             else:
-                console.print(f"   ⚠️  Container not found: {dev_name}")
+                console.print(f"   ⚠️  No containers found for {dev_name}")
                 return False
                 
         except DockerError as e:

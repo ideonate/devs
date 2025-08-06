@@ -531,8 +531,6 @@ class ContainerPool:
                        project_name=project.info.name)
             
             # Set up shared configuration for CLI interoperability
-            # Use the same infrastructure as CLI - this is the proven approach
-            container_manager = ContainerManager(project, self.config)
             workspace_manager = WorkspaceManager(project, self.config)
             
             logger.info("Creating workspace using CLI infrastructure",
@@ -589,18 +587,24 @@ class ContainerPool:
             # Create project and managers for cleanup
             project = Project(repo_path)
             
-            webhook_config = WebhookConfig()
-            workspace_manager = WorkspaceManager(project, webhook_config)
-            
-            container_manager = ContainerManager(project, webhook_config)
+            # Use the same config as the rest of the webhook handler
+            workspace_manager = WorkspaceManager(project, self.config)
+            container_manager = ContainerManager(project, self.config)
             
             # Stop container
-            container_manager.stop_container(dev_name)
+            logger.info("Starting container stop", container=dev_name)
+            stop_success = container_manager.stop_container(dev_name)
+            logger.info("Container stop result", container=dev_name, success=stop_success)
             
             # Remove workspace
-            workspace_manager.remove_workspace(dev_name)
+            logger.info("Starting workspace removal", container=dev_name)
+            workspace_success = workspace_manager.remove_workspace(dev_name)
+            logger.info("Workspace removal result", container=dev_name, success=workspace_success)
             
-            logger.info("Container cleanup complete", container=dev_name)
+            logger.info("Container cleanup complete", 
+                       container=dev_name,
+                       container_stopped=stop_success,
+                       workspace_removed=workspace_success)
             
         except Exception as e:
             logger.error("Container cleanup failed",
