@@ -225,14 +225,16 @@ def shell(ctx, dev_name: str) -> None:
 @cli.command()
 @click.argument('dev_name')
 @click.argument('prompt')
+@click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
 @click.pass_context
-def claude(ctx, dev_name: str, prompt: str) -> None:
+def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool) -> None:
     """Execute Claude CLI in devcontainer.
     
     DEV_NAME: Development environment name
     PROMPT: Prompt to send to Claude
     
     Example: devs claude sally "Summarize this codebase"
+    Example: devs claude sally "Fix the tests" --reset-workspace
     """
     check_dependencies()
     project = get_project()
@@ -243,10 +245,12 @@ def claude(ctx, dev_name: str, prompt: str) -> None:
     
     try:
         # Ensure workspace exists
-        workspace_dir = workspace_manager.create_workspace(dev_name)
+        workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace)
         
         # Execute Claude
         console.print(f"🤖 Executing Claude in {dev_name}...")
+        if reset_workspace:
+            console.print("🗑️  Workspace contents reset")
         console.print(f"📝 Prompt: {prompt}")
         console.print("")
         

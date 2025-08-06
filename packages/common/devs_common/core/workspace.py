@@ -69,12 +69,12 @@ class WorkspaceManager:
         workspace_dir = self.get_workspace_dir(dev_name)
         return workspace_dir.exists() and not is_directory_empty(workspace_dir)
     
-    def create_workspace(self, dev_name: str, force: bool = False) -> Path:
+    def create_workspace(self, dev_name: str, reset_contents: bool = False) -> Path:
         """Create isolated workspace directory for a dev environment.
         
         Args:
             dev_name: Development environment name
-            force: Force recreation if workspace already exists
+            reset_contents: Force contents clear if workspace already exists
             
         Returns:
             Path to created workspace directory
@@ -86,7 +86,7 @@ class WorkspaceManager:
         
         # Check if workspace already exists
         if self.workspace_exists(dev_name):
-            if force:
+            if reset_contents:
                 console.print(f"   🗑️  Resetting existing workspace for {dev_name}...")
                 self.remove_workspace(dev_name, contents_only=True)
             else:

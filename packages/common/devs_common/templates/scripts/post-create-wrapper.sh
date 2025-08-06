@@ -3,6 +3,10 @@ set -euo pipefail
 
 echo "🚀 Starting postCreateCommand..."
 
+# Small delay to let bind mounts settle and avoid Node.js EBADF errors
+sleep 5
+echo "📋 Bind mounts settled, proceeding with setup..."
+
 # Function to run a command with better error reporting
 run_step() {
     local step_name="$1"

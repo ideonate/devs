@@ -214,29 +214,9 @@ class ContainerPool:
                        project_name=project.info.name,
                        workspace_name=workspace_name)
 
-            # Set up container for this repository
-            logger.info("Setting up container",
+            logger.info("Container and workspace setup will be handled by exec_claude (like CLI)",
                        task_id=queued_task.task_id,
-                       container=dev_name,
-                       repo_name=repo_name)
-            
-            setup_success, workspace_dir = await self._setup_container(
-                dev_name, repo_name, repo_path
-            )
-            
-            logger.info("Container setup completed",
-                       task_id=queued_task.task_id,
-                       container=dev_name,
-                       setup_success=setup_success,
-                       workspace_dir=str(workspace_dir) if workspace_dir else None)
-
-            if not setup_success or not workspace_dir:
-                logger.error("Failed to set up container for task",
-                             task_id=queued_task.task_id,
-                             container=dev_name,
-                             repo_name=repo_name,
-                             repo_path=str(repo_path))
-                return
+                       container=dev_name)
 
             # Mark container as active
             logger.info("Marking container as active",
@@ -257,7 +237,6 @@ class ContainerPool:
             
             result = await self.claude_dispatcher.execute_task(
                 dev_name=dev_name,
-                workspace_dir=workspace_dir,
                 repo_path=repo_path,
                 task_description=queued_task.task_description,
                 event=queued_task.event,
@@ -285,8 +264,7 @@ class ContainerPool:
                         error_type=type(e).__name__,
                         exc_info=True)
             
-            # If setup failed, we might have a mess. Clean up.
-            await self._cleanup_container(dev_name, repo_path)
+            # Task execution failed, but no cleanup needed since setup is deferred to exec_claude
     
     async def _ensure_repository_cloned(
         self,
@@ -497,84 +475,6 @@ class ContainerPool:
             except Exception as e:
                 logger.error("Error in idle cleanup worker", error=str(e))
     
-    async def _setup_container(
-        self, 
-        dev_name: str, 
-        repo_name: str, 
-        repo_path: Path
-    ) -> tuple[bool, Optional[Path]]:
-        """Set up a container for a repository.
-        
-        Args:
-            dev_name: Name of container to set up
-            repo_name: Repository name
-            repo_path: Path to repository
-            
-        Returns:
-            Tuple of (success, workspace_dir)
-        """
-        try:
-            logger.info("Starting container setup",
-                       container=dev_name,
-                       repo=repo_name,
-                       repo_path=str(repo_path))
-            
-            # Create a temporary project for this repo
-            logger.info("Creating project instance for container setup",
-                       container=dev_name,
-                       repo_path=str(repo_path))
-            
-            project = Project(repo_path)
-            
-            logger.info("Project created, setting up webhook config",
-                       container=dev_name,
-                       project_name=project.info.name)
-            
-            # Set up shared configuration for CLI interoperability
-            workspace_manager = WorkspaceManager(project, self.config)
-            
-            logger.info("Creating workspace using CLI infrastructure",
-                       container=dev_name,
-                       dev_name=dev_name)
-            
-            # Use the same sequence as CLI shell command:
-            # 1. Create workspace (this handles the timing correctly)
-            workspace_dir = workspace_manager.create_workspace(dev_name, force=True)
-            
-            logger.info("Workspace created, container infrastructure ready",
-                       container=dev_name,
-                       workspace_dir=str(workspace_dir))
-            
-            # 2. Container setup is handled by exec_claude call (like exec_shell)
-            # No need to manually call ensure_container_running here
-            success = True
-            
-            logger.info("Container running check completed",
-                       container=dev_name,
-                       success=success)
-            
-            if success:
-                logger.info("Container setup complete",
-                           container=dev_name,
-                           repo=repo_name,
-                           workspace=str(workspace_dir))
-            else:
-                logger.error("Container failed to start",
-                            container=dev_name,
-                            repo=repo_name,
-                            workspace=str(workspace_dir))
-            
-            return success, workspace_dir
-            
-        except Exception as e:
-            logger.error("Container setup failed",
-                        container=dev_name,
-                        repo=repo_name,
-                        repo_path=str(repo_path),
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        exc_info=True)
-            return False, None
     
     async def _cleanup_container(self, dev_name: str, repo_path: Path) -> None:
         """Clean up a container after use.

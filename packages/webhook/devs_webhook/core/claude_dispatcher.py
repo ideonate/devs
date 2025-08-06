@@ -43,7 +43,6 @@ class ClaudeDispatcher:
     async def execute_task(
         self,
         dev_name: str,
-        workspace_dir: Path,
         repo_path: Path,
         task_description: str,
         event: WebhookEvent,
@@ -53,7 +52,6 @@ class ClaudeDispatcher:
         
         Args:
             dev_name: Name of dev container (e.g., eamonn)
-            workspace_dir: Workspace directory path on host
             repo_path: Path to repository on host (already calculated by container_pool)
             task_description: Task description for Claude
             event: Original webhook event
@@ -66,14 +64,25 @@ class ClaudeDispatcher:
             logger.info("Starting Claude Code CLI task",
                        container=dev_name,
                        repo=event.repository.full_name,
-                       workspace_dir=str(workspace_dir),
                        repo_path=str(repo_path))
             
-            # Build Claude Code prompt with context
-            prompt = self._build_claude_prompt(task_description, workspace_dir, event, devs_options)
-
-            # Use ContainerManager like CLI does - repo_path provided by container_pool
-            result = await self._execute_claude_via_container_manager(dev_name, workspace_dir, prompt, repo_path, event)
+            # Execute everything in thread pool - prompt building, workspace setup, container startup, Claude execution
+            loop = asyncio.get_event_loop()
+            success, output, error = await loop.run_in_executor(
+                self.executor,
+                self._execute_claude_sync,
+                repo_path,
+                dev_name,
+                task_description,
+                event,
+                devs_options
+            )
+            
+            result = TaskResult(
+                success=success,
+                output=output,
+                error=error if not success else None
+            )
             
             if result.success:
                 # Post-process results
@@ -100,104 +109,55 @@ class ClaudeDispatcher:
             await self._handle_task_failure(event, error_msg)
             return TaskResult(success=False, output="", error=error_msg)
     
-    async def _execute_claude_via_container_manager(
+    def _execute_claude_sync(
         self,
-        dev_name: str,
-        workspace_dir: Path,
-        prompt: str,
         repo_path: Path,
-        event: WebhookEvent
-    ) -> TaskResult:
-        """Execute Claude Code CLI using ContainerManager (same as CLI shell command).
-        
-        Args:
-            dev_name: Name of dev container (e.g., eamonn)
-            workspace_dir: Workspace directory path on host
-            prompt: Claude Code prompt to execute
-            repo_path: Path to the repository on the host
-            event: Original webhook event
-            
-        Returns:
-            Task execution result
-        """
-        try:
-            # Use the same infrastructure as CLI - create project and container manager
-            project = Project(repo_path)
-            container_manager = ContainerManager(project, self.config)
-            
-            logger.info("Using ContainerManager to execute Claude",
-                       container=dev_name,
-                       workspace_dir=str(workspace_dir),
-                       prompt_length=len(prompt) if not event.is_test else 0)
-
-            if event.is_test:
-                # For test events, just return success
-                logger.info("Test event - skipping Claude execution")
-                return TaskResult(success=True, output="Test event received, no execution", error=None)
-            
-            # Execute Claude using ContainerManager in a thread to avoid blocking
-            # the async event loop
-            loop = asyncio.get_event_loop()
-            success, output, error = await loop.run_in_executor(
-                self.executor,
-                container_manager.exec_claude,
-                dev_name, 
-                workspace_dir, 
-                prompt, 
-                self.config.dev_mode
-            )
-            
-            if success:
-                logger.info("Claude CLI execution completed via ContainerManager",
-                           container=dev_name,
-                           output_length=len(output),
-                           output_preview=output[:200] + "..." if len(output) > 200 else output)
-            else:
-                logger.error("Claude CLI execution failed via ContainerManager",
-                           container=dev_name,
-                           error_length=len(error),
-                           error_preview=error[:500] + "..." if len(error) > 500 else error,
-                           output_length=len(output),
-                           full_error=error)
-            
-            return TaskResult(
-                success=success,
-                output=output,
-                error=error if not success else None
-            )
-            
-        except Exception as e:
-            error_msg = f"ContainerManager execution failed: {str(e)}"
-            logger.error("ContainerManager execution error",
-                        container=dev_name,
-                        error=error_msg,
-                        exc_info=True)
-            return TaskResult(success=False, output="", error=error_msg)
-    
-    def _build_claude_prompt(
-        self,
+        dev_name: str,
         task_description: str,
-        workspace_dir: Path,
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None
-    ) -> str:
-        """Build the complete prompt for Claude Code CLI.
+    ) -> tuple[bool, str, str]:
+        """Execute complete Claude workflow synchronously in thread pool.
+        
+        This mirrors the CLI approach exactly:
+        1. Create project, workspace manager, and container manager
+        2. Create/reset workspace (force=True for webhook)
+        3. Build prompt
+        4. Execute Claude (which handles container startup)
         
         Args:
-            task_description: Base task description
-            workspace_dir: Workspace directory path on host  
+            repo_path: Path to repository
+            dev_name: Development environment name
+            task_description: Task description for Claude
             event: Webhook event
-            devs_options: Options from DEVS.yml file
+            devs_options: Options from DEVS.yml
             
         Returns:
-            Complete prompt for Claude Code CLI
+            Tuple of (success, stdout, stderr)
         """
-        repo_name = event.repository.full_name
-        # Get workspace name from directory name
-        workspace_name = workspace_dir.name
-        workspace_path = f"/workspaces/{workspace_name}"
-        
-        prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
+        try:
+            # 1. Create project, workspace manager, and container manager like CLI
+            project = Project(repo_path)
+            workspace_manager = WorkspaceManager(project, self.config)
+            container_manager = ContainerManager(project, self.config)
+            
+            logger.info("Created project and managers in thread pool",
+                       container=dev_name,
+                       project_name=project.info.name)
+            
+            # 2. Ensure workspace exists (force=True for webhook to reset contents like CLI)
+            workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=True)
+            
+            logger.info("Workspace created/reset in thread pool",
+                       container=dev_name,
+                       workspace_dir=str(workspace_dir))
+            
+            # 3. Build Claude prompt
+            workspace_name = project.get_workspace_name(dev_name)
+            workspace_path = f"/workspaces/{workspace_name}"
+            repo_name = event.repository.full_name
+            
+            prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
 You have been mentioned in a GitHub issue/PR and need to take action.
 
 You should ensure you're on the latest commits in the repo's default branch. 
@@ -208,7 +168,7 @@ If you need to ask for clarification, or if only asked for your thoughts, please
 
 You should always comment back in any case to say what you've done (unless you are sure it wasn't intended for you). The `gh` CLI is available for GitHub operations, and you can use `git` too.
 
-{devs_options.prompt_extra}
+{devs_options.prompt_extra if devs_options and devs_options.prompt_extra else ''}
 
 This is the latest update on the issue/PR, but you should just get the full thread for more details:
 <latest_comment>
@@ -219,12 +179,31 @@ You are working in the repository `{repo_name}`.
 The workspace path is `{workspace_path}`.
 Your GitHub username is `{self.config.github_mentioned_user}`.
 """
-        
-        # Append any extra prompt instructions from DEVS.yml
-        if devs_options and devs_options.prompt_extra:
-            prompt += f"\n{devs_options.prompt_extra}\n"
-        
-        return prompt
+            
+            logger.info("Built Claude prompt in thread pool",
+                       container=dev_name,
+                       prompt_length=len(prompt))
+            
+            # 4. Execute Claude (like CLI pattern)
+            logger.info("Executing Claude via ContainerManager (like CLI)",
+                       container=dev_name)
+            
+            return container_manager.exec_claude(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                prompt=prompt,
+                debug=self.config.dev_mode,
+                stream=False  # Don't stream in webhook mode
+            )
+            
+        except Exception as e:
+            error_msg = f"Claude execution failed: {str(e)}"
+            logger.error("Claude execution error in thread pool",
+                        container=dev_name,
+                        error=error_msg,
+                        exc_info=True)
+            return False, "", error_msg
+    
     
     async def _handle_task_completion(
         self,
