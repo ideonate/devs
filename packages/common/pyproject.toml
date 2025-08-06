@@ -25,6 +25,8 @@ classifiers = [
 
 dependencies = [
     "docker>=6.0.0",
+    "aiodocker>=0.21.0",
+    "aiofiles>=23.0.0",
     "GitPython>=3.1.0",
     "rich>=13.0.0",
     "click>=8.0.0",

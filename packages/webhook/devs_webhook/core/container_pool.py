@@ -8,8 +8,8 @@ import structlog
 import yaml
 
 from devs_common.core.project import Project
-from devs_common.core.container import ContainerManager
-from devs_common.core.workspace import WorkspaceManager
+from devs_common.core.container_async import AsyncContainerManager
+from devs_common.core.workspace_async import AsyncWorkspaceManager
 
 from ..config import get_config
 from .webhook_config import WebhookConfig
@@ -488,17 +488,17 @@ class ContainerPool:
             project = Project(repo_path)
             
             # Use the same config as the rest of the webhook handler
-            workspace_manager = WorkspaceManager(project, self.config)
-            container_manager = ContainerManager(project, self.config)
+            workspace_manager = AsyncWorkspaceManager(project, self.config)
+            container_manager = AsyncContainerManager(project, self.config)
             
             # Stop container
             logger.info("Starting container stop", container=dev_name)
-            stop_success = container_manager.stop_container(dev_name)
+            stop_success = await container_manager.stop_container(dev_name)
             logger.info("Container stop result", container=dev_name, success=stop_success)
             
             # Remove workspace
             logger.info("Starting workspace removal", container=dev_name)
-            workspace_success = workspace_manager.remove_workspace(dev_name)
+            workspace_success = await workspace_manager.remove_workspace(dev_name)
             logger.info("Workspace removal result", container=dev_name, success=workspace_success)
             
             logger.info("Container cleanup complete", 

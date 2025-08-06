@@ -8,8 +8,8 @@ import structlog
 from pathlib import Path
 
 from devs_common.core.project import Project
-from devs_common.core.container import ContainerManager
-from devs_common.core.workspace import WorkspaceManager
+from devs_common.core.container_async import AsyncContainerManager
+from devs_common.core.workspace_async import AsyncWorkspaceManager
 from ..config import get_config
 from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent, DevsOptions
 from ..github.client import GitHubClient
@@ -127,15 +127,15 @@ class ClaudeDispatcher:
         try:
             # 1. Create project, workspace manager, and container manager
             project = Project(repo_path)
-            workspace_manager = WorkspaceManager(project, self.config)
-            container_manager = ContainerManager(project, self.config)
+            workspace_manager = AsyncWorkspaceManager(project, self.config)
+            container_manager = AsyncContainerManager(project, self.config)
             
             logger.info("Created project and managers (async)",
                        container=dev_name,
                        project_name=project.info.name)
             
             # 2. Ensure workspace exists (reset_contents=True for webhook)
-            workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=True)
+            workspace_dir = await workspace_manager.create_workspace(dev_name, reset_contents=True)
             
             logger.info("Workspace created/reset (async)",
                        container=dev_name,
