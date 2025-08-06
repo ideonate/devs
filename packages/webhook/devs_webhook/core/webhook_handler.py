@@ -5,8 +5,6 @@ import structlog
 
 from ..config import get_config
 from ..github.parser import WebhookParser
-from ..github.client import GitHubClient
-from ..github.models import IssueEvent, PullRequestEvent, CommentEvent
 from .container_pool import ContainerPool
 from .deduplication import is_duplicate_content, get_cache_stats
 
@@ -20,70 +18,10 @@ class WebhookHandler:
         """Initialize webhook handler."""
         self.config = get_config()
         self.container_pool = ContainerPool()
-        self.github_client = GitHubClient(self.config.github_token)
         
         logger.info("Webhook handler initialized", 
                    mentioned_user=self.config.github_mentioned_user,
                    container_pool=self.config.get_container_pool_list())
-    
-    async def _add_eyes_reaction(self, event: Any, repo_name: str) -> None:
-        """Add an eyes reaction to indicate we're processing the event.
-        
-        Args:
-            event: The webhook event object
-            repo_name: Repository in format "owner/repo"
-        """
-        try:
-            reaction_added = False
-            
-            # Determine what to react to based on event type
-            if isinstance(event, CommentEvent):
-                # React to the comment itself
-                reaction_added = await self.github_client.add_reaction_to_comment(
-                    repo=repo_name,
-                    comment_id=event.comment.id,
-                    reaction="eyes"
-                )
-                logger.info("Attempting to add reaction to comment",
-                           comment_id=event.comment.id,
-                           repo=repo_name)
-            elif isinstance(event, IssueEvent):
-                # React to the issue
-                reaction_added = await self.github_client.add_reaction_to_issue(
-                    repo=repo_name,
-                    issue_number=event.issue.number,
-                    reaction="eyes"
-                )
-                logger.info("Attempting to add reaction to issue",
-                           issue_number=event.issue.number,
-                           repo=repo_name)
-            elif isinstance(event, PullRequestEvent):
-                # React to the PR (PRs are issues in GitHub API)
-                reaction_added = await self.github_client.add_reaction_to_pr(
-                    repo=repo_name,
-                    pr_number=event.pull_request.number,
-                    reaction="eyes"
-                )
-                logger.info("Attempting to add reaction to PR",
-                           pr_number=event.pull_request.number,
-                           repo=repo_name)
-            
-            if reaction_added:
-                logger.info("Successfully added eyes reaction",
-                           event_type=type(event).__name__,
-                           repo=repo_name)
-            else:
-                logger.warning("Could not add eyes reaction",
-                              event_type=type(event).__name__,
-                              repo=repo_name)
-                
-        except Exception as e:
-            # Log the error but don't fail the webhook processing
-            logger.error("Error adding reaction to event - continuing anyway",
-                        error=str(e),
-                        event_type=type(event).__name__,
-                        repo=repo_name,
-                        exc_info=True)
     
     async def process_webhook(
         self, 
@@ -165,9 +103,6 @@ class WebhookHandler:
                 logger.info("Task queued successfully",
                            delivery_id=delivery_id,
                            repo=event.repository.full_name)
-                
-                # Try to add "eyes" reaction to indicate we're looking into it
-                await self._add_eyes_reaction(event, event.repository.full_name)
             else:
                 logger.error("Failed to queue task",
                             delivery_id=delivery_id,
