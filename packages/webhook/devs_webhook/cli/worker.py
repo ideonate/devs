@@ -25,7 +25,7 @@ logger = structlog.get_logger()
 @click.option('--dev-name', required=True, help='Development container name')
 @click.option('--repo-name', required=True, help='Repository name (owner/repo)')
 @click.option('--repo-path', required=True, help='Path to repository on host')
-@click.option('--timeout', default=1800, help='Task timeout in seconds (default: 30min)')
+@click.option('--timeout', default=3600, help='Task timeout in seconds (default: 3600)')
 def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, timeout: int):
     """Process a single webhook task in an isolated subprocess.
     

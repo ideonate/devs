@@ -315,7 +315,7 @@ class ContainerPool:
                 "--dev-name", dev_name,
                 "--repo-name", repo_name,
                 "--repo-path", str(repo_path),
-                "--timeout", str(1800)  # 30 minute timeout
+                "--timeout", str(3600)  # 60 minute timeout
             ]
             
             logger.info("Launching worker subprocess",
@@ -336,7 +336,7 @@ class ContainerPool:
                 # Wait for subprocess with timeout, sending JSON via stdin
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(input=stdin_json.encode('utf-8')),
-                    timeout=1800  # 30 minute timeout
+                    timeout=3600  # 60 minute timeout
                 )
                 
                 # Parse result
@@ -377,8 +377,8 @@ class ContainerPool:
                 logger.error("Subprocess task timed out",
                             task_id=queued_task.task_id,
                             container=dev_name,
-                            timeout_seconds=1800)
-                
+                            timeout_seconds=3600)
+
                 # Kill the subprocess
                 process.kill()
                 await process.wait()
