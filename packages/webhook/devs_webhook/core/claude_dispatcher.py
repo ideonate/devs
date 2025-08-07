@@ -158,45 +158,30 @@ class ClaudeDispatcher:
                 isinstance(event, CommentEvent) and event.pull_request is not None
             )
             
-            # Build the appropriate prompt based on event type
-            if is_pr:
-                prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
-You have been mentioned in a GitHub PR and need to take action.
+            # Build prompt with appropriate context based on event type
+            event_type = "PR" if is_pr else "issue"
+            event_type_full = "GitHub PR" if is_pr else "GitHub issue"
+            
+            # Add PR-closing instruction only for issues
+            pr_closing_instruction = ""
+            if not is_pr:
+                pr_closing_instruction = " (mention that it closes an issue number if it does)"
+            
+            # Build unified prompt with variable parts
+            prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
+You have been mentioned in a {event_type_full} and need to take action.
 
 You should ensure you're on the latest commits in the repo's default branch. 
 Generally work on feature branches for changes. 
-Submit any changes as a pull request when done.
+Submit any changes as a pull request when done{pr_closing_instruction}.
 
-If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the PR.
+If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the {event_type}.
 
 You should always comment back in any case to say what you've done (unless you are sure it wasn't intended for you). The `gh` CLI is available for GitHub operations, and you can use `git` too.
 
 {devs_options.prompt_extra if devs_options and devs_options.prompt_extra else ''}
 
-This is the latest update on the PR, but you should just get the full thread for more details:
-<latest_comment>
-{task_description}
-</latest_comment>
-
-You are working in the repository `{repo_name}`.
-The workspace path is `{workspace_path}`.
-Your GitHub username is `{self.config.github_mentioned_user}`."""
-            else:
-                # It's an Issue
-                prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
-You have been mentioned in a GitHub issue and need to take action.
-
-You should ensure you're on the latest commits in the repo's default branch. 
-Generally work on feature branches for changes. 
-Submit any changes as a pull request when done (mention that it closes an issue number if it does).
-
-If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the issue.
-
-You should always comment back in any case to say what you've done (unless you are sure it wasn't intended for you). The `gh` CLI is available for GitHub operations, and you can use `git` too.
-
-{devs_options.prompt_extra if devs_options and devs_options.prompt_extra else ''}
-
-This is the latest update on the issue, but you should just get the full thread for more details:
+This is the latest update on the {event_type}, but you should just get the full thread for more details:
 <latest_comment>
 {task_description}
 </latest_comment>
