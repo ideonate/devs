@@ -363,12 +363,15 @@ class ContainerPool:
                     except json.JSONDecodeError:
                         error_msg = f"Subprocess failed with return code {process.returncode}"
                     
+                    # Log the full stderr content, not truncated
+                    stderr_content = stderr.decode('utf-8', errors='replace') if stderr else ''
+                    
                     logger.error("Subprocess task failed",
                                 task_id=queued_task.task_id,
                                 container=dev_name,
                                 return_code=process.returncode,
                                 error=error_msg,
-                                stderr=stderr.decode('utf-8')[:500] if stderr else '')
+                                stderr=stderr_content)
                     
                     # Don't raise exception here - just log the failure
                     # The task is considered processed even if it failed

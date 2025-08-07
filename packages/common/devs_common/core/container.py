@@ -570,6 +570,12 @@ class ContainerManager:
                     if stderr:
                         console.print(f"[dim]Claude stderr: {stderr[:200]}...[/dim]")
             
+            if not success and stdout:
+
+                # If stderr is empty but stdout contains error patterns, use stdout as error
+                if not stderr:
+                    stderr = stdout
+            
             return success, stdout, stderr
             
         except (DockerError, subprocess.SubprocessError) as e:

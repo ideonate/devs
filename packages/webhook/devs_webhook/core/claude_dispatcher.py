@@ -66,6 +66,14 @@ class ClaudeDispatcher:
                 devs_options
             )
             
+            # Build result - ensure we have meaningful error messages
+            if not success:
+                # If error is empty but we have output, use output as error
+                if not error and output:
+                    error = output
+                elif not error:
+                    error = "Claude execution failed with no error message"
+            
             result = TaskResult(
                 success=success,
                 output=output,
@@ -176,13 +184,28 @@ Your GitHub username is `{self.config.github_mentioned_user}`.
             logger.info("Executing Claude via ContainerManager (like CLI)",
                        container=dev_name)
             
-            return container_manager.exec_claude(
+            success, stdout, stderr = container_manager.exec_claude(
                 dev_name=dev_name,
                 workspace_dir=workspace_dir,
                 prompt=prompt,
                 debug=self.config.dev_mode,
                 stream=False  # Don't stream in webhook mode
             )
+            
+            # Log the actual output for debugging
+            if not success:
+                logger.error("Claude execution failed",
+                           container=dev_name,
+                           stdout=stdout[:1000] if stdout else "",
+                           stderr=stderr[:1000] if stderr else "",
+                           success=success)
+            
+            # If failed and no stderr, check stdout for error messages
+            # (Claude sometimes outputs errors to stdout)
+            if not success and not stderr:
+                stderr = stdout
+            
+            return success, stdout, stderr
             
         except Exception as e:
             error_msg = f"Claude execution failed: {str(e)}"

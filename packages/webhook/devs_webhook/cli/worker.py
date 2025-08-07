@@ -228,7 +228,8 @@ def _process_task_subprocess(
             logger.error("Task execution failed",
                         task_id=task_id,
                         dev_name=dev_name,
-                        error=result.error)
+                        error=result.error,
+                        output_preview=result.output[:500] if result.output else "")
             
             return {
                 'success': False,
