@@ -37,6 +37,16 @@ class WebhookConfig(BaseSettings, BaseConfig):
         description="Comma-separated list of allowed GitHub usernames"
     )
     
+    # Basic auth settings for admin endpoints
+    admin_username: str = Field(
+        default="admin",
+        description="Username for admin endpoint authentication"
+    )
+    admin_password: str = Field(
+        default="",
+        description="Password for admin endpoint authentication (required for production)"
+    )
+    
     # Runtime settings
     dev_mode: bool = Field(default=False, description="Development mode enabled")
     
@@ -127,6 +137,10 @@ class WebhookConfig(BaseSettings, BaseConfig):
             missing.append("github_token (GITHUB_TOKEN)")
         if not self.github_mentioned_user:
             missing.append("github_mentioned_user (GITHUB_MENTIONED_USER)")
+        
+        # Require admin password in production mode
+        if not self.dev_mode and not self.admin_password:
+            missing.append("admin_password (ADMIN_PASSWORD) - required in production mode")
     
     def is_repository_allowed(self, repo_full_name: str, repo_owner: str) -> bool:
         """Check if a repository is allowed based on allowlist configuration.

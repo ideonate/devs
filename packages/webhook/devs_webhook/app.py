@@ -2,7 +2,9 @@
 
 import hmac
 import hashlib
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends
+import secrets
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import structlog
@@ -30,6 +32,9 @@ app = FastAPI(
     version="0.1.0"
 )
 
+# Security setup for admin endpoints
+security = HTTPBasic()
+
 # Initialize webhook handler lazily
 webhook_handler = None
 
@@ -49,6 +54,49 @@ def require_dev_mode(config: WebhookConfig = Depends(get_config)):
             status_code=404, 
             detail="This endpoint is only available in development mode"
         )
+
+
+def verify_admin_credentials(
+    credentials: HTTPBasicCredentials = Depends(security),
+    config: WebhookConfig = Depends(get_config)
+):
+    """Verify admin credentials for protected endpoints.
+    
+    Args:
+        credentials: HTTP Basic auth credentials
+        config: Webhook configuration
+        
+    Returns:
+        Username if authentication successful
+        
+    Raises:
+        HTTPException: If authentication fails
+    """
+    # In dev mode with no password set, allow any credentials
+    if config.dev_mode and not config.admin_password:
+        logger.warning("Admin auth bypassed in dev mode without password")
+        return credentials.username
+    
+    # Verify username and password
+    correct_username = secrets.compare_digest(
+        credentials.username, config.admin_username
+    )
+    correct_password = secrets.compare_digest(
+        credentials.password, config.admin_password
+    )
+    
+    if not (correct_username and correct_password):
+        logger.warning(
+            "Failed admin authentication attempt",
+            username=credentials.username
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    
+    return credentials.username
 
 
 def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
@@ -142,14 +190,29 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 
 
 @app.get("/status")
-async def status():
-    """Get current webhook handler status."""
+async def status(username: str = Depends(verify_admin_credentials)):
+    """Get current webhook handler status.
+    
+    Requires admin authentication.
+    """
+    logger.info("Status endpoint accessed", authenticated_user=username)
     return await get_webhook_handler().get_status()
 
 
 @app.post("/container/{container_name}/stop")
-async def stop_container(container_name: str):
-    """Manually stop a container."""
+async def stop_container(
+    container_name: str,
+    username: str = Depends(verify_admin_credentials)
+):
+    """Manually stop a container.
+    
+    Requires admin authentication.
+    """
+    logger.info(
+        "Container stop requested",
+        container=container_name,
+        authenticated_user=username
+    )
     success = await get_webhook_handler().stop_container(container_name)
     if success:
         return {"status": "stopped", "container": container_name}
@@ -158,8 +221,12 @@ async def stop_container(container_name: str):
 
 
 @app.get("/containers")
-async def list_containers():
-    """List all managed containers."""
+async def list_containers(username: str = Depends(verify_admin_credentials)):
+    """List all managed containers.
+    
+    Requires admin authentication.
+    """
+    logger.info("Containers list accessed", authenticated_user=username)
     return await get_webhook_handler().list_containers()
 
 
