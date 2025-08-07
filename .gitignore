@@ -156,4 +156,7 @@ loclx-config.yaml
 .devmode.zsh
 nohup.out
 
+# Claude settings
 .claude/
+!.claude/settings.json
+.claude/settings.local.json
