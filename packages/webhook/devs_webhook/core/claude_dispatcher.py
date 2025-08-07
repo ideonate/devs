@@ -153,20 +153,50 @@ class ClaudeDispatcher:
             workspace_path = f"/workspaces/{workspace_name}"
             repo_name = event.repository.full_name
             
-            prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
-You have been mentioned in a GitHub issue/PR and need to take action.
+            # Determine if this is a PR or Issue
+            is_pr = isinstance(event, PullRequestEvent) or (
+                isinstance(event, CommentEvent) and event.pull_request is not None
+            )
+            
+            # Build the appropriate prompt based on event type
+            if is_pr:
+                prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
+You have been mentioned in a GitHub PR and need to take action.
 
 You should ensure you're on the latest commits in the repo's default branch. 
 Generally work on feature branches for changes. 
-Submit any changes as a pull request when done (mention that it closes an issue number if it does).
+Submit any changes as a pull request when done.
 
-If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the issue/PR.
+If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the PR.
 
 You should always comment back in any case to say what you've done (unless you are sure it wasn't intended for you). The `gh` CLI is available for GitHub operations, and you can use `git` too.
 
 {devs_options.prompt_extra if devs_options and devs_options.prompt_extra else ''}
 
-This is the latest update on the issue/PR, but you should just get the full thread for more details:
+This is the latest update on the PR, but you should just get the full thread for more details:
+<latest_comment>
+{task_description}
+</latest_comment>
+
+You are working in the repository `{repo_name}`.
+The workspace path is `{workspace_path}`.
+Your GitHub username is `{self.config.github_mentioned_user}`."""
+            else:
+                # It's an Issue
+                prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
+You have been mentioned in a GitHub issue and need to take action.
+
+You should ensure you're on the latest commits in the repo's default branch. 
+Generally work on feature branches for changes. 
+Submit any changes as a pull request when done (mention that it closes an issue number if it does).
+
+If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the issue.
+
+You should always comment back in any case to say what you've done (unless you are sure it wasn't intended for you). The `gh` CLI is available for GitHub operations, and you can use `git` too.
+
+{devs_options.prompt_extra if devs_options and devs_options.prompt_extra else ''}
+
+This is the latest update on the issue, but you should just get the full thread for more details:
 <latest_comment>
 {task_description}
 </latest_comment>
@@ -178,7 +208,8 @@ Your GitHub username is `{self.config.github_mentioned_user}`.
             
             logger.info("Built Claude prompt",
                        container=dev_name,
-                       prompt_length=len(prompt))
+                       prompt_length=len(prompt),
+                       event_type="PR" if is_pr else "Issue")
             
             # 4. Execute Claude (like CLI pattern)
             logger.info("Executing Claude via ContainerManager (like CLI)",
