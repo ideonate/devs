@@ -34,6 +34,10 @@ export GITHUB_TOKEN="ghp_your-github-token"
 export GITHUB_MENTIONED_USER="your-github-username"
 export CLAUDE_API_KEY="your-claude-api-key"
 
+# Admin authentication (required for production)
+export ADMIN_USERNAME="admin"  # Default: admin
+export ADMIN_PASSWORD="your-secure-password"  # Required in production
+
 # Optional settings (with defaults)
 export CONTAINER_POOL="eamonn,harry,darren"
 export CONTAINER_TIMEOUT_MINUTES="30"
