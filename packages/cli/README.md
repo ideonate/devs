@@ -28,6 +28,14 @@ devs vscode frontend backend
 # Work in a specific container
 devs shell frontend
 
+# Run Claude in a container
+devs claude frontend "Summarize this codebase"
+
+# Set up Claude authentication (once per host)
+devs claude-auth
+# Or with API key
+devs claude-auth --api-key <YOUR_API_KEY>
+
 # Clean up when done
 devs stop frontend backend
 
