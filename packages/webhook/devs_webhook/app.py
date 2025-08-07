@@ -92,8 +92,7 @@ def verify_admin_credentials(
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Basic"},
+            detail="Invalid authentication credentials"
         )
     
     return credentials.username
@@ -233,7 +232,8 @@ async def list_containers(username: str = Depends(verify_admin_credentials)):
 @app.post("/testevent")
 async def test_event(
     request: TestEventRequest,
-    config: WebhookConfig = Depends(require_dev_mode)
+    config: WebhookConfig = Depends(require_dev_mode),
+    username: str = Depends(verify_admin_credentials)
 ):
     """Test endpoint to simulate GitHub webhook events with custom prompts.
     
