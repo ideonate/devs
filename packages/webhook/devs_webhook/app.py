@@ -190,7 +190,7 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 
 
 @app.get("/status")
-async def status(username: str = Depends(verify_admin_credentials)):
+async def get_status(username: str = Depends(verify_admin_credentials)):
     """Get current webhook handler status.
     
     Requires admin authentication.
