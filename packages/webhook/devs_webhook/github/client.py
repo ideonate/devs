@@ -203,7 +203,7 @@ class GitHubClient:
         """
         try:
             repository = self.github.get_repo(repo)
-            comment = repository.get_issue_comment(comment_id)
+            comment = repository.get_comment(comment_id)
             comment.create_reaction(reaction)
             
             logger.info("Reaction added to comment",
