@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import shutil
 import sys
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Set, Any, NamedTuple
@@ -407,6 +408,9 @@ class ContainerPool:
     ) -> DevsOptions:
         """Ensure repository is cloned to the workspace directory.
         
+        Uses a simple strategy: if repository exists but pull fails,
+        remove it and do a fresh clone.
+        
         Args:
             repo_name: Repository name (owner/repo)
             repo_path: Path where repository should be cloned
@@ -420,9 +424,9 @@ class ContainerPool:
                    exists=repo_path.exists())
         
         if repo_path.exists():
-            # Repository already exists, pull latest changes
+            # Repository already exists, try to pull latest changes
             try:
-                logger.info("Repository exists, pulling latest changes",
+                logger.info("Repository exists, attempting to pull latest changes",
                            repo=repo_name,
                            repo_path=str(repo_path))
                 
@@ -433,7 +437,8 @@ class ContainerPool:
                     set_remote_cmd = ["git", "-C", str(repo_path), "remote", "set-url", "origin", remote_url]
                     await asyncio.create_subprocess_exec(*set_remote_cmd)
                 
-                cmd = ["git", "-C", str(repo_path), "pull", "origin", "main"]
+                # Try to pull - using main as default, but this might fail
+                cmd = ["git", "-C", str(repo_path), "pull"]
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
@@ -441,20 +446,47 @@ class ContainerPool:
                 )
                 stdout, stderr = await process.communicate()
                 
-                logger.info("Git pull completed",
-                           repo=repo_name,
-                           return_code=process.returncode,
-                           stdout=stdout.decode()[:200] if stdout else "",
-                           stderr=stderr.decode()[:200] if stderr else "")
-                
-                logger.info("Repository updated", repo=repo_name, path=str(repo_path))
-                
+                if process.returncode == 0:
+                    logger.info("Git pull succeeded",
+                               repo=repo_name,
+                               stdout=stdout.decode()[:200] if stdout else "")
+                    logger.info("Repository updated", repo=repo_name, path=str(repo_path))
+                else:
+                    # Pull failed - remove and re-clone
+                    logger.warning("Git pull failed, removing and re-cloning",
+                                  repo=repo_name,
+                                  return_code=process.returncode,
+                                  stderr=stderr.decode()[:200] if stderr else "")
+                    
+                    # Remove the existing directory
+                    logger.info("Removing existing repository directory",
+                               repo=repo_name,
+                               repo_path=str(repo_path))
+                    shutil.rmtree(repo_path)
+                    
+                    # Now fall through to clone logic
+                    
             except Exception as e:
-                logger.warning("Failed to update repository",
+                logger.warning("Failed to update repository, removing and re-cloning",
                               repo=repo_name,
                               error=str(e),
                               error_type=type(e).__name__)
-        else:
+                
+                # Remove the existing directory
+                try:
+                    shutil.rmtree(repo_path)
+                    logger.info("Removed existing repository directory",
+                               repo=repo_name,
+                               repo_path=str(repo_path))
+                except Exception as rm_error:
+                    logger.error("Failed to remove repository directory",
+                                repo=repo_name,
+                                repo_path=str(repo_path),
+                                error=str(rm_error))
+                    raise
+        
+        # If we get here, either the repo didn't exist or we removed it
+        if not repo_path.exists():
             # Clone the repository
             try:
                 logger.info("Repository does not exist, cloning",
