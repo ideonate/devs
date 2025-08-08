@@ -202,18 +202,33 @@ class GitHubClient:
             True if successful
         """
         try:
-            repository = self.github.get_repo(repo)
-            comment = repository.get_comment(comment_id)
-            comment.create_reaction(reaction)
+            # PyGithub's repository.get_comment() gets commit comments, not issue comments.
+            # For issue/PR comments, we need to use the REST API directly.
+            import requests
             
-            logger.info("Reaction added to comment",
-                       repo=repo, comment_id=comment_id, reaction=reaction)
-            return True
+            headers = {
+                'Authorization': f'token {self.token}',
+                'Accept': 'application/vnd.github.v3+json'
+            }
             
-        except GithubException as e:
-            logger.error("Failed to add reaction to comment",
-                        repo=repo, comment_id=comment_id, reaction=reaction, error=str(e))
-            return False
+            # Add reaction to issue/PR comment via REST API
+            reaction_url = f'https://api.github.com/repos/{repo}/issues/comments/{comment_id}/reactions'
+            response = requests.post(
+                reaction_url, 
+                json={'content': reaction},
+                headers=headers
+            )
+            
+            if response.status_code in [200, 201]:
+                logger.info("Reaction added to comment",
+                           repo=repo, comment_id=comment_id, reaction=reaction)
+                return True
+            else:
+                logger.error("Failed to add reaction to comment",
+                            repo=repo, comment_id=comment_id, reaction=reaction, 
+                            status=response.status_code, error=response.text)
+                return False
+            
         except Exception as e:
             logger.error("Unexpected error adding reaction to comment",
                         repo=repo, comment_id=comment_id, reaction=reaction, error=str(e))
