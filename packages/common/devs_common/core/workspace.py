@@ -1,5 +1,7 @@
 """Workspace management and isolation."""
 
+import os
+import sys
 import shutil
 from pathlib import Path
 from typing import List, Optional, Set
@@ -18,7 +20,12 @@ from ..utils.file_utils import (
 from ..utils.git_utils import get_tracked_files, is_git_repository
 from .project import Project
 
-console = Console()
+# Initialize Rich console
+# When running in webhook mode, output to stderr to avoid mixing with JSON output
+if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
+    console = Console(stderr=True)
+else:
+    console = Console()
 
 
 class WorkspaceManager:

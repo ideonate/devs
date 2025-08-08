@@ -1,5 +1,7 @@
 """Container management and lifecycle operations."""
 
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -14,7 +16,12 @@ from ..utils.devcontainer import DevContainerCLI
 from ..utils.devcontainer_template import get_template_dir
 from .project import Project
 
-console = Console()
+# Initialize Rich console
+# When running in webhook mode, output to stderr to avoid mixing with JSON output
+if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
+    console = Console(stderr=True)
+else:
+    console = Console()
 
 
 class ContainerInfo:
@@ -490,8 +497,10 @@ class ContainerManager:
             if not self.ensure_container_running(dev_name, workspace_dir, debug=debug):
                 raise ContainerError(f"Failed to start container for {dev_name}")
             
-            console.print(f"🤖 Running Claude in: {dev_name} (container: {container_name})")
-            console.print(f"   Workspace: {container_workspace_dir}")
+            # Only print status messages if not in webhook mode (or if streaming)
+            if os.environ.get('DEVS_WEBHOOK_MODE') != '1' or stream:
+                console.print(f"🤖 Running Claude in: {dev_name} (container: {container_name})")
+                console.print(f"   Workspace: {container_workspace_dir}")
             
             # Execute Claude CLI in the container
             # Use same pattern as exec_shell: cd to workspace directory then run command

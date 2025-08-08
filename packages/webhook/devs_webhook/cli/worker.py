@@ -43,7 +43,17 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, timeout:
         "devs_options": {...devs options object...} (optional)
     }
     """
-    # Configure structured logging for subprocess
+    # Set environment variable to redirect console output to stderr
+    os.environ['DEVS_WEBHOOK_MODE'] = '1'
+    
+    # Configure structured logging for subprocess to output to stderr
+    import logging
+    logging.basicConfig(
+        stream=sys.stderr,
+        level=logging.INFO,
+        format='%(message)s'
+    )
+    
     structlog.configure(
         processors=[
             structlog.stdlib.filter_by_level,
