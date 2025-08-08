@@ -419,6 +419,9 @@ class ContainerPool:
                    repo_path=str(repo_path),
                    exists=repo_path.exists())
         
+        # We'll determine the default branch later
+        default_branch = "main"  # Initial assumption
+        
         if repo_path.exists():
             # Repository already exists, pull latest changes
             try:
@@ -433,21 +436,139 @@ class ContainerPool:
                     set_remote_cmd = ["git", "-C", str(repo_path), "remote", "set-url", "origin", remote_url]
                     await asyncio.create_subprocess_exec(*set_remote_cmd)
                 
-                cmd = ["git", "-C", str(repo_path), "pull", "origin", "main"]
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
+                # Get the default branch from remote
+                get_branch_cmd = ["git", "-C", str(repo_path), "symbolic-ref", "refs/remotes/origin/HEAD"]
+                branch_process = await asyncio.create_subprocess_exec(
+                    *get_branch_cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                stdout, stderr = await process.communicate()
+                branch_stdout, branch_stderr = await branch_process.communicate()
                 
-                logger.info("Git pull completed",
-                           repo=repo_name,
-                           return_code=process.returncode,
-                           stdout=stdout.decode()[:200] if stdout else "",
-                           stderr=stderr.decode()[:200] if stderr else "")
+                if branch_process.returncode == 0 and branch_stdout:
+                    # Extract branch name from refs/remotes/origin/main format
+                    branch_ref = branch_stdout.decode().strip()
+                    if '/' in branch_ref:
+                        default_branch = branch_ref.split('/')[-1]
+                        logger.info("Detected default branch from remote",
+                                   repo=repo_name,
+                                   branch=default_branch)
+                else:
+                    # Fallback: try to detect from common branch names
+                    logger.info("Could not detect default branch from remote, checking common names",
+                               repo=repo_name)
+                    
+                    # Fetch all remote refs first
+                    fetch_all_cmd = ["git", "-C", str(repo_path), "fetch", "origin"]
+                    await asyncio.create_subprocess_exec(*fetch_all_cmd)
+                    
+                    # Check which branch exists
+                    for branch in ["main", "master"]:
+                        check_cmd = ["git", "-C", str(repo_path), "rev-parse", "--verify", f"origin/{branch}"]
+                        check_process = await asyncio.create_subprocess_exec(
+                            *check_cmd,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        await check_process.communicate()
+                        if check_process.returncode == 0:
+                            default_branch = branch
+                            logger.info("Found default branch by checking common names",
+                                       repo=repo_name,
+                                       branch=default_branch)
+                            break
                 
-                logger.info("Repository updated", repo=repo_name, path=str(repo_path))
+                # First fetch the latest changes for the default branch
+                fetch_cmd = ["git", "-C", str(repo_path), "fetch", "origin", default_branch]
+                fetch_process = await asyncio.create_subprocess_exec(
+                    *fetch_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                fetch_stdout, fetch_stderr = await fetch_process.communicate()
+                
+                if fetch_process.returncode != 0:
+                    logger.warning("Git fetch failed, attempting to continue",
+                                 repo=repo_name,
+                                 stderr=fetch_stderr.decode()[:200] if fetch_stderr else "")
+                
+                # Try to pull first (fast-forward if possible)
+                pull_cmd = ["git", "-C", str(repo_path), "pull", "origin", default_branch]
+                pull_process = await asyncio.create_subprocess_exec(
+                    *pull_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                pull_stdout, pull_stderr = await pull_process.communicate()
+                
+                if pull_process.returncode == 0:
+                    # Pull succeeded (fast-forward was possible)
+                    logger.info("Git pull succeeded (fast-forward)",
+                               repo=repo_name,
+                               branch=default_branch,
+                               stdout=pull_stdout.decode()[:200] if pull_stdout else "")
+                    logger.info("Repository updated", repo=repo_name, path=str(repo_path))
+                    
+                elif "Not possible to fast-forward" in pull_stderr.decode() or "divergent branches" in pull_stderr.decode():
+                    # Cannot fast-forward, need to reset to origin/branch
+                    logger.info("Fast-forward not possible, resetting to origin branch",
+                               repo=repo_name,
+                               branch=default_branch)
+                    
+                    reset_cmd = ["git", "-C", str(repo_path), "reset", "--hard", f"origin/{default_branch}"]
+                    reset_process = await asyncio.create_subprocess_exec(
+                        *reset_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    reset_stdout, reset_stderr = await reset_process.communicate()
+                    
+                    if reset_process.returncode == 0:
+                        logger.info("Git reset to origin branch succeeded",
+                                   repo=repo_name,
+                                   branch=default_branch,
+                                   stdout=reset_stdout.decode()[:200] if reset_stdout else "")
+                        logger.info("Repository updated (reset)", repo=repo_name, path=str(repo_path))
+                    else:
+                        logger.error("Git reset failed",
+                                    repo=repo_name,
+                                    branch=default_branch,
+                                    stderr=reset_stderr.decode()[:200] if reset_stderr else "")
+                        raise Exception(f"Failed to reset repository: {reset_stderr.decode()}")
+                        
+                else:
+                    # Some other error during pull
+                    logger.warning("Git pull failed with unexpected error",
+                                  repo=repo_name,
+                                  branch=default_branch,
+                                  return_code=pull_process.returncode,
+                                  stderr=pull_stderr.decode()[:200] if pull_stderr else "")
+                    
+                    # Try reset as fallback
+                    logger.info("Attempting reset to origin branch as fallback",
+                               repo=repo_name,
+                               branch=default_branch)
+                    
+                    reset_cmd = ["git", "-C", str(repo_path), "reset", "--hard", f"origin/{default_branch}"]
+                    reset_process = await asyncio.create_subprocess_exec(
+                        *reset_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    reset_stdout, reset_stderr = await reset_process.communicate()
+                    
+                    if reset_process.returncode == 0:
+                        logger.info("Git reset fallback succeeded",
+                                   repo=repo_name,
+                                   branch=default_branch,
+                                   stdout=reset_stdout.decode()[:200] if reset_stdout else "")
+                        logger.info("Repository updated (fallback reset)", repo=repo_name, path=str(repo_path))
+                    else:
+                        logger.error("Git reset fallback failed",
+                                    repo=repo_name,
+                                    branch=default_branch,
+                                    stderr=reset_stderr.decode()[:200] if reset_stderr else "")
+                        # Continue anyway, repository might still be usable
                 
             except Exception as e:
                 logger.warning("Failed to update repository",
@@ -496,6 +617,24 @@ class ContainerPool:
                     logger.info("Repository cloned successfully",
                                repo=repo_name,
                                path=str(repo_path))
+                    
+                    # After successful clone, detect the default branch
+                    get_branch_cmd = ["git", "-C", str(repo_path), "symbolic-ref", "refs/remotes/origin/HEAD"]
+                    branch_process = await asyncio.create_subprocess_exec(
+                        *get_branch_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    branch_stdout, branch_stderr = await branch_process.communicate()
+                    
+                    if branch_process.returncode == 0 and branch_stdout:
+                        # Extract branch name from refs/remotes/origin/main format
+                        branch_ref = branch_stdout.decode().strip()
+                        if '/' in branch_ref:
+                            default_branch = branch_ref.split('/')[-1]
+                            logger.info("Detected default branch after clone",
+                                       repo=repo_name,
+                                       branch=default_branch)
                 else:
                     error_msg = stderr.decode('utf-8', errors='replace')
                     logger.error("Failed to clone repository",
@@ -511,7 +650,7 @@ class ContainerPool:
         
         # Check for DEVS.yml file
         devs_yml_path = repo_path / "DEVS.yml"
-        devs_options = DevsOptions()  # Start with defaults
+        devs_options = DevsOptions(default_branch=default_branch)  # Use detected branch as default
         
         if devs_yml_path.exists():
             try:
