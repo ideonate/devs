@@ -5,10 +5,17 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
+from rich.console import Console
+
 from ..exceptions import DevsError, DependencyError
-
-
 from ..config import BaseConfig
+
+# Initialize Rich console
+# When running in webhook mode, output to stderr to avoid mixing with JSON output
+if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
+    console = Console(stderr=True)
+else:
+    console = Console()
 
 class DevContainerCLI:
     """Wrapper for DevContainer CLI operations."""
@@ -69,14 +76,6 @@ class DevContainerCLI:
                 pass
         
         if not has_env_token and not has_file_token:
-            import os
-            import sys
-            from rich.console import Console
-            # When running in webhook mode, output to stderr to avoid mixing with JSON output
-            if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
-                console = Console(stderr=True)
-            else:
-                console = Console()
             console.print()
             console.print("⚠️  [bold yellow]GitHub Token Not Configured[/bold yellow]")
             console.print("   GitHub operations (private repos, API access) may fail.")
@@ -176,14 +175,6 @@ class DevContainerCLI:
                 env['DEVS_DEBUG'] = 'true'
             
             if debug:
-                import os
-                import sys
-                from rich.console import Console
-                # When running in webhook mode, output to stderr to avoid mixing with JSON output
-                if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
-                    console = Console(stderr=True)
-                else:
-                    console = Console()
                 console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
                 console.print(f"[dim]Environment variables: DEVCONTAINER_NAME={env.get('DEVCONTAINER_NAME')}, GIT_REMOTE_URL={env.get('GIT_REMOTE_URL')}, GH_TOKEN={'***' if env.get('GH_TOKEN') else 'not set'}, DEVS_DEBUG={env.get('DEVS_DEBUG', 'not set')}[/dim]")
             
@@ -208,9 +199,6 @@ class DevContainerCLI:
                 )
             
             if debug and result.returncode == 0:
-                import os
-                import sys
-                from rich.console import Console
                 # When running in webhook mode, output to stderr to avoid mixing with JSON output
                 if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
                     console = Console(stderr=True)

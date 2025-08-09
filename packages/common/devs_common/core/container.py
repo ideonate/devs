@@ -580,7 +580,6 @@ class ContainerManager:
                         console.print(f"[dim]Claude stderr: {stderr[:200]}...[/dim]")
             
             if not success and stdout:
-
                 # If stderr is empty but stdout contains error patterns, use stdout as error
                 if not stderr:
                     stderr = stdout
