@@ -17,6 +17,61 @@ if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
 else:
     console = Console()
 
+
+def prepare_devcontainer_environment(
+    dev_name: str,
+    project_name: str,
+    workspace_folder: Path,
+    git_remote_url: str = "",
+    debug: bool = False
+) -> dict:
+    """Prepare environment variables for devcontainer operations.
+    
+    Args:
+        dev_name: Development environment name
+        project_name: Project name for environment paths
+        workspace_folder: Path to workspace folder
+        git_remote_url: Git remote URL (optional)
+        debug: Whether debug mode is enabled
+        
+    Returns:
+        Dictionary of environment variables
+    """
+    env = os.environ.copy()
+    
+    # Core devcontainer environment variables
+    env.update({
+        'DEVCONTAINER_NAME': dev_name,
+        'GIT_REMOTE_URL': git_remote_url,
+        'WORKSPACE_FOLDER_NAME': f"{workspace_folder.name}",
+    })
+    
+    # Set environment mount path
+    env_mount_path = Path.home() / '.devs' / 'envs' / project_name
+    if not env_mount_path.exists():
+        env_mount_path = Path.home() / '.devs' / 'envs' / 'default'
+        # Create default directory and .env file if needed
+        env_mount_path.mkdir(parents=True, exist_ok=True)
+        env_file = env_mount_path / '.env'
+        if not env_file.exists():
+            # Create default .env file with GH_TOKEN if available
+            env_content = ""
+            if 'GH_TOKEN' in os.environ:
+                env_content = f"GH_TOKEN={os.environ['GH_TOKEN']}\n"
+            env_file.write_text(env_content)
+    
+    env['DEVS_ENV_MOUNT_PATH'] = str(env_mount_path)
+    
+    # Pass debug mode to container scripts
+    if debug:
+        env['DEVS_DEBUG'] = 'true'
+    
+    # Pass through GH_TOKEN if available (for GitHub authentication)
+    if 'GH_TOKEN' in os.environ:
+        env['GH_TOKEN'] = os.environ['GH_TOKEN']
+    
+    return env
+
 class DevContainerCLI:
     """Wrapper for DevContainer CLI operations."""
     
@@ -143,36 +198,18 @@ class DevContainerCLI:
                     if k not in ('devs.project', 'devs.dev'):
                         cmd.extend(['--id-label', f'{k}={v}'])
             
-            # Set environment variables
-            env = os.environ.copy()
-            env.update({
-                'DEVCONTAINER_NAME': dev_name,
-                'GIT_REMOTE_URL': git_remote_url,
-                'WORKSPACE_FOLDER_NAME': f"{workspace_folder.name}",
-            })
-            
-            # Set environment mount path
-            env_mount_path = Path.home() / '.devs' / 'envs' / project_name
-            if not env_mount_path.exists():
-                env_mount_path = Path.home() / '.devs' / 'envs' / 'default'
-                # Create default directory and .env file if needed
-                env_mount_path.mkdir(parents=True, exist_ok=True)
-                env_file = env_mount_path / '.env'
-                if not env_file.exists():
-                    # Create default .env file with GH_TOKEN if available
-                    env_content = ""
-                    if 'GH_TOKEN' in os.environ:
-                        env_content = f"GH_TOKEN={os.environ['GH_TOKEN']}\n"
-                    env_file.write_text(env_content)
+            # Set environment variables using shared function
+            env = prepare_devcontainer_environment(
+                dev_name=dev_name,
+                project_name=project_name,
+                workspace_folder=workspace_folder,
+                git_remote_url=git_remote_url,
+                debug=debug
+            )
             
             # Check if GH_TOKEN is configured and warn if missing
+            env_mount_path = Path(env['DEVS_ENV_MOUNT_PATH'])
             self._check_github_token_setup(env_mount_path)
-            
-            env['DEVS_ENV_MOUNT_PATH'] = str(env_mount_path)
-            
-            # Pass debug mode to container scripts
-            if debug:
-                env['DEVS_DEBUG'] = 'true'
             
             if debug:
                 console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")

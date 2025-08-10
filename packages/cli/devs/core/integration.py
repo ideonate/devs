@@ -1,6 +1,5 @@
 """VS Code and external tool integrations."""
 
-import os
 import subprocess
 import time
 from pathlib import Path
@@ -10,6 +9,7 @@ from rich.console import Console
 
 from ..exceptions import VSCodeError, DependencyError
 from devs_common.core.project import Project
+from devs_common.utils.devcontainer import prepare_devcontainer_environment
 
 console = Console()
 
@@ -103,13 +103,14 @@ class VSCodeIntegration:
             
             cmd.extend(['--folder-uri', vscode_uri])
             
-            # Set environment variables for devcontainer
-            env = os.environ.copy()
-            env['DEVCONTAINER_NAME'] = dev_name
-            
-            # Pass through GH_TOKEN if available (for GitHub authentication)
-            if 'GH_TOKEN' in os.environ:
-                env['GH_TOKEN'] = os.environ['GH_TOKEN']
+            # Set environment variables using shared function
+            env = prepare_devcontainer_environment(
+                dev_name=dev_name,
+                project_name=self.project.info.name,
+                workspace_folder=workspace_dir,
+                git_remote_url=self.project.info.git_remote_url,
+                debug=False  # VS Code launch doesn't need debug mode
+            )
             
             # Launch VS Code in background
             process = subprocess.Popen(
