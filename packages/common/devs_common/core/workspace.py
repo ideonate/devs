@@ -17,8 +17,10 @@ from ..utils.file_utils import (
     safe_remove_directory,
     is_directory_empty
 )
-from ..utils.git_utils import get_tracked_files, is_git_repository
+from ..utils.git_utils import get_tracked_files, is_git_repository, is_devcontainer_gitignored
+from ..utils.devcontainer_template import get_template_dir
 from .project import Project
+
 
 # Initialize Rich console
 # When running in webhook mode, output to stderr to avoid mixing with JSON output
@@ -182,7 +184,7 @@ class WorkspaceManager:
             workspace_dir: Destination workspace directory
         """
         special_dirs = [
-            ('.git', True),  # (source_name, required)
+            ('.git', False),  # (source_name, required)
             ('.claude', False),
         ]
         
@@ -203,6 +205,40 @@ class WorkspaceManager:
                     else:
                         console.print(f"   ⚠️  Warning: Could not copy {dir_name}: {e}")
         
+
+            # Determine config path based on whether .devcontainer was copied to workspace
+            workspace_devcontainer = workspace_dir / ".devcontainer"
+            project_devcontainer = self.project.project_dir / ".devcontainer"
+            
+            if workspace_devcontainer.exists():
+                # .devcontainer was copied to workspace, use it (config_path = None)
+                pass
+            elif project_devcontainer.exists():
+                # .devcontainer exists in project but not copied (gitignored), use original
+                
+                # Copy project_devcontainer folder to workspace_devcontainer folder
+                try:
+                    shutil.copytree(project_devcontainer, workspace_devcontainer, dirs_exist_ok=True)
+                    console.print("   📋 Copied .devcontainer/")
+                except Exception as e:
+                    console.print(f"   ⚠️  Warning: Could not copy .devcontainer: {e}")
+
+            else:
+                # No .devcontainer in project, use devs template
+                # IF .devcontainer is gitignored, copy our template to the workspace
+                # (IF not gitignored, we don't want any devcontainer.json because it pollutes git changes) 
+                template_devcontainer = get_template_dir()
+
+                # Copy template_devcontainer to workspace_devcontainer
+                # BUT ONLY IF .devcontainer is gitignored
+                if is_devcontainer_gitignored(self.project.project_dir):
+                    try:
+                        shutil.copytree(template_devcontainer, workspace_devcontainer, dirs_exist_ok=True)
+                        console.print("   📋 Copied devs template .devcontainer/")
+                    except Exception as e:
+                        console.print(f"   ⚠️  Warning: Could not copy template .devcontainer: {e}")
+
+
         # Copy specific devcontainer files if they exist
         # Note: .env files are optional since GH_TOKEN is now passed via environment
         devcontainer_extras = [

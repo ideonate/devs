@@ -75,3 +75,31 @@ def get_git_root(directory: Path) -> Optional[Path]:
         return Path(repo.working_dir)
     except InvalidGitRepositoryError:
         return None
+
+
+def is_devcontainer_gitignored(repo_dir: Path) -> bool:
+    """Check if .devcontainer/ folder is gitignored in the repository.
+    
+    Args:
+        repo_dir: Repository directory path
+        
+    Returns:
+        True if .devcontainer/ is gitignored, False otherwise
+        
+    Raises:
+        DevsError: If not a git repository
+    """
+    try:
+        repo = Repo(repo_dir)
+        
+        # Check if .devcontainer/ is ignored using git check-ignore
+        try:
+            # If git check-ignore returns 0, the path is ignored
+            repo.git.check_ignore('.devcontainer/')
+            return True
+        except GitCommandError:
+            # If git check-ignore returns non-zero, the path is not ignored
+            return False
+            
+    except InvalidGitRepositoryError:
+        raise DevsError(f"{repo_dir} is not a git repository")
