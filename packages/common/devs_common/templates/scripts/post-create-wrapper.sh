@@ -35,6 +35,7 @@ run_step() {
 run_step "setup-devs-env.sh" "/usr/local/bin/setup-devs-env.sh"
 #run_step "init-firewall.sh" "sudo /usr/local/bin/init-firewall.sh"
 run_step "setup-workspace.sh" "/usr/local/bin/setup-workspace.sh"
+run_step "start-services.sh" "sudo /usr/local/bin/start-services.sh"
 
 # GitHub auth setup is optional, so handle it separately
 echo "📋 Running gh auth setup-git..."

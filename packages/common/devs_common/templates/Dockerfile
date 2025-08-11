@@ -35,6 +35,32 @@ RUN apt update && apt install -y less \
   && apt clean \
   && rm -rf /var/lib/apt/lists/*
 
+# Install MariaDB (MySQL) and Redis
+RUN apt update && \
+  DEBIAN_FRONTEND=noninteractive apt install -y \
+  mariadb-server \
+  redis-server \
+  && apt clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# Create directories for MySQL and Redis data
+RUN mkdir -p /var/lib/mysql /var/lib/redis /var/run/mysqld /var/run/redis \
+  && chown -R mysql:mysql /var/lib/mysql /var/run/mysqld \
+  && chown -R redis:redis /var/lib/redis /var/run/redis
+
+# Configure MariaDB to not require root password and listen on all interfaces
+RUN mkdir -p /etc/mysql/conf.d && \
+  echo "[mysqld]" > /etc/mysql/conf.d/99-devcontainer.cnf && \
+  echo "skip-grant-tables" >> /etc/mysql/conf.d/99-devcontainer.cnf && \
+  echo "bind-address = 0.0.0.0" >> /etc/mysql/conf.d/99-devcontainer.cnf && \
+  echo "port = 3306" >> /etc/mysql/conf.d/99-devcontainer.cnf
+
+# Configure Redis to run as a daemon and bind to all interfaces
+RUN sed -i 's/^bind .*/bind 0.0.0.0/' /etc/redis/redis.conf \
+  && sed -i 's/^daemonize no/daemonize yes/' /etc/redis/redis.conf \
+  && sed -i 's/^protected-mode yes/protected-mode no/' /etc/redis/redis.conf
+
+
 # Configure locale
 RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen \
   && locale-gen \
