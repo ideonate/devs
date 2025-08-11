@@ -53,6 +53,17 @@ check_github_token_setup() {
         # Export it for this session
         export GH_TOKEN="$gh_token"
         
+        # Configure git user info if provided in env file
+        if [ -n "${GH_USER_NAME:-}" ]; then
+            git config --global user.name "$GH_USER_NAME"
+            echo "✅ Git user.name set to: $GH_USER_NAME"
+        fi
+        
+        if [ -n "${GH_USER_EMAIL:-}" ]; then
+            git config --global user.email "$GH_USER_EMAIL"
+            echo "✅ Git user.email set to: $GH_USER_EMAIL"
+        fi
+        
         # Ensure it's available in all shell sessions for the node user
         if ! grep -q "source /home/node/.devs-env/.env" /home/node/.zshrc 2>/dev/null; then
             echo "# Load devs environment variables" >> /home/node/.zshrc

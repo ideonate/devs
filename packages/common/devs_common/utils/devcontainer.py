@@ -236,11 +236,6 @@ class DevContainerCLI:
                 )
             
             if debug and result.returncode == 0:
-                # When running in webhook mode, output to stderr to avoid mixing with JSON output
-                if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
-                    console = Console(stderr=True)
-                else:
-                    console = Console()
                 console.print("[dim]DevContainer up completed successfully[/dim]")
             
             if result.returncode != 0:

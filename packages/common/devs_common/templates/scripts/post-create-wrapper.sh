@@ -33,7 +33,7 @@ run_step() {
 
 # Run each step with error handling
 run_step "setup-devs-env.sh" "/usr/local/bin/setup-devs-env.sh"
-run_step "init-firewall.sh" "sudo /usr/local/bin/init-firewall.sh"
+#run_step "init-firewall.sh" "sudo /usr/local/bin/init-firewall.sh"
 run_step "setup-workspace.sh" "/usr/local/bin/setup-workspace.sh"
 
 # GitHub auth setup is optional, so handle it separately
@@ -44,12 +44,6 @@ if output=$(gh auth setup-git 2>&1); then
         echo "🐛 [DEBUG] Output from gh auth setup-git:"
         echo "$output"
     fi
-
-    # Set name for git commits
-    git config --global user.name "$(gh api user --jq '.name // .login')"
-
-    # Set email (using primary email)
-    git config --global user.email "$(gh api user/emails --jq '.[] | select(.primary == true) | .email')"
 
 else
     echo "⚠️ GitHub auth setup skipped - run 'gh auth login' if needed"

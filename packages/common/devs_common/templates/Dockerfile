@@ -40,6 +40,7 @@ RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen \
   && locale-gen \
   && update-locale LANG=en_US.UTF-8
 
+
 # Ensure default node user has access to /usr/local/share
 RUN mkdir -p /usr/local/share/npm-global && \
   chown -R node:node /usr/local/share
@@ -104,10 +105,18 @@ RUN chmod +x /usr/local/bin/*.sh /usr/local/bin/*.py
 COPY sudo-scripts/ /tmp/sudo-scripts-list/
 RUN echo "DEBUG: Files that need sudo:" && ls -la /tmp/sudo-scripts-list/ && \
   { echo "# Allow node user to run sudo scripts without password"; \
-    ls /tmp/sudo-scripts-list/ | sed 's/^/node ALL=(root) NOPASSWD: \/usr\/local\/bin\//'; \
+  ls /tmp/sudo-scripts-list/ | sed 's/^/node ALL=(root) NOPASSWD: \/usr\/local\/bin\//'; \
   } > /etc/sudoers.d/node-scripts && \
   echo "DEBUG: Generated sudoers file:" && cat /etc/sudoers.d/node-scripts && \
   chmod 0440 /etc/sudoers.d/node-scripts && \
   rm -rf /tmp/sudo-scripts-list
 
+# Allow node user to run apt-get for DevTunnels installation
+RUN echo "node ALL=(root) NOPASSWD: /usr/bin/apt-get" >> /etc/sudoers.d/node-apt && \
+  chmod 0440 /etc/sudoers.d/node-apt
+
 USER node
+
+# Install Microsoft DevTunnels as node user (needs apt-get sudo for libsecret)
+# The installer will create ~/bin and add it to PATH in .zshrc
+RUN curl -sL https://aka.ms/DevTunnelCliInstall | bash
