@@ -44,6 +44,13 @@ if output=$(gh auth setup-git 2>&1); then
         echo "🐛 [DEBUG] Output from gh auth setup-git:"
         echo "$output"
     fi
+
+    # Set name for git commits
+    git config --global user.name "$(gh api user --jq '.name // .login')"
+
+    # Set email (using primary email)
+    git config --global user.email "$(gh api user/emails --jq '.[] | select(.primary == true) | .email')"
+
 else
     echo "⚠️ GitHub auth setup skipped - run 'gh auth login' if needed"
     if [ "${DEVS_DEBUG:-}" = "true" ]; then
