@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .config import config
+from pathlib import Path
 from .core import Project, ContainerManager, WorkspaceManager
 from .core.integration import VSCodeIntegration, ExternalToolIntegration
 from .exceptions import (
@@ -70,13 +71,15 @@ def cli(ctx, debug: bool) -> None:
 @cli.command()
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--rebuild', is_flag=True, help='Force rebuild of container images')
+@click.option('--live', is_flag=True, help='Mount current directory as workspace instead of copying')
 @click.pass_context
-def start(ctx, dev_names: tuple, rebuild: bool) -> None:
+def start(ctx, dev_names: tuple, rebuild: bool, live: bool) -> None:
     """Start named devcontainers.
     
     DEV_NAMES: One or more development environment names to start
     
     Example: devs start sally bob
+    Example: devs start sally --live  # Mount current directory directly
     """
     check_dependencies()
     project = get_project()
@@ -91,15 +94,21 @@ def start(ctx, dev_names: tuple, rebuild: bool) -> None:
         console.print(f"   Starting: {dev_name}")
         
         try:
-            # Create/ensure workspace exists
-            workspace_dir = workspace_manager.create_workspace(dev_name)
+            if live:
+                # Use current directory as workspace for live containers
+                workspace_dir = Path.cwd()
+                console.print(f"   📁 Using current directory as workspace (live mode)")
+            else:
+                # Create/ensure workspace exists
+                workspace_dir = workspace_manager.create_workspace(dev_name)
             
             # Ensure container is running
             if container_manager.ensure_container_running(
                 dev_name, 
                 workspace_dir, 
                 force_rebuild=rebuild,
-                debug=debug
+                debug=debug,
+                live=live
             ):
                 continue
             else:
@@ -120,13 +129,15 @@ def start(ctx, dev_names: tuple, rebuild: bool) -> None:
 @cli.command()
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--delay', default=2.0, help='Delay between opening VS Code windows (seconds)')
+@click.option('--live', is_flag=True, help='Start containers with current directory mounted as workspace')
 @click.pass_context
-def vscode(ctx, dev_names: tuple, delay: float) -> None:
+def vscode(ctx, dev_names: tuple, delay: float, live: bool) -> None:
     """Open devcontainers in VS Code.
     
     DEV_NAMES: One or more development environment names to open
     
     Example: devs vscode sally bob
+    Example: devs vscode sally --live  # Start with current directory mounted
     """
     check_dependencies()
     project = get_project()
@@ -143,11 +154,16 @@ def vscode(ctx, dev_names: tuple, delay: float) -> None:
         console.print(f"   Preparing: {dev_name}")
         
         try:
-            # Ensure workspace exists
-            workspace_dir = workspace_manager.create_workspace(dev_name)
+            if live:
+                # Use current directory as workspace for live containers
+                workspace_dir = Path.cwd()
+                console.print(f"   📁 Using current directory as workspace (live mode)")
+            else:
+                # Ensure workspace exists
+                workspace_dir = workspace_manager.create_workspace(dev_name)
             
             # Ensure container is running
-            if container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug):
+            if container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
                 workspace_dirs.append(workspace_dir)
                 valid_dev_names.append(dev_name)
             else:
@@ -195,13 +211,15 @@ def stop(dev_names: tuple) -> None:
 
 @cli.command()
 @click.argument('dev_name')
+@click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
 @click.pass_context
-def shell(ctx, dev_name: str) -> None:
+def shell(ctx, dev_name: str, live: bool) -> None:
     """Open shell in devcontainer.
     
     DEV_NAME: Development environment name
     
     Example: devs shell sally
+    Example: devs shell sally --live  # Start with current directory mounted
     """
     check_dependencies()
     project = get_project()
@@ -211,11 +229,20 @@ def shell(ctx, dev_name: str) -> None:
     workspace_manager = WorkspaceManager(project, config)
     
     try:
-        # Ensure workspace exists
-        workspace_dir = workspace_manager.create_workspace(dev_name)
+        if live:
+            # Use current directory as workspace for live containers
+            workspace_dir = Path.cwd()
+            console.print(f"   📁 Using current directory as workspace (live mode)")
+            # Ensure container is running with live mode
+            container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live)
+        else:
+            # Ensure workspace exists
+            workspace_dir = workspace_manager.create_workspace(dev_name)
+            # Ensure container is running
+            container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=False)
         
         # Open shell
-        container_manager.exec_shell(dev_name, workspace_dir, debug=debug)
+        container_manager.exec_shell(dev_name, workspace_dir, debug=debug, live=live)
         
     except (ContainerError, WorkspaceError) as e:
         console.print(f"❌ Error opening shell for {dev_name}: {e}")
@@ -226,8 +253,9 @@ def shell(ctx, dev_name: str) -> None:
 @click.argument('dev_name')
 @click.argument('prompt')
 @click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
+@click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
 @click.pass_context
-def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool) -> None:
+def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool, live: bool) -> None:
     """Execute Claude CLI in devcontainer.
     
     DEV_NAME: Development environment name
@@ -235,6 +263,7 @@ def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool) -> None:
     
     Example: devs claude sally "Summarize this codebase"
     Example: devs claude sally "Fix the tests" --reset-workspace
+    Example: devs claude sally "Fix the tests" --live  # Run with current directory
     """
     check_dependencies()
     project = get_project()
@@ -244,18 +273,29 @@ def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool) -> None:
     workspace_manager = WorkspaceManager(project, config)
     
     try:
-        # Ensure workspace exists
-        workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace)
+        if live:
+            # Use current directory as workspace for live containers
+            workspace_dir = Path.cwd()
+            console.print(f"   📁 Using current directory as workspace (live mode)")
+            if reset_workspace:
+                console.print("   ⚠️  Cannot reset workspace in live mode (using current directory)")
+            # Ensure container is running with live mode
+            container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live)
+        else:
+            # Ensure workspace exists
+            workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace)
+            # Ensure container is running
+            container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=False)
         
         # Execute Claude
         console.print(f"🤖 Executing Claude in {dev_name}...")
-        if reset_workspace:
+        if reset_workspace and not live:
             console.print("🗑️  Workspace contents reset")
         console.print(f"📝 Prompt: {prompt}")
         console.print("")
         
         success, output, error = container_manager.exec_claude(
-            dev_name, workspace_dir, prompt, debug=debug, stream=True
+            dev_name, workspace_dir, prompt, debug=debug, stream=True, live=live
         )
         
         console.print("")  # Add spacing after streamed output
@@ -403,14 +443,17 @@ def list(all_projects: bool) -> None:
         # Create a table
         table = Table()
         table.add_column("Name", style="cyan")
+        table.add_column("Mode", style="yellow")
         table.add_column("Status", style="green")
         table.add_column("Container", style="dim")
         table.add_column("Created", style="dim")
         
         for container in containers:
             created_str = container.created.strftime("%Y-%m-%d %H:%M") if container.created else "unknown"
+            mode = "live" if container.labels.get('devs.live') == 'true' else "copy"
             table.add_row(
                 container.dev_name,
+                mode,
                 container.status,
                 container.name,
                 created_str

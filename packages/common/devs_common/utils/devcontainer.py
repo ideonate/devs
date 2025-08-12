@@ -152,7 +152,8 @@ class DevContainerCLI:
         rebuild: bool = False,
         remove_existing: bool = True,
         debug: bool = False,
-        config_path: Optional[Path] = None
+        config_path: Optional[Path] = None,
+        live: bool = False
     ) -> bool:
         """Start a devcontainer.
         
@@ -165,6 +166,7 @@ class DevContainerCLI:
             remove_existing: Whether to remove existing container
             debug: Whether to show debug output
             config_path: Optional path to external devcontainer config directory
+            live: Whether to use live mode (mount current directory)
             
         Returns:
             True if successful
@@ -192,10 +194,15 @@ class DevContainerCLI:
                 '--id-label', f'devs.project={project_name}',
                 '--id-label', f'devs.dev={dev_name}',
             ])
+            
+            # Add live mode label if applicable
+            if live:
+                cmd.extend(['--id-label', 'devs.live=true'])
+            
             # Add extra container labels from config if provided
             if self.config and hasattr(self.config, 'container_labels'):
                 for k, v in self.config.container_labels.items():
-                    if k not in ('devs.project', 'devs.dev'):
+                    if k not in ('devs.project', 'devs.dev', 'devs.live'):
                         cmd.extend(['--id-label', f'{k}={v}'])
             
             # Set environment variables using shared function

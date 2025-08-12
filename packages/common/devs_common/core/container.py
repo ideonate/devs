@@ -128,7 +128,8 @@ class ContainerManager:
         dev_name: str,
         workspace_dir: Path,
         force_rebuild: bool = False,
-        debug: bool = False
+        debug: bool = False,
+        live: bool = False
     ) -> bool:
         """Ensure a container is running for the specified dev environment.
         
@@ -137,6 +138,7 @@ class ContainerManager:
             workspace_dir: Workspace directory path
             force_rebuild: Force rebuild even if not needed
             debug: Show debug output for devcontainer operations
+            live: Whether to use live mode (mount current directory instead of copying)
             
         Returns:
             True if container is running successfully
@@ -150,6 +152,10 @@ class ContainerManager:
             "devs.project": self.project.info.name,
             "devs.dev": dev_name,
         }
+        
+        # Add live mode label if applicable
+        if live:
+            project_labels["devs.live"] = "true"
         
         if self.config:
             project_labels.update(self.config.container_labels)
@@ -179,6 +185,18 @@ class ContainerManager:
             existing_containers = self.docker.find_containers_by_labels(project_labels)
             if existing_containers and not (rebuild_needed or force_rebuild):
                 container_info = existing_containers[0]
+                existing_labels = container_info.get('labels', {})
+                existing_is_live = existing_labels.get('devs.live') == 'true'
+                
+                # Check if existing container matches the requested mode
+                if existing_is_live != live:
+                    mode_str = "live" if live else "workspace copy"
+                    existing_mode_str = "live" if existing_is_live else "workspace copy"
+                    raise ContainerError(
+                        f"Container {dev_name} already exists in {existing_mode_str} mode, "
+                        f"but {mode_str} mode was requested. Stop the container first with: devs stop {dev_name}"
+                    )
+                
                 if debug:
                     console.print(f"[dim]Found existing container: {container_info['name']} (status: {container_info['status']})[/dim]")
                 if container_info['status'] == 'running':
@@ -217,7 +235,8 @@ class ContainerManager:
                 rebuild=rebuild_needed or force_rebuild,
                 remove_existing=True,
                 debug=debug,
-                config_path=config_path
+                config_path=config_path,
+                live=live
             )
             
             if not success:
@@ -430,13 +449,14 @@ class ContainerManager:
         
         return removed_count
     
-    def exec_shell(self, dev_name: str, workspace_dir: Path, debug: bool = False) -> None:
+    def exec_shell(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False) -> None:
         """Execute a shell in the container.
         
         Args:
             dev_name: Development environment name
             workspace_dir: Workspace directory path
             debug: Show debug output for devcontainer operations
+            live: Whether the container is in live mode
             
         Raises:
             ContainerError: If shell execution fails
@@ -447,8 +467,21 @@ class ContainerManager:
         container_workspace_dir = f"/workspaces/{workspace_name}"
         
         try:
+            # Check if container already exists and detect its mode
+            project_labels = {
+                "devs.project": self.project.info.name,
+                "devs.dev": dev_name,
+            }
+            existing_containers = self.docker.find_containers_by_labels(project_labels)
+            if existing_containers:
+                container_info = existing_containers[0]
+                existing_labels = container_info.get('labels', {})
+                existing_is_live = existing_labels.get('devs.live') == 'true'
+                # Use the existing container's mode
+                live = existing_is_live
+            
             # Ensure container is running
-            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug):
+            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
                 raise ContainerError(f"Failed to start container for {dev_name}")
             
             console.print(f"🐚 Opening shell in: {dev_name} (container: {container_name})")
@@ -471,7 +504,7 @@ class ContainerManager:
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to exec shell in {dev_name}: {e}")
     
-    def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True) -> tuple[bool, str, str]:
+    def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False) -> tuple[bool, str, str]:
         """Execute Claude CLI in the container.
         
         Args:
@@ -480,6 +513,7 @@ class ContainerManager:
             prompt: Prompt to send to Claude
             debug: Show debug output for devcontainer operations
             stream: Stream output to console in real-time
+            live: Whether the container is in live mode
             
         Returns:
             Tuple of (success, stdout, stderr)
@@ -493,8 +527,21 @@ class ContainerManager:
         container_workspace_dir = f"/workspaces/{workspace_name}"
         
         try:
+            # Check if container already exists and detect its mode
+            project_labels = {
+                "devs.project": self.project.info.name,
+                "devs.dev": dev_name,
+            }
+            existing_containers = self.docker.find_containers_by_labels(project_labels)
+            if existing_containers:
+                container_info = existing_containers[0]
+                existing_labels = container_info.get('labels', {})
+                existing_is_live = existing_labels.get('devs.live') == 'true'
+                # Use the existing container's mode
+                live = existing_is_live
+            
             # Ensure container is running
-            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug):
+            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
                 raise ContainerError(f"Failed to start container for {dev_name}")
             
             # Only print status messages if not in webhook mode (or if streaming)
