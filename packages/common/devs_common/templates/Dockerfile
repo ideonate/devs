@@ -123,6 +123,10 @@ USER root
 RUN echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> /home/node/.zshrc && \
   echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> /home/node/.bashrc
 
+# Alias for claude
+RUN echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> /home/node/.zshrc && \
+  echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> /home/node/.bashrc
+
 
 # Copy and set up scripts
 COPY scripts/ /usr/local/bin/
