@@ -118,14 +118,12 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 # Install Claude CLI
 RUN npm install -g @anthropic-ai/claude-code
 
-# Set up environment variables for Claude
+# Set up environment variables and aliases for Claude
 USER root
-RUN echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> /home/node/.zshrc && \
-  echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> /home/node/.bashrc
-
-# Alias for claude
-RUN echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> /home/node/.zshrc && \
-  echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> /home/node/.bashrc
+RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
+    echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
+    echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> "$shell_rc"; \
+  done
 
 
 # Copy and set up scripts
