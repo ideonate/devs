@@ -191,13 +191,22 @@ class WorkspaceManager:
             target_dir: Directory where .devcontainer should be copied
         """
         target_devcontainer = target_dir / ".devcontainer"
-        if not target_devcontainer.exists() and is_devcontainer_gitignored(self.project.project_dir):
-            template_devcontainer = get_template_dir()
-            try:
-                shutil.copytree(template_devcontainer, target_devcontainer, dirs_exist_ok=True)
-                console.print("   📋 Copied devs template .devcontainer/")
-            except Exception as e:
-                console.print(f"   ⚠️  Warning: Could not copy template .devcontainer: {e}")
+        
+        # Check if .devcontainer is gitignored
+        if is_devcontainer_gitignored(self.project.project_dir):
+            if target_devcontainer.exists():
+                # Warn about existing gitignored devcontainer
+                console.print("   ⚠️  Found existing .devcontainer/ that is gitignored")
+                console.print("      This may be an outdated devs template. Not overwriting.")
+                console.print("      To update: remove .devcontainer/ and restart")
+            else:
+                # Copy template since it doesn't exist
+                template_devcontainer = get_template_dir()
+                try:
+                    shutil.copytree(template_devcontainer, target_devcontainer, dirs_exist_ok=True)
+                    console.print("   📋 Copied devs template .devcontainer/")
+                except Exception as e:
+                    console.print(f"   ⚠️  Warning: Could not copy template .devcontainer: {e}")
     
     def _copy_special_directories(self, workspace_dir: Path) -> None:
         """Copy special directories like .git, .claude, .devcontainer extras.
@@ -241,7 +250,9 @@ class WorkspaceManager:
                 # Copy project_devcontainer folder to workspace_devcontainer folder
                 try:
                     shutil.copytree(project_devcontainer, workspace_devcontainer, dirs_exist_ok=True)
-                    console.print("   📋 Copied .devcontainer/")
+                    console.print("   📋 Copied .devcontainer/ from project (gitignored)")
+                    if is_devcontainer_gitignored(self.project.project_dir):
+                        console.print("   ℹ️  Note: Using project's gitignored .devcontainer, not devs template")
                 except Exception as e:
                     console.print(f"   ⚠️  Warning: Could not copy .devcontainer: {e}")
 

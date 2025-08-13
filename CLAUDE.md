@@ -114,6 +114,9 @@ Each dev environment gets its own isolated workspace:
 - **Exclusions**: Build/cache directories excluded for non-git projects
 - **Python venv**: Always created at `/home/node/.devs-venv/workspace-venv` to keep workspaces clean
 - **No .python-version**: The container never creates/modifies `.python-version` files to avoid conflicts with host Python paths
+- **Gitignored .devcontainer**: If a project has a gitignored `.devcontainer/` directory:
+  - In live mode: Warns about existing outdated template and doesn't overwrite
+  - In copy mode: Uses the project's gitignored devcontainer if it exists, otherwise uses devs template
 
 #### Live Mode
 
