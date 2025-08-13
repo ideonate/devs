@@ -39,10 +39,13 @@ def prepare_devcontainer_environment(
     env = os.environ.copy()
     
     # Core devcontainer environment variables
+    # In live mode, devcontainer CLI uses the actual host folder name
+    workspace_folder_name = workspace_folder.name if live else container_workspace_name
+    
     env.update({
         'DEVCONTAINER_NAME': dev_name,
         'GIT_REMOTE_URL': git_remote_url,
-        'WORKSPACE_FOLDER_NAME': container_workspace_name,
+        'WORKSPACE_FOLDER_NAME': workspace_folder_name,
     })
     
     # Set environment mount path

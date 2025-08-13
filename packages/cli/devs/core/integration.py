@@ -50,12 +50,13 @@ class VSCodeIntegration:
                 "and the 'code' command is available in your PATH."
             )
     
-    def generate_devcontainer_uri(self, workspace_dir: Path, dev_name: str) -> str:
+    def generate_devcontainer_uri(self, workspace_dir: Path, dev_name: str, live: bool = False) -> str:
         """Generate VS Code devcontainer URI.
         
         Args:
             workspace_dir: Workspace directory path
             dev_name: Development environment name
+            live: Whether to use live mode (mount current directory)
             
         Returns:
             VS Code devcontainer URI
@@ -64,7 +65,8 @@ class VSCodeIntegration:
         workspace_hex = workspace_dir.as_posix().encode('utf-8').hex()
         
         # Generate workspace name inside container
-        workspace_name = self.project.get_workspace_name(dev_name)
+        # In live mode, use the actual folder name instead of constructed name
+        workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
         
         # Build VS Code devcontainer URI
         vscode_uri = f"vscode-remote://dev-container+{workspace_hex}/workspaces/{workspace_name}"
@@ -75,7 +77,8 @@ class VSCodeIntegration:
         self, 
         workspace_dir: Path, 
         dev_name: str,
-        new_window: bool = True
+        new_window: bool = True,
+        live: bool = False
     ) -> bool:
         """Launch a devcontainer in VS Code.
         
@@ -83,6 +86,7 @@ class VSCodeIntegration:
             workspace_dir: Workspace directory path
             dev_name: Development environment name 
             new_window: Whether to open in a new window
+            live: Whether to use live mode (mount current directory)
             
         Returns:
             True if VS Code launched successfully
@@ -91,7 +95,7 @@ class VSCodeIntegration:
             VSCodeError: If VS Code launch fails
         """
         try:
-            vscode_uri = self.generate_devcontainer_uri(workspace_dir, dev_name)
+            vscode_uri = self.generate_devcontainer_uri(workspace_dir, dev_name, live)
             
             console.print(f"   🚀 Opening VS Code for: {dev_name}")
             
@@ -111,7 +115,8 @@ class VSCodeIntegration:
                 workspace_folder=workspace_dir,
                 container_workspace_name=container_workspace_name,
                 git_remote_url=self.project.info.git_remote_url,
-                debug=False  # VS Code launch doesn't need debug mode
+                debug=False,  # VS Code launch doesn't need debug mode
+                live=live
             )
             
             # Launch VS Code in background
@@ -140,7 +145,8 @@ class VSCodeIntegration:
         self, 
         workspace_dirs: List[Path], 
         dev_names: List[str],
-        delay_between_windows: float = 2.0
+        delay_between_windows: float = 2.0,
+        live: bool = False
     ) -> int:
         """Launch multiple devcontainers in separate VS Code windows.
         
@@ -148,6 +154,7 @@ class VSCodeIntegration:
             workspace_dirs: List of workspace directory paths
             dev_names: List of development environment names
             delay_between_windows: Delay between opening windows (seconds)
+            live: Whether to use live mode (mount current directory)
             
         Returns:
             Number of successfully launched windows
@@ -161,7 +168,7 @@ class VSCodeIntegration:
         
         for workspace_dir, dev_name in zip(workspace_dirs, dev_names):
             try:
-                if self.launch_devcontainer(workspace_dir, dev_name, new_window=True):
+                if self.launch_devcontainer(workspace_dir, dev_name, new_window=True, live=live):
                     success_count += 1
                 
                 # Add delay between windows to ensure they open separately

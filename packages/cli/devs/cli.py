@@ -168,7 +168,8 @@ def vscode(ctx, dev_names: tuple, delay: float, live: bool) -> None:
             success_count = vscode.launch_multiple_devcontainers(
                 workspace_dirs, 
                 valid_dev_names,
-                delay_between_windows=delay
+                delay_between_windows=delay,
+                live=live
             )
             
             if success_count == 0:
