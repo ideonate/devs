@@ -505,7 +505,8 @@ class ContainerManager:
             # Execute Claude CLI in the container
             # Use same pattern as exec_shell: cd to workspace directory then run command
             # Explicitly source .zshrc to ensure CLAUDE_CONFIG_DIR is set in non-interactive mode
-            claude_cmd = f"source ~/.zshrc && cd {container_workspace_dir} && claude --dangerously-skip-permissions"
+            # Redirect source output to stderr to avoid corrupting stdout (important for webhook JSON output)
+            claude_cmd = f"source ~/.zshrc >/dev/stderr 2>&1 && cd {container_workspace_dir} && claude --dangerously-skip-permissions"
             cmd = [
                 'docker', 'exec', '-i',  # -i for stdin, no TTY
                 container_name,

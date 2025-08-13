@@ -29,8 +29,7 @@ logger = structlog.get_logger()
 def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, timeout: int):
     """Process a single webhook task in an isolated subprocess.
     
-    This command runs the complete task processing logic that was previously
-    in ContainerPool._process_task(), but in a separate process to provide
+    This command runs the complete task processing logic in a separate process to provide
     Docker safety and prevent blocking the main web server.
     
     Large payloads (task description, webhook event data, options) are read

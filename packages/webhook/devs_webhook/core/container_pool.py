@@ -16,8 +16,9 @@ from devs_common.core.workspace import WorkspaceManager
 
 from ..config import get_config
 from .webhook_config import WebhookConfig
-from ..github.models import WebhookEvent, DevsOptions
+from ..github.models import WebhookEvent, DevsOptions, IssueEvent, PullRequestEvent, CommentEvent
 from .claude_dispatcher import ClaudeDispatcher, TaskResult
+from ..github.client import GitHubClient
 
 logger = structlog.get_logger()
 
@@ -172,103 +173,6 @@ class ContainerPool:
                         container=dev_name,
                         error=str(e))
     
-    async def _process_task(self, dev_name: str, queued_task: QueuedTask) -> None:
-        """Process a single task in a container.
-        
-        Args:
-            dev_name: Name of container to execute in
-            queued_task: Task to process
-        """
-        repo_name = queued_task.repo_name
-        repo_path = self.config.repo_cache_dir / repo_name.replace("/", "-")
-        
-        logger.info("Starting task processing",
-                   task_id=queued_task.task_id,
-                   container=dev_name,
-                   repo_name=repo_name,
-                   repo_path=str(repo_path))
-
-        try:
-            # Ensure repository is cloned FIRST, before creating Project instance
-            logger.info("Ensuring repository is cloned",
-                       task_id=queued_task.task_id,
-                       container=dev_name,
-                       repo_name=repo_name)
-            
-            devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
-            
-            logger.info("Repository cloning completed",
-                       task_id=queued_task.task_id,
-                       container=dev_name,
-                       devs_options_present=devs_options is not None)
-
-            # NOW create the project instance after the repository exists
-            logger.info("Creating project instance",
-                       task_id=queued_task.task_id,
-                       container=dev_name,
-                       repo_path=str(repo_path))
-            
-            project = Project(repo_path)
-            workspace_name = project.get_workspace_name(dev_name)
-            
-            logger.info("Project created successfully",
-                       task_id=queued_task.task_id,
-                       container=dev_name,
-                       project_name=project.info.name,
-                       workspace_name=workspace_name)
-
-            logger.info("Container and workspace setup will be handled by exec_claude (like CLI)",
-                       task_id=queued_task.task_id,
-                       container=dev_name)
-
-            # Mark container as active
-            logger.info("Marking container as active",
-                       task_id=queued_task.task_id,
-                       container=dev_name)
-            
-            async with self._lock:
-                self.running_containers[dev_name] = {
-                    "repo_path": repo_path,
-                    "last_used": datetime.now(),
-                }
-
-            # Execute the task
-            logger.info("Executing task with Claude dispatcher",
-                       task_id=queued_task.task_id,
-                       container=dev_name,
-                       workspace_name=workspace_name)
-            
-            result = await self.claude_dispatcher.execute_task(
-                dev_name=dev_name,
-                repo_path=repo_path,
-                task_description=queued_task.task_description,
-                event=queued_task.event,
-                devs_options=devs_options
-            )
-            
-            if result.success:
-                logger.info("Task execution completed successfully",
-                           task_id=queued_task.task_id,
-                           container=dev_name,
-                           output_length=len(result.output) if result.output else 0)
-            else:
-                logger.error("Task execution failed",
-                            task_id=queued_task.task_id,
-                            container=dev_name,
-                            error=result.error)
-                
-        except Exception as e:
-            logger.error("Task processing failed",
-                        task_id=queued_task.task_id,
-                        container=dev_name,
-                        repo_name=repo_name,
-                        repo_path=str(repo_path),
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        exc_info=True)
-            
-            # Task execution failed, but no cleanup needed since setup is deferred to exec_claude
-    
     async def _process_task_subprocess(self, dev_name: str, queued_task: QueuedTask) -> None:
         """Process a single task via subprocess for Docker safety.
         
@@ -350,11 +254,18 @@ class ContainerPool:
                                    container=dev_name,
                                    output_length=len(result_data.get('output', '')))
                     except json.JSONDecodeError as e:
+                        # Log just the first 1000 chars for debugging
                         logger.error("Failed to parse subprocess JSON output",
                                     task_id=queued_task.task_id,
                                     container=dev_name,
-                                    stdout=stdout.decode('utf-8')[:500],
+                                    stdout_preview=stdout.decode('utf-8')[:1000],
                                     json_error=str(e))
+                        
+                        # Post error to GitHub since worker failed
+                        await self._post_subprocess_error_to_github(
+                            queued_task, 
+                            f"Task processing failed: Unable to parse worker output\n\nWorker output (truncated):\n```\n{stdout.decode('utf-8')[:2000]}\n```"
+                        )
                         raise Exception(f"Subprocess JSON parsing failed: {e}")
                 else:
                     # Failure - log error details
@@ -374,6 +285,12 @@ class ContainerPool:
                                 error=error_msg,
                                 stderr=stderr_content)
                     
+                    # Post error to GitHub
+                    await self._post_subprocess_error_to_github(
+                        queued_task,
+                        f"Task processing failed with exit code {process.returncode}\n\nError: {error_msg}\n\nStderr output:\n```\n{stderr_content[:2000]}\n```"
+                    )
+                    
                     # Don't raise exception here - just log the failure
                     # The task is considered processed even if it failed
                     
@@ -387,6 +304,12 @@ class ContainerPool:
                 process.kill()
                 await process.wait()
                 
+                # Post timeout error to GitHub
+                await self._post_subprocess_error_to_github(
+                    queued_task,
+                    "Task processing timed out after 60 minutes. The task may have been too complex or encountered an issue."
+                )
+                
                 # Don't raise exception - just log the timeout
                 
         except Exception as e:
@@ -398,6 +321,12 @@ class ContainerPool:
                         error=str(e),
                         error_type=type(e).__name__,
                         exc_info=True)
+            
+            # Post error to GitHub for any other exceptions
+            await self._post_subprocess_error_to_github(
+                queued_task,
+                f"Task processing encountered an error: {type(e).__name__}\n\n{str(e)}"
+            )
             
             # Task execution failed, but we've logged it - don't re-raise
     
@@ -596,6 +525,60 @@ class ContainerPool:
                 await self._cleanup_container(dev_name, info["repo_path"])
 
         logger.info("Container pool shutdown complete")
+    
+    async def _post_subprocess_error_to_github(self, queued_task: QueuedTask, error_message: str) -> None:
+        """Post an error message to GitHub when subprocess fails.
+        
+        Args:
+            queued_task: The task that failed
+            error_message: Error message to post
+        """
+        try:
+            # Skip GitHub operations for test events
+            if queued_task.event.is_test:
+                logger.info("Skipping GitHub error comment for test event", 
+                           error=error_message[:200])
+                return
+            
+            # Create GitHub client
+            github_client = GitHubClient(self.config.github_token)
+            
+            # Build error comment
+            comment = f"""I encountered an error while processing your request:
+
+{error_message}
+
+Please check the webhook handler logs for more details, or try mentioning me again."""
+            
+            # Post comment based on event type
+            repo_name = queued_task.event.repository.full_name
+            
+            if isinstance(queued_task.event, IssueEvent):
+                await github_client.comment_on_issue(
+                    repo_name, queued_task.event.issue.number, comment
+                )
+            elif isinstance(queued_task.event, PullRequestEvent):
+                await github_client.comment_on_pr(
+                    repo_name, queued_task.event.pull_request.number, comment
+                )
+            elif isinstance(queued_task.event, CommentEvent):
+                if queued_task.event.issue:
+                    await github_client.comment_on_issue(
+                        repo_name, queued_task.event.issue.number, comment
+                    )
+                elif queued_task.event.pull_request:
+                    await github_client.comment_on_pr(
+                        repo_name, queued_task.event.pull_request.number, comment
+                    )
+            
+            logger.info("Posted error comment to GitHub",
+                       task_id=queued_task.task_id,
+                       repo=repo_name)
+                       
+        except Exception as e:
+            logger.error("Failed to post error to GitHub",
+                        task_id=queued_task.task_id,
+                        error=str(e))
     
     async def get_status(self) -> Dict[str, Any]:
         """Get current pool status."""
