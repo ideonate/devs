@@ -279,3 +279,130 @@ class TestContainerLiveLabels:
         
         assert "already exists in workspace copy mode" in str(exc_info.value)
         assert "but live mode was requested" in str(exc_info.value)
+
+
+class TestLiveModeDevcontainerTemplate:
+    """Test devcontainer template copying in live mode."""
+    
+    @patch('devs_common.core.workspace.get_template_dir')
+    @patch('devs_common.core.workspace.is_devcontainer_gitignored')
+    @patch('devs_common.core.workspace.shutil.copytree')
+    def test_live_mode_copies_devcontainer_template_when_gitignored(self, mock_copytree, mock_is_gitignored, mock_get_template):
+        """Test that devcontainer template is copied in live mode when .devcontainer is gitignored."""
+        from devs_common.core.workspace import WorkspaceManager
+        from devs_common.core.project import Project
+        from pathlib import Path
+        import tempfile
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            
+            # Setup project mock
+            mock_project = Mock(spec=Project)
+            mock_project.project_dir = project_dir
+            mock_project.info.name = "test-project"
+            mock_project.info.is_git_repo = True
+            
+            # .devcontainer doesn't exist yet
+            devcontainer_path = project_dir / ".devcontainer"
+            assert not devcontainer_path.exists()
+            
+            # Mock that .devcontainer is in gitignore
+            mock_is_gitignored.return_value = True
+            
+            # Mock template directory
+            template_dir = Path("/mock/template/dir")
+            mock_get_template.return_value = template_dir
+            
+            # Create workspace manager
+            workspace_mgr = WorkspaceManager(mock_project)
+            
+            # Call create_workspace with live=True
+            result = workspace_mgr.create_workspace("test", live=True)
+            
+            # Should return the project directory (live mode)
+            assert result == project_dir
+            
+            # Should have checked if .devcontainer is gitignored
+            mock_is_gitignored.assert_called_once_with(project_dir)
+            
+            # Should have copied the template
+            mock_copytree.assert_called_once_with(template_dir, devcontainer_path, dirs_exist_ok=True)
+    
+    @patch('devs_common.core.workspace.get_template_dir')
+    @patch('devs_common.core.workspace.is_devcontainer_gitignored')
+    @patch('devs_common.core.workspace.shutil.copytree')
+    def test_live_mode_no_copy_when_devcontainer_exists(self, mock_copytree, mock_is_gitignored, mock_get_template):
+        """Test that devcontainer template is NOT copied in live mode when .devcontainer already exists."""
+        from devs_common.core.workspace import WorkspaceManager
+        from devs_common.core.project import Project
+        from pathlib import Path
+        import tempfile
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            
+            # Create existing .devcontainer
+            devcontainer_path = project_dir / ".devcontainer"
+            devcontainer_path.mkdir(parents=True)
+            (devcontainer_path / "devcontainer.json").write_text("{}")
+            
+            # Setup project mock
+            mock_project = Mock(spec=Project)
+            mock_project.project_dir = project_dir
+            mock_project.info.name = "test-project"
+            mock_project.info.is_git_repo = True
+            
+            # Create workspace manager
+            workspace_mgr = WorkspaceManager(mock_project)
+            
+            # Call create_workspace with live=True
+            result = workspace_mgr.create_workspace("test", live=True)
+            
+            # Should return the project directory (live mode)
+            assert result == project_dir
+            
+            # Should NOT check gitignore or copy template since .devcontainer exists
+            mock_is_gitignored.assert_not_called()
+            mock_copytree.assert_not_called()
+    
+    @patch('devs_common.core.workspace.get_template_dir')
+    @patch('devs_common.core.workspace.is_devcontainer_gitignored')
+    @patch('devs_common.core.workspace.shutil.copytree')
+    def test_live_mode_no_copy_when_not_gitignored(self, mock_copytree, mock_is_gitignored, mock_get_template):
+        """Test that devcontainer template is NOT copied in live mode when .devcontainer is not gitignored."""
+        from devs_common.core.workspace import WorkspaceManager
+        from devs_common.core.project import Project
+        from pathlib import Path
+        import tempfile
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            
+            # Setup project mock
+            mock_project = Mock(spec=Project)
+            mock_project.project_dir = project_dir
+            mock_project.info.name = "test-project"
+            mock_project.info.is_git_repo = True
+            
+            # .devcontainer doesn't exist
+            devcontainer_path = project_dir / ".devcontainer"
+            assert not devcontainer_path.exists()
+            
+            # Mock that .devcontainer is NOT in gitignore
+            mock_is_gitignored.return_value = False
+            
+            # Create workspace manager
+            workspace_mgr = WorkspaceManager(mock_project)
+            
+            # Call create_workspace with live=True
+            result = workspace_mgr.create_workspace("test", live=True)
+            
+            # Should return the project directory (live mode)
+            assert result == project_dir
+            
+            # Should have checked if .devcontainer is gitignored
+            mock_is_gitignored.assert_called_once_with(project_dir)
+            
+            # Should NOT copy template since it's not gitignored
+            mock_copytree.assert_not_called()
