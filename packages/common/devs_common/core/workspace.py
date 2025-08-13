@@ -92,12 +92,12 @@ class WorkspaceManager:
         Raises:
             WorkspaceError: If workspace creation fails
         """
-        # In live mode, use current directory as workspace
+        # In live mode, use project directory as workspace
         if live:
-            workspace_dir = Path.cwd()
-            console.print(f"   📁 Using current directory as workspace (live mode)")
+            workspace_dir = self.project.project_dir
+            console.print(f"   📁 Using project directory as workspace (live mode)")
             if reset_contents:
-                console.print("   ⚠️  Cannot reset workspace in live mode (using current directory)")
+                console.print("   ⚠️  Cannot reset workspace in live mode (using project directory)")
             return workspace_dir
         
         workspace_dir = self.get_workspace_dir(dev_name)
