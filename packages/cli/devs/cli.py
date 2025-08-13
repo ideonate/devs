@@ -94,13 +94,8 @@ def start(ctx, dev_names: tuple, rebuild: bool, live: bool) -> None:
         console.print(f"   Starting: {dev_name}")
         
         try:
-            if live:
-                # Use current directory as workspace for live containers
-                workspace_dir = Path.cwd()
-                console.print(f"   📁 Using current directory as workspace (live mode)")
-            else:
-                # Create/ensure workspace exists
-                workspace_dir = workspace_manager.create_workspace(dev_name)
+            # Create/ensure workspace exists (handles live mode internally)
+            workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
             
             # Ensure container is running
             if container_manager.ensure_container_running(
@@ -154,13 +149,8 @@ def vscode(ctx, dev_names: tuple, delay: float, live: bool) -> None:
         console.print(f"   Preparing: {dev_name}")
         
         try:
-            if live:
-                # Use current directory as workspace for live containers
-                workspace_dir = Path.cwd()
-                console.print(f"   📁 Using current directory as workspace (live mode)")
-            else:
-                # Ensure workspace exists
-                workspace_dir = workspace_manager.create_workspace(dev_name)
+            # Ensure workspace exists (handles live mode internally)
+            workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
             
             # Ensure container is running
             if container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
@@ -229,17 +219,10 @@ def shell(ctx, dev_name: str, live: bool) -> None:
     workspace_manager = WorkspaceManager(project, config)
     
     try:
-        if live:
-            # Use current directory as workspace for live containers
-            workspace_dir = Path.cwd()
-            console.print(f"   📁 Using current directory as workspace (live mode)")
-            # Ensure container is running with live mode
-            container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live)
-        else:
-            # Ensure workspace exists
-            workspace_dir = workspace_manager.create_workspace(dev_name)
-            # Ensure container is running
-            container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=False)
+        # Ensure workspace exists (handles live mode internally)
+        workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
+        # Ensure container is running
+        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live)
         
         # Open shell
         container_manager.exec_shell(dev_name, workspace_dir, debug=debug, live=live)
@@ -273,19 +256,10 @@ def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool, live: bool) -
     workspace_manager = WorkspaceManager(project, config)
     
     try:
-        if live:
-            # Use current directory as workspace for live containers
-            workspace_dir = Path.cwd()
-            console.print(f"   📁 Using current directory as workspace (live mode)")
-            if reset_workspace:
-                console.print("   ⚠️  Cannot reset workspace in live mode (using current directory)")
-            # Ensure container is running with live mode
-            container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live)
-        else:
-            # Ensure workspace exists
-            workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace)
-            # Ensure container is running
-            container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=False)
+        # Ensure workspace exists (handles live mode and reset internally)
+        workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
+        # Ensure container is running
+        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live)
         
         # Execute Claude
         console.print(f"🤖 Executing Claude in {dev_name}...")
