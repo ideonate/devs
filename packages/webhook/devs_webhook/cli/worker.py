@@ -7,7 +7,7 @@ import click
 import structlog
 import asyncio
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import TypeAdapter
@@ -130,7 +130,7 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, timeout:
             'output': result.get('output', ''),
             'error': result.get('error'),
             'task_id': task_id,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now(tz=timezone.utc).isoformat()
         }
         
         print(json.dumps(output))
@@ -149,7 +149,7 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, timeout:
             'output': '',
             'error': error_msg,
             'task_id': task_id,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now(tz=timezone.utc).isoformat()
         }
         
         print(json.dumps(error_output))

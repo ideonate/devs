@@ -5,7 +5,7 @@ import json
 import os
 import shutil
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Set, Any, NamedTuple
 from pathlib import Path
 import structlog
@@ -614,7 +614,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                 await asyncio.sleep(60)  # Check every minute
                 
                 async with self._lock:
-                    now = datetime.now()
+                    now = datetime.now(tz=timezone.utc)
                     idle_timeout = timedelta(minutes=self.config.container_timeout_minutes)
                     
                     idle_containers = []

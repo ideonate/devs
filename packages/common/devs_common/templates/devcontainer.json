@@ -72,7 +72,8 @@
     "GIT_REMOTE_URL": "${localEnv:GIT_REMOTE_URL}",
     "WORKSPACE_FOLDER_NAME": "${localEnv:WORKSPACE_FOLDER_NAME}",
     "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}",
-    "DEVS_LIVE_MODE": "${localEnv:DEVS_LIVE_MODE}"
+    "DEVS_LIVE_MODE": "${localEnv:DEVS_LIVE_MODE}",
+    "PYENV_VERSION": "system"
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
   "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh"

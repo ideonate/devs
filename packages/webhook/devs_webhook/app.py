@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import structlog
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .config import get_config, WebhookConfig
 from .core.webhook_handler import WebhookHandler
@@ -290,8 +290,8 @@ async def test_event(
             html_url="https://github.com/test-user"
         ),
         html_url=f"https://github.com/{request.repo}/issues/999",
-        created_at=datetime.now(),
-        updated_at=datetime.now()
+        created_at=datetime.now(tz=timezone.utc),
+        updated_at=datetime.now(tz=timezone.utc)
     )
     
     # Mock issue event

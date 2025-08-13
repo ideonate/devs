@@ -9,11 +9,14 @@ if [ "${DEVS_DEBUG:-}" = "true" ]; then
     set -x  # Enable command tracing
 fi
 
-# Check if we're in live mode - if so, skip workspace setup
+# Always use external venv to keep workspace clean
+EXTERNAL_VENV_BASE="/home/node/.devs-venv"
+echo "📦 Virtual environments will be created at $EXTERNAL_VENV_BASE"
+echo "ℹ️  This keeps your workspace directory clean"
+
+# Check if we're in live mode
 if [ "${DEVS_LIVE_MODE:-}" = "true" ]; then
-    echo "📁 Live mode detected - skipping workspace setup (using host directory directly)"
-    echo "ℹ️  Your host Python environment will be preserved"
-    exit 0
+    echo "📁 Live mode detected - using host directory directly"
 fi
 
 
@@ -107,12 +110,18 @@ done
 echo "Checking root directory for requirements.txt..."
 if [ -f "requirements.txt" ]; then
     echo "Found requirements.txt in root directory, setting up Python virtual environment..."
-    if [ ! -d "venv" ]; then
-        python3 -m venv venv
-        echo "Created virtual environment at ./venv"
+    
+    # Always use external venv location to keep workspace clean
+    VENV_DIR="$EXTERNAL_VENV_BASE/workspace-venv"
+    mkdir -p "$(dirname "$VENV_DIR")"
+    echo "Using venv location: $VENV_DIR"
+    
+    if [ ! -d "$VENV_DIR" ]; then
+        python3 -m venv "$VENV_DIR"
+        echo "Created virtual environment at $VENV_DIR"
     fi
     
-    source venv/bin/activate
+    source "$VENV_DIR/bin/activate"
     pip install --upgrade pip
     
     # Install requirements with SSH key support for private repos
@@ -139,10 +148,27 @@ if [ -f "requirements.txt" ]; then
         echo "Installed pre-commit hooks in root directory"
     fi
     
-    # Create .python-version file pointing to the venv
-    venv_path="$(pwd)/venv"
-    echo "$venv_path" > .python-version
-    echo "Created .python-version file pointing to $venv_path in root directory"
+    # Handle potential .python-version file from host
+    if [ -f ".python-version" ]; then
+        echo "⚠️  Found .python-version file (from host) - this is ignored in the container"
+        echo "   The container uses its own Python environment at: $VENV_DIR"
+    fi
+    
+    echo "✅ Python environment ready at: $VENV_DIR"
+    echo "   To activate: source $VENV_DIR/bin/activate"
+    
+    # Always create VS Code settings for the external venv
+    if [ -d ".vscode" ] || [ -f *.code-workspace 2>/dev/null ]; then
+        mkdir -p .vscode
+        # Create or update settings for the container
+        cat > .vscode/settings.devcontainer.json << EOF
+{
+    "python.defaultInterpreterPath": "$VENV_DIR/bin/python",
+    "python.terminal.activateEnvironment": true
+}
+EOF
+        echo "Created .vscode/settings.devcontainer.json for VS Code Python extension"
+    fi
 else
     echo "No requirements.txt found in root directory"
 fi
@@ -183,7 +209,7 @@ echo "Discovered environments:"
 # Check root directory first
 if [ -f "./requirements.txt" ] || [ -f "./package.json" ]; then
     if [ -f "./requirements.txt" ]; then
-        echo "  Python (root): source venv/bin/activate"
+        echo "  Python (root): source $EXTERNAL_VENV_BASE/workspace-venv/bin/activate"
     fi
     if [ -f "./package.json" ]; then
         echo "  Node (root): npm run dev (or check package.json scripts)"

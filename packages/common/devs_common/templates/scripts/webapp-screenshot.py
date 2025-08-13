@@ -11,7 +11,7 @@ import sys
 import time
 import subprocess
 import signal
-from datetime import datetime
+from datetime import datetime, timezone
 from playwright.async_api import async_playwright
 from pathlib import Path
 
@@ -76,7 +76,7 @@ class WebappScreenshotter:
             await page.wait_for_load_state("networkidle", timeout=5000)
             
             # Take full page screenshot
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
             filename = f"{name}_{timestamp}.png"
             filepath = self.output_dir / filename
             

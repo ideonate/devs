@@ -2,7 +2,7 @@
 
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import subprocess
@@ -94,7 +94,7 @@ class ContainerManager:
             for file_path in devcontainer_files:
                 if file_path.exists():
                     if file_path.is_file():
-                        file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
+                        file_time = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
                         if file_time > newest_image_time:
                             return True, f"File newer than image: {file_path.name}"
                     elif file_path.is_dir():
@@ -104,7 +104,7 @@ class ContainerManager:
                         
                         for item in file_path.rglob('*'):
                             if item.is_file():
-                                item_time = datetime.fromtimestamp(item.stat().st_mtime)
+                                item_time = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
                                 if not newest_file_time or item_time > newest_file_time:
                                     newest_file_time = item_time
                                     newest_file = item

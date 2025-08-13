@@ -112,6 +112,8 @@ Each dev environment gets its own isolated workspace:
 - **Content**: Git-tracked files (or all files for non-git projects)
 - **Special dirs**: `.git`, `.claude`, `.devcontainer` extras copied
 - **Exclusions**: Build/cache directories excluded for non-git projects
+- **Python venv**: Always created at `/home/node/.devs-venv/workspace-venv` to keep workspaces clean
+- **No .python-version**: The container never creates/modifies `.python-version` files to avoid conflicts with host Python paths
 
 #### Live Mode
 
@@ -120,6 +122,16 @@ The `--live` flag mounts the current directory directly into the container witho
 - **Container workspace path**: Uses the host folder name (e.g., `/workspaces/myproject`) instead of the constructed name (e.g., `/workspaces/myorg-myrepo-alice`)
 - **Reason**: The devcontainer CLI directly mounts the host folder and preserves its original name. We must match this behavior for VS Code to connect properly.
 - **Example**: If working in `/Users/alice/projects/myapp`, the container sees `/workspaces/myapp` (not `/workspaces/myorg-myapp-alice`)
+
+#### Python Environment in Containers
+
+- **Location**: Virtual environments are always created at `/home/node/.devs-venv/workspace-venv`
+- **Activation**: Run `source /home/node/.devs-venv/workspace-venv/bin/activate` in the terminal
+- **VS Code**: Automatically configured via `.vscode/settings.devcontainer.json`
+- **`.python-version` files**: If present from the host, they are ignored in the container
+  - The container sets `PYENV_VERSION=system` to prevent pyenv from reading `.python-version`
+  - This avoids errors from host-specific Python paths that don't exist in the container
+- **Clean workspaces**: No `venv` folders or `.python-version` files are created in your workspace
 
 ### VS Code Integration
 
