@@ -71,7 +71,8 @@
     "LC_ALL": "en_US.UTF-8",
     "GIT_REMOTE_URL": "${localEnv:GIT_REMOTE_URL}",
     "WORKSPACE_FOLDER_NAME": "${localEnv:WORKSPACE_FOLDER_NAME}",
-    "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}"
+    "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}",
+    "DEVS_LIVE_MODE": "${localEnv:DEVS_LIVE_MODE}"
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
   "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh"
