@@ -94,7 +94,7 @@ class WorkspaceManager:
         """
         # In live mode, use current directory as workspace
         if live:
-            workspace_dir = Path.cwd()
+            workspace_dir = self.project.project_dir
             console.print(f"   📁 Using current directory as workspace (live mode)")
             if reset_contents:
                 console.print("   ⚠️  Cannot reset workspace in live mode (using current directory)")
