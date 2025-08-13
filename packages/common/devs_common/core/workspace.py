@@ -1,7 +1,5 @@
 """Workspace management and isolation."""
 
-import os
-import sys
 import shutil
 from pathlib import Path
 from typing import List, Optional, Set
@@ -15,7 +13,7 @@ from ..utils.file_utils import (
     safe_remove_directory,
     is_directory_empty
 )
-from ..utils.git_utils import get_tracked_files, is_git_repository, is_devcontainer_gitignored
+from ..utils.git_utils import get_tracked_files, is_devcontainer_gitignored
 from ..utils.devcontainer_template import get_template_dir
 from ..utils.console import get_console
 from .project import Project
@@ -54,7 +52,7 @@ class WorkspaceManager:
         Returns:
             Path to workspace directory
         """
-        workspace_name = f"{self.project.info.name}-{dev_name}"
+        workspace_name = self.project.get_workspace_name(dev_name)
         if self.config:
             return self.config.workspaces_dir / workspace_name
         else:

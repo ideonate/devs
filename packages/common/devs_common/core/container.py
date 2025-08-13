@@ -222,10 +222,12 @@ class ContainerManager:
                 config_path = get_template_dir() / "devcontainer.json"
             
             # Start devcontainer
+            container_workspace_name = self.project.get_workspace_name(dev_name)
             success = self.devcontainer.up(
                 workspace_folder=workspace_dir,
                 dev_name=dev_name,
                 project_name=self.project.info.name,
+                container_workspace_name=container_workspace_name,
                 git_remote_url=self.project.info.git_remote_url,
                 rebuild=rebuild_needed or force_rebuild,
                 remove_existing=True,

@@ -17,6 +17,7 @@ def prepare_devcontainer_environment(
     dev_name: str,
     project_name: str,
     workspace_folder: Path,
+    container_workspace_name: str,
     git_remote_url: str = "",
     debug: bool = False,
     live: bool = False
@@ -26,7 +27,8 @@ def prepare_devcontainer_environment(
     Args:
         dev_name: Development environment name
         project_name: Project name for environment paths
-        workspace_folder: Path to workspace folder
+        workspace_folder: Path to workspace folder on host
+        container_workspace_name: Name of workspace folder in container
         git_remote_url: Git remote URL (optional)
         debug: Whether debug mode is enabled
         live: Whether to use live mode (mount current directory)
@@ -40,7 +42,7 @@ def prepare_devcontainer_environment(
     env.update({
         'DEVCONTAINER_NAME': dev_name,
         'GIT_REMOTE_URL': git_remote_url,
-        'WORKSPACE_FOLDER_NAME': f"{workspace_folder.name}",
+        'WORKSPACE_FOLDER_NAME': container_workspace_name,
     })
     
     # Set environment mount path
@@ -149,6 +151,7 @@ class DevContainerCLI:
         workspace_folder: Path,
         dev_name: str,
         project_name: str,
+        container_workspace_name: str,
         git_remote_url: str = "",
         rebuild: bool = False,
         remove_existing: bool = True,
@@ -159,9 +162,10 @@ class DevContainerCLI:
         """Start a devcontainer.
         
         Args:
-            workspace_folder: Path to workspace folder
+            workspace_folder: Path to workspace folder on host
             dev_name: Development environment name
             project_name: Project name for labeling
+            container_workspace_name: Name of workspace folder in container
             git_remote_url: Git remote URL
             rebuild: Whether to rebuild the image
             remove_existing: Whether to remove existing container
@@ -211,6 +215,7 @@ class DevContainerCLI:
                 dev_name=dev_name,
                 project_name=project_name,
                 workspace_folder=workspace_folder,
+                container_workspace_name=container_workspace_name,
                 git_remote_url=git_remote_url,
                 debug=debug,
                 live=live

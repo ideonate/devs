@@ -3,7 +3,7 @@
 import subprocess
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from rich.console import Console
 
@@ -104,10 +104,12 @@ class VSCodeIntegration:
             cmd.extend(['--folder-uri', vscode_uri])
             
             # Set environment variables using shared function
+            container_workspace_name = self.project.get_workspace_name(dev_name)
             env = prepare_devcontainer_environment(
                 dev_name=dev_name,
                 project_name=self.project.info.name,
                 workspace_folder=workspace_dir,
+                container_workspace_name=container_workspace_name,
                 git_remote_url=self.project.info.git_remote_url,
                 debug=False  # VS Code launch doesn't need debug mode
             )
