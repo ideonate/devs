@@ -72,8 +72,9 @@ def cli(ctx, debug: bool) -> None:
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--rebuild', is_flag=True, help='Force rebuild of container images')
 @click.option('--live', is_flag=True, help='Mount current directory as workspace instead of copying')
+@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
 @click.pass_context
-def start(ctx, dev_names: tuple, rebuild: bool, live: bool) -> None:
+def start(ctx, dev_names: tuple, rebuild: bool, live: bool, debug: bool) -> None:
     """Start named devcontainers.
     
     DEV_NAMES: One or more development environment names to start
@@ -83,7 +84,9 @@ def start(ctx, dev_names: tuple, rebuild: bool, live: bool) -> None:
     """
     check_dependencies()
     project = get_project()
-    debug = ctx.obj.get('DEBUG', False)
+    # Use command-level debug flag if provided, otherwise fall back to group-level
+    debug = debug or ctx.obj.get('DEBUG', False)
+    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     console.print(f"🚀 Starting devcontainers for project: {project.info.name}")
     
@@ -125,8 +128,9 @@ def start(ctx, dev_names: tuple, rebuild: bool, live: bool) -> None:
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--delay', default=2.0, help='Delay between opening VS Code windows (seconds)')
 @click.option('--live', is_flag=True, help='Start containers with current directory mounted as workspace')
+@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
 @click.pass_context
-def vscode(ctx, dev_names: tuple, delay: float, live: bool) -> None:
+def vscode(ctx, dev_names: tuple, delay: float, live: bool, debug: bool) -> None:
     """Open devcontainers in VS Code.
     
     DEV_NAMES: One or more development environment names to open
@@ -136,7 +140,9 @@ def vscode(ctx, dev_names: tuple, delay: float, live: bool) -> None:
     """
     check_dependencies()
     project = get_project()
-    debug = ctx.obj.get('DEBUG', False)
+    # Use command-level debug flag if provided, otherwise fall back to group-level
+    debug = debug or ctx.obj.get('DEBUG', False)
+    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -203,8 +209,9 @@ def stop(dev_names: tuple) -> None:
 @cli.command()
 @click.argument('dev_name')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
+@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
 @click.pass_context
-def shell(ctx, dev_name: str, live: bool) -> None:
+def shell(ctx, dev_name: str, live: bool, debug: bool) -> None:
     """Open shell in devcontainer.
     
     DEV_NAME: Development environment name
@@ -214,7 +221,9 @@ def shell(ctx, dev_name: str, live: bool) -> None:
     """
     check_dependencies()
     project = get_project()
-    debug = ctx.obj.get('DEBUG', False)
+    # Use command-level debug flag if provided, otherwise fall back to group-level
+    debug = debug or ctx.obj.get('DEBUG', False)
+    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -238,8 +247,9 @@ def shell(ctx, dev_name: str, live: bool) -> None:
 @click.argument('prompt')
 @click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
+@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
 @click.pass_context
-def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool, live: bool) -> None:
+def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool, live: bool, debug: bool) -> None:
     """Execute Claude CLI in devcontainer.
     
     DEV_NAME: Development environment name
@@ -251,7 +261,9 @@ def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool, live: bool) -
     """
     check_dependencies()
     project = get_project()
-    debug = ctx.obj.get('DEBUG', False)
+    # Use command-level debug flag if provided, otherwise fall back to group-level
+    debug = debug or ctx.obj.get('DEBUG', False)
+    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -291,8 +303,9 @@ def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool, live: bool) -
 
 @cli.command('claude-auth')
 @click.option('--api-key', help='Claude API key to authenticate with')
+@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
 @click.pass_context
-def claude_auth(ctx, api_key: str) -> None:
+def claude_auth(ctx, api_key: str, debug: bool) -> None:
     """Set up Claude authentication for devcontainers.
     
     This configures Claude authentication that will be shared across
@@ -302,7 +315,9 @@ def claude_auth(ctx, api_key: str) -> None:
     Example: devs claude-auth
     Example: devs claude-auth --api-key <YOUR_API_KEY>
     """
-    debug = ctx.obj.get('DEBUG', False)
+    # Use command-level debug flag if provided, otherwise fall back to group-level
+    debug = debug or ctx.obj.get('DEBUG', False)
+    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     try:
         # Ensure Claude config directory exists
