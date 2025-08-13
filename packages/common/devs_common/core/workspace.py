@@ -93,6 +93,19 @@ class WorkspaceManager:
             console.print(f"   📁 Using current directory as workspace (live mode)")
             if reset_contents:
                 console.print("   ⚠️  Cannot reset workspace in live mode (using current directory)")
+            
+            # Check if we need to copy devcontainer template in live mode
+            # Only copy if .devcontainer doesn't exist AND it's in gitignore
+            project_devcontainer = self.project.project_dir / ".devcontainer"
+            if not project_devcontainer.exists() and is_devcontainer_gitignored(self.project.project_dir):
+                # Copy template devcontainer
+                template_devcontainer = get_template_dir()
+                try:
+                    shutil.copytree(template_devcontainer, project_devcontainer, dirs_exist_ok=True)
+                    console.print("   📋 Copied devs template .devcontainer/")
+                except Exception as e:
+                    console.print(f"   ⚠️  Warning: Could not copy template .devcontainer: {e}")
+            
             return workspace_dir
         
         workspace_dir = self.get_workspace_dir(dev_name)
