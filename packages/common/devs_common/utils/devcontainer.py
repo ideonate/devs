@@ -39,7 +39,10 @@ def prepare_devcontainer_environment(
     env = os.environ.copy()
     
     # Core devcontainer environment variables
-    # In live mode, devcontainer CLI uses the actual host folder name
+    # IMPORTANT: In live mode, we must use the actual host folder name (e.g. "workstuff")
+    # instead of our constructed name (e.g. "workstuffai-workstuffapp-dan") because
+    # the devcontainer CLI directly mounts the host folder and preserves its name.
+    # The container will have /workspaces/<host-folder-name>, not /workspaces/<constructed-name>
     workspace_folder_name = workspace_folder.name if live else container_workspace_name
     
     env.update({

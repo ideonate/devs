@@ -65,7 +65,9 @@ class VSCodeIntegration:
         workspace_hex = workspace_dir.as_posix().encode('utf-8').hex()
         
         # Generate workspace name inside container
-        # In live mode, use the actual folder name instead of constructed name
+        # IMPORTANT: In live mode, we must use the actual host folder name (e.g. "workstuff")
+        # because devcontainer CLI mounts the host directory directly, preserving its name.
+        # VS Code needs to connect to /workspaces/<host-folder-name>, not our constructed name.
         workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
         
         # Build VS Code devcontainer URI

@@ -113,6 +113,14 @@ Each dev environment gets its own isolated workspace:
 - **Special dirs**: `.git`, `.claude`, `.devcontainer` extras copied
 - **Exclusions**: Build/cache directories excluded for non-git projects
 
+#### Live Mode
+
+The `--live` flag mounts the current directory directly into the container without creating a workspace copy:
+
+- **Container workspace path**: Uses the host folder name (e.g., `/workspaces/myproject`) instead of the constructed name (e.g., `/workspaces/myorg-myrepo-alice`)
+- **Reason**: The devcontainer CLI directly mounts the host folder and preserves its original name. We must match this behavior for VS Code to connect properly.
+- **Example**: If working in `/Users/alice/projects/myapp`, the container sees `/workspaces/myapp` (not `/workspaces/myorg-myapp-alice`)
+
 ### VS Code Integration
 
 - **URI Format**: `vscode-remote://dev-container+${hex_path}/workspaces/${workspace_name}`
@@ -140,6 +148,8 @@ Each dev environment gets its own isolated workspace:
 - `devs clean --unused` - Clean up unused workspaces
 - `devs help` - Show usage information
 
+**Live Mode**: Add `--live` flag to `start` or `vscode` commands to mount the current directory directly without creating a workspace copy.
+
 ### Example Workflow
 
 ```bash
@@ -157,6 +167,9 @@ devs shell frontend
 
 # Clean up when done
 devs stop frontend backend
+
+# Use live mode (no workspace copy)
+devs vscode mydev --live
 ```
 
 ## Development
