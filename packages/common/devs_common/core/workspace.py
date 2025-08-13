@@ -96,15 +96,7 @@ class WorkspaceManager:
             
             # Check if we need to copy devcontainer template in live mode
             # Only copy if .devcontainer doesn't exist AND it's in gitignore
-            project_devcontainer = self.project.project_dir / ".devcontainer"
-            if not project_devcontainer.exists() and is_devcontainer_gitignored(self.project.project_dir):
-                # Copy template devcontainer
-                template_devcontainer = get_template_dir()
-                try:
-                    shutil.copytree(template_devcontainer, project_devcontainer, dirs_exist_ok=True)
-                    console.print("   📋 Copied devs template .devcontainer/")
-                except Exception as e:
-                    console.print(f"   ⚠️  Warning: Could not copy template .devcontainer: {e}")
+            self._copy_template_devcontainer_if_needed(self.project.project_dir)
             
             return workspace_dir
         
@@ -194,6 +186,21 @@ class WorkspaceManager:
         except Exception as e:
             raise WorkspaceError(f"Failed to copy project files: {e}")
     
+    def _copy_template_devcontainer_if_needed(self, target_dir: Path) -> None:
+        """Copy template devcontainer if .devcontainer is gitignored.
+        
+        Args:
+            target_dir: Directory where .devcontainer should be copied
+        """
+        target_devcontainer = target_dir / ".devcontainer"
+        if not target_devcontainer.exists() and is_devcontainer_gitignored(self.project.project_dir):
+            template_devcontainer = get_template_dir()
+            try:
+                shutil.copytree(template_devcontainer, target_devcontainer, dirs_exist_ok=True)
+                console.print("   📋 Copied devs template .devcontainer/")
+            except Exception as e:
+                console.print(f"   ⚠️  Warning: Could not copy template .devcontainer: {e}")
+    
     def _copy_special_directories(self, workspace_dir: Path) -> None:
         """Copy special directories like .git, .claude, .devcontainer extras.
         
@@ -243,17 +250,8 @@ class WorkspaceManager:
             else:
                 # No .devcontainer in project, use devs template
                 # IF .devcontainer is gitignored, copy our template to the workspace
-                # (IF not gitignored, we don't want any devcontainer.json because it pollutes git changes) 
-                template_devcontainer = get_template_dir()
-
-                # Copy template_devcontainer to workspace_devcontainer
-                # BUT ONLY IF .devcontainer is gitignored
-                if is_devcontainer_gitignored(self.project.project_dir):
-                    try:
-                        shutil.copytree(template_devcontainer, workspace_devcontainer, dirs_exist_ok=True)
-                        console.print("   📋 Copied devs template .devcontainer/")
-                    except Exception as e:
-                        console.print(f"   ⚠️  Warning: Could not copy template .devcontainer: {e}")
+                # (IF not gitignored, we don't want any devcontainer.json because it pollutes git changes)
+                self._copy_template_devcontainer_if_needed(workspace_dir)
 
 
         # Copy specific devcontainer files if they exist
