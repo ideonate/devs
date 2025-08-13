@@ -5,17 +5,12 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
-from rich.console import Console
-
 from ..exceptions import DevsError, DependencyError
 from ..config import BaseConfig
+from .console import get_console
 
-# Initialize Rich console
-# When running in webhook mode, output to stderr to avoid mixing with JSON output
-if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
-    console = Console(stderr=True)
-else:
-    console = Console()
+# Initialize console based on environment
+console = get_console()
 
 
 def prepare_devcontainer_environment(

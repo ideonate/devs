@@ -6,8 +6,6 @@ import shutil
 from pathlib import Path
 from typing import List, Optional, Set
 
-from rich.console import Console
-
 from ..config import BaseConfig
 from ..exceptions import WorkspaceError
 from ..utils.file_utils import (
@@ -19,19 +17,12 @@ from ..utils.file_utils import (
 )
 from ..utils.git_utils import get_tracked_files, is_git_repository, is_devcontainer_gitignored
 from ..utils.devcontainer_template import get_template_dir
+from ..utils.console import get_console
 from .project import Project
 
 
-# Initialize Rich console
-# When running in webhook mode, suppress output entirely to avoid mixing with JSON output
-if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
-    # Create a no-op console that suppresses all output
-    class SilentConsole:
-        def print(self, *args, **kwargs):
-            pass
-    console = SilentConsole()
-else:
-    console = Console()
+# Initialize console based on environment
+console = get_console()
 
 
 class WorkspaceManager:

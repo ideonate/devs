@@ -7,21 +7,16 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import subprocess
 
-from rich.console import Console
-
 from ..config import BaseConfig
 from ..exceptions import ContainerError, DockerError
 from ..utils.docker_client import DockerClient
 from ..utils.devcontainer import DevContainerCLI
 from ..utils.devcontainer_template import get_template_dir
+from ..utils.console import get_console
 from .project import Project
 
-# Initialize Rich console
-# When running in webhook mode, output to stderr to avoid mixing with JSON output
-if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
-    console = Console(stderr=True)
-else:
-    console = Console()
+# Initialize console based on environment
+console = get_console()
 
 
 class ContainerInfo:

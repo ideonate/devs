@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 from datetime import datetime, timedelta
@@ -230,11 +231,16 @@ class ContainerPool:
                        stdin_payload_size=len(stdin_json))
 
             # Launch subprocess with timeout
+            # Set environment to suppress console output
+            env = os.environ.copy()
+            env['DEVS_WEBHOOK_MODE'] = '1'
+            
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=env
             )
             
             try:
@@ -244,55 +250,58 @@ class ContainerPool:
                     timeout=3600  # 60 minute timeout
                 )
                 
-                # Parse result
+                # Check result based on exit code
                 if process.returncode == 0:
-                    # Success - parse JSON output
+                    # Success - task completed
+                    logger.info("Subprocess task completed successfully",
+                               task_id=queued_task.task_id,
+                               container=dev_name,
+                               return_code=process.returncode)
+                    
+                    # Try to extract Claude's output from JSON if possible (for logging)
                     try:
                         result_data = json.loads(stdout.decode('utf-8'))
-                        logger.info("Subprocess task completed successfully",
+                        output_preview = result_data.get('output', '')[:200]
+                        logger.info("Task output preview",
                                    task_id=queued_task.task_id,
-                                   container=dev_name,
-                                   output_length=len(result_data.get('output', '')))
-                    except json.JSONDecodeError as e:
-                        # Log just the first 1000 chars for debugging
-                        logger.error("Failed to parse subprocess JSON output",
-                                    task_id=queued_task.task_id,
-                                    container=dev_name,
-                                    stdout_preview=stdout.decode('utf-8')[:1000],
-                                    json_error=str(e))
-                        
-                        # Post error to GitHub since worker failed
-                        await self._post_subprocess_error_to_github(
-                            queued_task, 
-                            f"Task processing failed: Unable to parse worker output\n\nWorker output (truncated):\n```\n{stdout.decode('utf-8')[:2000]}\n```"
-                        )
-                        # Don't re-raise - we've already posted to GitHub
+                                   output_preview=output_preview)
+                    except:
+                        # If JSON parsing fails, just log that task succeeded
+                        pass
                 else:
-                    # Failure - log error details
-                    try:
-                        error_data = json.loads(stdout.decode('utf-8'))
-                        error_msg = error_data.get('error', 'Unknown subprocess error')
-                    except json.JSONDecodeError:
-                        error_msg = f"Subprocess failed with return code {process.returncode}"
-                    
-                    # Log the full stderr content, not truncated
+                    # Failure - post error to GitHub
+                    stdout_content = stdout.decode('utf-8', errors='replace') if stdout else ''
                     stderr_content = stderr.decode('utf-8', errors='replace') if stderr else ''
+                    
+                    # Try to extract error from JSON if possible
+                    error_msg = f"Task failed with exit code {process.returncode}"
+                    try:
+                        error_data = json.loads(stdout_content)
+                        if error_data.get('error'):
+                            error_msg = error_data['error']
+                    except:
+                        pass
                     
                     logger.error("Subprocess task failed",
                                 task_id=queued_task.task_id,
                                 container=dev_name,
                                 return_code=process.returncode,
-                                error=error_msg,
-                                stderr=stderr_content)
+                                error=error_msg)
                     
-                    # Post error to GitHub
+                    # Post error to GitHub with both stdout and stderr
+                    error_details = f"Task processing failed with exit code {process.returncode}\n\n"
+                    if error_msg != f"Task failed with exit code {process.returncode}":
+                        error_details += f"Error: {error_msg}\n\n"
+                    if stderr_content:
+                        error_details += f"Stderr output:\n```\n{stderr_content[:1500]}\n```\n\n"
+                    if stdout_content and not stdout_content.startswith('{'):
+                        # Include stdout if it's not JSON
+                        error_details += f"Stdout output:\n```\n{stdout_content[:1500]}\n```"
+                    
                     await self._post_subprocess_error_to_github(
                         queued_task,
-                        f"Task processing failed with exit code {process.returncode}\n\nError: {error_msg}\n\nStderr output:\n```\n{stderr_content[:2000]}\n```"
+                        error_details
                     )
-                    
-                    # Don't raise exception here - just log the failure
-                    # The task is considered processed even if it failed
                     
             except asyncio.TimeoutError:
                 logger.error("Subprocess task timed out",
