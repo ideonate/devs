@@ -3,6 +3,7 @@
 import os
 import sys
 import subprocess
+from functools import wraps
 
 import click
 from rich.console import Console
@@ -23,6 +24,19 @@ from .exceptions import (
 )
 
 console = Console()
+
+
+def debug_option(f):
+    """Decorator to add debug option and handle debug flag inheritance."""
+    @click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
+    @click.pass_context
+    @wraps(f)
+    def wrapper(ctx, *args, debug=False, **kwargs):
+        # Use command-level debug flag if provided, otherwise fall back to group-level
+        debug = debug or ctx.obj.get('DEBUG', False)
+        ctx.obj['DEBUG'] = debug  # Update context for consistency
+        return f(*args, debug=debug, **kwargs)
+    return wrapper
 
 
 def check_dependencies() -> None:
@@ -72,9 +86,8 @@ def cli(ctx, debug: bool) -> None:
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--rebuild', is_flag=True, help='Force rebuild of container images')
 @click.option('--live', is_flag=True, help='Mount current directory as workspace instead of copying')
-@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
-@click.pass_context
-def start(ctx, dev_names: tuple, rebuild: bool, live: bool, debug: bool) -> None:
+@debug_option
+def start(dev_names: tuple, rebuild: bool, live: bool, debug: bool) -> None:
     """Start named devcontainers.
     
     DEV_NAMES: One or more development environment names to start
@@ -84,9 +97,6 @@ def start(ctx, dev_names: tuple, rebuild: bool, live: bool, debug: bool) -> None
     """
     check_dependencies()
     project = get_project()
-    # Use command-level debug flag if provided, otherwise fall back to group-level
-    debug = debug or ctx.obj.get('DEBUG', False)
-    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     console.print(f"🚀 Starting devcontainers for project: {project.info.name}")
     
@@ -128,9 +138,8 @@ def start(ctx, dev_names: tuple, rebuild: bool, live: bool, debug: bool) -> None
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--delay', default=2.0, help='Delay between opening VS Code windows (seconds)')
 @click.option('--live', is_flag=True, help='Start containers with current directory mounted as workspace')
-@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
-@click.pass_context
-def vscode(ctx, dev_names: tuple, delay: float, live: bool, debug: bool) -> None:
+@debug_option
+def vscode(dev_names: tuple, delay: float, live: bool, debug: bool) -> None:
     """Open devcontainers in VS Code.
     
     DEV_NAMES: One or more development environment names to open
@@ -140,9 +149,6 @@ def vscode(ctx, dev_names: tuple, delay: float, live: bool, debug: bool) -> None
     """
     check_dependencies()
     project = get_project()
-    # Use command-level debug flag if provided, otherwise fall back to group-level
-    debug = debug or ctx.obj.get('DEBUG', False)
-    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -209,9 +215,8 @@ def stop(dev_names: tuple) -> None:
 @cli.command()
 @click.argument('dev_name')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
-@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
-@click.pass_context
-def shell(ctx, dev_name: str, live: bool, debug: bool) -> None:
+@debug_option
+def shell(dev_name: str, live: bool, debug: bool) -> None:
     """Open shell in devcontainer.
     
     DEV_NAME: Development environment name
@@ -221,9 +226,6 @@ def shell(ctx, dev_name: str, live: bool, debug: bool) -> None:
     """
     check_dependencies()
     project = get_project()
-    # Use command-level debug flag if provided, otherwise fall back to group-level
-    debug = debug or ctx.obj.get('DEBUG', False)
-    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -247,9 +249,8 @@ def shell(ctx, dev_name: str, live: bool, debug: bool) -> None:
 @click.argument('prompt')
 @click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
-@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
-@click.pass_context
-def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool, live: bool, debug: bool) -> None:
+@debug_option
+def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, debug: bool) -> None:
     """Execute Claude CLI in devcontainer.
     
     DEV_NAME: Development environment name
@@ -261,9 +262,6 @@ def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool, live: bool, d
     """
     check_dependencies()
     project = get_project()
-    # Use command-level debug flag if provided, otherwise fall back to group-level
-    debug = debug or ctx.obj.get('DEBUG', False)
-    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -303,9 +301,8 @@ def claude(ctx, dev_name: str, prompt: str, reset_workspace: bool, live: bool, d
 
 @cli.command('claude-auth')
 @click.option('--api-key', help='Claude API key to authenticate with')
-@click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
-@click.pass_context
-def claude_auth(ctx, api_key: str, debug: bool) -> None:
+@debug_option
+def claude_auth(api_key: str, debug: bool) -> None:
     """Set up Claude authentication for devcontainers.
     
     This configures Claude authentication that will be shared across
@@ -315,9 +312,6 @@ def claude_auth(ctx, api_key: str, debug: bool) -> None:
     Example: devs claude-auth
     Example: devs claude-auth --api-key <YOUR_API_KEY>
     """
-    # Use command-level debug flag if provided, otherwise fall back to group-level
-    debug = debug or ctx.obj.get('DEBUG', False)
-    ctx.obj['DEBUG'] = debug  # Update context for consistency
     
     try:
         # Ensure Claude config directory exists
@@ -601,9 +595,8 @@ def clean(dev_names: tuple, aborted: bool, exclude_aborted: bool, all_projects: 
 
 def main() -> None:
     """Main entry point."""
-    ctx = click.Context(cli, obj={})
     try:
-        cli.main(standalone_mode=False, obj=ctx.obj)
+        cli(standalone_mode=False, obj={})
     except KeyboardInterrupt:
         console.print("\n👋 Interrupted by user")
         sys.exit(130)
@@ -611,9 +604,10 @@ def main() -> None:
         console.print(f"❌ {e}")
         sys.exit(1)
     except Exception as e:
-        debug = ctx.obj.get('DEBUG', False)
+        # Debug will be handled by each command now
         console.print(f"❌ Unexpected error: {e}")
-        if debug:
+        # Show traceback if running in development mode (not ideal but safe fallback)
+        if os.environ.get('DEVS_DEBUG'):
             raise
         sys.exit(1)
 
