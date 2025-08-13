@@ -73,19 +73,28 @@ class WorkspaceManager:
         workspace_dir = self.get_workspace_dir(dev_name)
         return workspace_dir.exists() and not is_directory_empty(workspace_dir)
     
-    def create_workspace(self, dev_name: str, reset_contents: bool = False) -> Path:
+    def create_workspace(self, dev_name: str, reset_contents: bool = False, live: bool = False) -> Path:
         """Create isolated workspace directory for a dev environment.
         
         Args:
             dev_name: Development environment name
             reset_contents: Force contents clear if workspace already exists
+            live: Whether to use live mode (return current directory instead of copying)
             
         Returns:
-            Path to created workspace directory
+            Path to workspace directory (current directory if live, else created workspace)
             
         Raises:
             WorkspaceError: If workspace creation fails
         """
+        # In live mode, use current directory as workspace
+        if live:
+            workspace_dir = Path.cwd()
+            console.print(f"   📁 Using current directory as workspace (live mode)")
+            if reset_contents:
+                console.print("   ⚠️  Cannot reset workspace in live mode (using current directory)")
+            return workspace_dir
+        
         workspace_dir = self.get_workspace_dir(dev_name)
         
         # Check if workspace already exists

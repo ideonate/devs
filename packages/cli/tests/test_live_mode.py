@@ -28,6 +28,7 @@ class TestLiveMode:
         mock_container_mgr.return_value = mock_container
         
         mock_workspace = Mock()
+        mock_workspace.create_workspace.return_value = Path.cwd()
         mock_workspace_mgr.return_value = mock_workspace
         
         # Run command
@@ -39,8 +40,8 @@ class TestLiveMode:
         call_args = mock_container.ensure_container_running.call_args
         assert call_args.kwargs.get('live') is True
         
-        # Verify workspace was not created
-        mock_workspace.create_workspace.assert_not_called()
+        # Verify workspace.create_workspace was called with live=True
+        mock_workspace.create_workspace.assert_called_once_with('test-dev', live=True)
     
     @patch('devs.cli.check_dependencies')
     @patch('devs.cli.get_project')
@@ -70,8 +71,8 @@ class TestLiveMode:
         call_args = mock_container.ensure_container_running.call_args
         assert call_args.kwargs.get('live') is False
         
-        # Verify workspace was created
-        mock_workspace.create_workspace.assert_called_once_with('test-dev')
+        # Verify workspace was created without live flag
+        mock_workspace.create_workspace.assert_called_once_with('test-dev', live=False)
     
     @patch('devs.cli.check_dependencies')
     @patch('devs.cli.get_project')
@@ -89,6 +90,7 @@ class TestLiveMode:
         mock_container_mgr.return_value = mock_container
         
         mock_workspace = Mock()
+        mock_workspace.create_workspace.return_value = Path.cwd()
         mock_workspace_mgr.return_value = mock_workspace
         
         # Mock VSCodeIntegration
@@ -106,8 +108,8 @@ class TestLiveMode:
             call_args = mock_container.ensure_container_running.call_args
             assert call_args.kwargs.get('live') is True
             
-            # Verify workspace was not created
-            mock_workspace.create_workspace.assert_not_called()
+            # Verify workspace.create_workspace was called with live=True
+            mock_workspace.create_workspace.assert_called_once_with('test-dev', live=True)
     
     @patch('devs.cli.check_dependencies')
     @patch('devs.cli.get_project')
@@ -126,6 +128,7 @@ class TestLiveMode:
         mock_container_mgr.return_value = mock_container
         
         mock_workspace = Mock()
+        mock_workspace.create_workspace.return_value = Path.cwd()
         mock_workspace_mgr.return_value = mock_workspace
         
         # Run command
@@ -142,8 +145,8 @@ class TestLiveMode:
         call_args = mock_container.exec_shell.call_args
         assert call_args.kwargs.get('live') is True
         
-        # Verify workspace was not created
-        mock_workspace.create_workspace.assert_not_called()
+        # Verify workspace.create_workspace was called with live=True
+        mock_workspace.create_workspace.assert_called_once_with('test-dev', live=True)
     
     @patch('devs.cli.check_dependencies')
     @patch('devs.cli.get_project')
@@ -162,6 +165,7 @@ class TestLiveMode:
         mock_container_mgr.return_value = mock_container
         
         mock_workspace = Mock()
+        mock_workspace.create_workspace.return_value = Path.cwd()
         mock_workspace_mgr.return_value = mock_workspace
         
         # Run command
@@ -178,8 +182,8 @@ class TestLiveMode:
         call_args = mock_container.exec_claude.call_args
         assert call_args.kwargs.get('live') is True
         
-        # Verify workspace was not created
-        mock_workspace.create_workspace.assert_not_called()
+        # Verify workspace.create_workspace was called with live=True and reset_contents=False
+        mock_workspace.create_workspace.assert_called_once_with('test-dev', reset_contents=False, live=True)
 
 
 class TestContainerLiveLabels:
