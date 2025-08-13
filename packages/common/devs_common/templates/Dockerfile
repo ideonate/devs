@@ -121,8 +121,8 @@ RUN npm install -g @anthropic-ai/claude-code
 # Set up environment variables and aliases for Claude
 USER root
 RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
-    echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
-    echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> "$shell_rc"; \
+  echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
+  echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> "$shell_rc"; \
   done
 
 
@@ -139,12 +139,5 @@ RUN echo "DEBUG: Files that need sudo:" && ls -la /tmp/sudo-scripts-list/ && \
   chmod 0440 /etc/sudoers.d/node-scripts && \
   rm -rf /tmp/sudo-scripts-list
 
-# Allow node user to run apt-get for DevTunnels installation
-RUN echo "node ALL=(root) NOPASSWD: /usr/bin/apt-get" >> /etc/sudoers.d/node-apt && \
-  chmod 0440 /etc/sudoers.d/node-apt
-
 USER node
 
-# Install Microsoft DevTunnels as node user (needs apt-get sudo for libsecret)
-# The installer will create ~/bin and add it to PATH in .zshrc
-RUN curl -sL https://aka.ms/DevTunnelCliInstall | bash
