@@ -266,7 +266,7 @@ class ContainerPool:
                             queued_task, 
                             f"Task processing failed: Unable to parse worker output\n\nWorker output (truncated):\n```\n{stdout.decode('utf-8')[:2000]}\n```"
                         )
-                        raise Exception(f"Subprocess JSON parsing failed: {e}")
+                        # Don't re-raise - we've already posted to GitHub
                 else:
                     # Failure - log error details
                     try:

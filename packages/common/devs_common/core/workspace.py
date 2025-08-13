@@ -23,9 +23,13 @@ from .project import Project
 
 
 # Initialize Rich console
-# When running in webhook mode, output to stderr to avoid mixing with JSON output
+# When running in webhook mode, suppress output entirely to avoid mixing with JSON output
 if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
-    console = Console(stderr=True)
+    # Create a no-op console that suppresses all output
+    class SilentConsole:
+        def print(self, *args, **kwargs):
+            pass
+    console = SilentConsole()
 else:
     console = Console()
 
