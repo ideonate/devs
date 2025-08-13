@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from git import Repo, InvalidGitRepositoryError
 from git.exc import GitCommandError
 
-from ..exceptions import ProjectNotFoundError, DevcontainerConfigError
+from ..exceptions import DevcontainerConfigError
 
 
 class ProjectInfo(NamedTuple):
@@ -133,7 +133,7 @@ class Project:
         Returns:
             Container name in format: prefix-project-devname
         """
-        return f"{prefix}-{self.info.name}-{dev_name}"
+        return f"{prefix}-{self.get_workspace_name(dev_name)}"
     
     def get_workspace_name(self, dev_name: str) -> str:
         """Generate workspace name for a dev environment.

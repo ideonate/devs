@@ -67,7 +67,7 @@ class ContainerManager:
         """
         try:
             # Find existing images for this devcontainer configuration
-            image_pattern = f"vsc-{self.project.info.name}-{dev_name}-"
+            image_pattern = f"vsc-{self.project.get_workspace_name(dev_name)}-"
             existing_images = self.docker.find_images_by_pattern(image_pattern)
             
             if not existing_images:
