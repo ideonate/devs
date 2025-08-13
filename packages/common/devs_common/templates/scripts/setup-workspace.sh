@@ -9,6 +9,13 @@ if [ "${DEVS_DEBUG:-}" = "true" ]; then
     set -x  # Enable command tracing
 fi
 
+# Check if we're in live mode - if so, skip workspace setup
+if [ "${DEVS_LIVE_MODE:-}" = "true" ]; then
+    echo "📁 Live mode detected - skipping workspace setup (using host directory directly)"
+    echo "ℹ️  Your host Python environment will be preserved"
+    exit 0
+fi
+
 
 # Function to setup Python virtual environment in a directory
 setup_python_env() {
