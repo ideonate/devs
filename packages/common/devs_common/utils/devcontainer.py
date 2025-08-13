@@ -18,7 +18,8 @@ def prepare_devcontainer_environment(
     project_name: str,
     workspace_folder: Path,
     git_remote_url: str = "",
-    debug: bool = False
+    debug: bool = False,
+    live: bool = False
 ) -> dict:
     """Prepare environment variables for devcontainer operations.
     
@@ -28,6 +29,7 @@ def prepare_devcontainer_environment(
         workspace_folder: Path to workspace folder
         git_remote_url: Git remote URL (optional)
         debug: Whether debug mode is enabled
+        live: Whether to use live mode (mount current directory)
         
     Returns:
         Dictionary of environment variables
@@ -60,6 +62,10 @@ def prepare_devcontainer_environment(
     # Pass debug mode to container scripts
     if debug:
         env['DEVS_DEBUG'] = 'true'
+    
+    # Pass live mode to container scripts
+    if live:
+        env['DEVS_LIVE_MODE'] = 'true'
     
     # Pass through GH_TOKEN if available (for GitHub authentication)
     if 'GH_TOKEN' in os.environ:
@@ -206,7 +212,8 @@ class DevContainerCLI:
                 project_name=project_name,
                 workspace_folder=workspace_folder,
                 git_remote_url=git_remote_url,
-                debug=debug
+                debug=debug,
+                live=live
             )
             
             # Check if GH_TOKEN is configured and warn if missing
