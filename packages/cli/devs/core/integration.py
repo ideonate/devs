@@ -187,58 +187,6 @@ class VSCodeIntegration:
         
         return success_count
     
-    def get_vscode_workspace_settings(self, dev_name: str) -> dict:
-        """Get VS Code workspace settings for a dev environment.
-        
-        Args:
-            dev_name: Development environment name
-            
-        Returns:
-            Dictionary of workspace settings
-        """
-        return {
-            "settings": {
-                "terminal.integrated.defaultProfile.linux": "zsh",
-                "python.defaultInterpreterPath": "/usr/local/bin/python",
-                "extensions.autoUpdate": False,
-            },
-            "extensions": {
-                "recommendations": [
-                    "ms-python.python",
-                    "ms-python.pylint",
-                    "ms-python.black-formatter",
-                    "ms-vscode.vscode-json",
-                    "ms-azuretools.vscode-docker",
-                ]
-            },
-            "name": f"{dev_name} - {self.project.info.directory.name}"
-        }
-    
-    def create_vscode_workspace_file(self, workspace_dir: Path, dev_name: str) -> Path:
-        """Create VS Code workspace file for a dev environment.
-        
-        Args:
-            workspace_dir: Workspace directory path
-            dev_name: Development environment name
-            
-        Returns:
-            Path to created workspace file
-        """
-        import json
-        
-        workspace_settings = self.get_vscode_workspace_settings(dev_name)
-        workspace_file = workspace_dir / f"{dev_name}.code-workspace"
-        
-        try:
-            with open(workspace_file, 'w', encoding='utf-8') as f:
-                json.dump(workspace_settings, f, indent=2)
-            
-            return workspace_file
-            
-        except (OSError, json.JSONEncodeError) as e:
-            raise VSCodeError(f"Failed to create workspace file for {dev_name}: {e}")
-
-
 class ExternalToolIntegration:
     """Handles integration with external development tools."""
     

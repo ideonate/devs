@@ -154,6 +154,13 @@ if [ -f "requirements.txt" ]; then
         echo "   The container uses its own Python environment at: $VENV_DIR"
     fi
     
+    # Create a symlink to help VS Code discover the Python interpreter
+    # This is a well-known location that the Python extension checks
+    if [ ! -e "$HOME/.python_venv" ]; then
+        ln -s "$VENV_DIR" "$HOME/.python_venv"
+        echo "Created symlink at ~/.python_venv for VS Code Python discovery"
+    fi
+    
     echo "✅ Python environment ready at: $VENV_DIR"
     echo "   To activate: source $VENV_DIR/bin/activate"
     

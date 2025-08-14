@@ -32,7 +32,7 @@
           "source.fixAll.eslint": "explicit"
         },
         "[python]": {
-          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.defaultFormatter": "ms-python.python",
           "editor.formatOnSave": true,
           "editor.codeActionsOnSave": {
             "source.organizeImports": "explicit"
@@ -43,7 +43,7 @@
         "python.linting.enabled": true,
         "python.linting.flake8Enabled": true,
         "python.linting.pylintEnabled": false,
-        "python.formatting.provider": "none",
+        "python.formatting.provider": "black",
         "terminal.integrated.defaultProfile.linux": "zsh",
         "terminal.integrated.profiles.linux": {
           "bash": {
@@ -74,7 +74,7 @@
     "WORKSPACE_FOLDER_NAME": "${localEnv:WORKSPACE_FOLDER_NAME}",
     "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}",
     "DEVS_LIVE_MODE": "${localEnv:DEVS_LIVE_MODE}",
-    "PYENV_VERSION": "system"
+    "DEVS_ENV_MOUNT_PATH": "${localEnv:DEVS_ENV_MOUNT_PATH}"
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
   "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh"
