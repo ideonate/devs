@@ -38,7 +38,8 @@
             "source.organizeImports": "explicit"
           }
         },
-        "python.defaultInterpreterPath": "./venv/bin/python",
+        "python.defaultInterpreterPath": "/home/node/.devs-venv/workspace-venv/bin/python",
+        "python.terminal.activateEnvironment": true,
         "python.linting.enabled": true,
         "python.linting.flake8Enabled": true,
         "python.linting.pylintEnabled": false,
