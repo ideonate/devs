@@ -40,6 +40,8 @@
         },
         "python.defaultInterpreterPath": "/home/node/.devs-venv/workspace-venv/bin/python",
         "python.terminal.activateEnvironment": true,
+        "python.interpreter.infoVisibility": "never",
+        "python.venvPath": "/home/node/.devs-venv",
         "python.linting.enabled": true,
         "python.linting.flake8Enabled": true,
         "python.linting.pylintEnabled": false,
