@@ -41,7 +41,7 @@
         "python.defaultInterpreterPath": "/home/node/.devs-venv/workspace-venv/bin/python",
         "python.terminal.activateEnvironment": true,
         "python.interpreter.infoVisibility": "never",
-        "python.venvPath": "/home/node/.devs-venv",
+        "python.venvFolders": [".devs-venv"],
         "python.linting.enabled": true,
         "python.linting.flake8Enabled": true,
         "python.linting.pylintEnabled": false,
@@ -64,8 +64,8 @@
     "source=claude-code-bashhistory,target=/commandhistory,type=volume",
     "source=${localEnv:HOME}/.devs/claudeconfig,target=/home/node/claudeconfig,type=bind",
     "source=${localEnv:DEVS_ENV_MOUNT_PATH},target=/home/node/.devs-env,type=bind",
-    "source=claude-code-vscode-extensions,target=/home/node/.vscode-server/extensions,type=volume",
-    "source=claude-code-vscode-data,target=/home/node/.vscode-server,type=volume"
+    "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-extensions,target=/home/node/.vscode-server/extensions,type=volume",
+    "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-data,target=/home/node/.vscode-server,type=volume"
   ],
   "remoteEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",

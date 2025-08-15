@@ -50,28 +50,41 @@ class VSCodeIntegration:
                 "and the 'code' command is available in your PATH."
             )
     
-    def generate_devcontainer_uri(self, workspace_dir: Path, dev_name: str, live: bool = False) -> str:
+    def generate_devcontainer_uri(self, workspace_dir: Path, dev_name: str, live: bool = False, attach_to_existing: bool = True) -> str:
         """Generate VS Code devcontainer URI.
         
         Args:
             workspace_dir: Workspace directory path
             dev_name: Development environment name
             live: Whether to use live mode (mount current directory)
+            attach_to_existing: Whether to attach to existing container (vs create new one)
             
         Returns:
             VS Code devcontainer URI
         """
-        # Convert workspace path to hex for VS Code URI
-        workspace_hex = workspace_dir.as_posix().encode('utf-8').hex()
-        
-        # Generate workspace name inside container
-        # IMPORTANT: In live mode, we must use the actual host folder name (e.g. "workstuff")
-        # because devcontainer CLI mounts the host directory directly, preserving its name.
-        # VS Code needs to connect to /workspaces/<host-folder-name>, not our constructed name.
-        workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
-        
-        # Build VS Code devcontainer URI
-        vscode_uri = f"vscode-remote://dev-container+{workspace_hex}/workspaces/{workspace_name}"
+        if attach_to_existing:
+            # Generate container name to attach to
+            container_name = self.project.get_container_name(dev_name)
+            # Use attached-container URI format to connect to existing container
+            # Encode container name for URI
+            container_hex = container_name.encode('utf-8').hex()
+            
+            # Generate workspace path inside container
+            workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
+            vscode_uri = f"vscode-remote://attached-container+{container_hex}/workspaces/{workspace_name}"
+        else:
+            # Original behavior: create new container from devcontainer.json
+            # Convert workspace path to hex for VS Code URI
+            workspace_hex = workspace_dir.as_posix().encode('utf-8').hex()
+            
+            # Generate workspace name inside container
+            # IMPORTANT: In live mode, we must use the actual host folder name (e.g. "workstuff")
+            # because devcontainer CLI mounts the host directory directly, preserving its name.
+            # VS Code needs to connect to /workspaces/<host-folder-name>, not our constructed name.
+            workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
+            
+            # Build VS Code devcontainer URI
+            vscode_uri = f"vscode-remote://dev-container+{workspace_hex}/workspaces/{workspace_name}"
         
         return vscode_uri
     
@@ -97,7 +110,8 @@ class VSCodeIntegration:
             VSCodeError: If VS Code launch fails
         """
         try:
-            vscode_uri = self.generate_devcontainer_uri(workspace_dir, dev_name, live)
+            # Always attach to existing container (since we ensure it's running in CLI)
+            vscode_uri = self.generate_devcontainer_uri(workspace_dir, dev_name, live, attach_to_existing=True)
             
             console.print(f"   🚀 Opening VS Code for: {dev_name}")
             

@@ -163,17 +163,13 @@ def vscode(dev_names: tuple, delay: float, live: bool, debug: bool) -> None:
         try:
             # Ensure workspace exists (handles live mode internally)
             workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
-
-            # Seems to start its own container anyway
-            workspace_dirs.append(workspace_dir)
-            valid_dev_names.append(dev_name)
             
-            # # Ensure container is running
-            # if container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
-            #     workspace_dirs.append(workspace_dir)
-            #     valid_dev_names.append(dev_name)
-            # else:
-            #     console.print(f"   ❌ Failed to start container for {dev_name}, skipping...")
+            # Ensure container is running before launching VS Code
+            if container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
+                workspace_dirs.append(workspace_dir)
+                valid_dev_names.append(dev_name)
+            else:
+                console.print(f"   ❌ Failed to start container for {dev_name}, skipping...")
                 
         except (ContainerError, WorkspaceError) as e:
             console.print(f"   ❌ Error preparing {dev_name}: {e}")

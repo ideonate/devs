@@ -460,7 +460,8 @@ class ContainerManager:
         """
         project_prefix = self.config.project_prefix if self.config else "dev"
         container_name = self.project.get_container_name(dev_name, project_prefix)
-        workspace_name = self.project.get_workspace_name(dev_name)
+        # In live mode, use the host folder name; otherwise use constructed name
+        workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
         container_workspace_dir = f"/workspaces/{workspace_name}"
         
         try:
@@ -520,7 +521,8 @@ class ContainerManager:
         """
         project_prefix = self.config.project_prefix if self.config else "dev"
         container_name = self.project.get_container_name(dev_name, project_prefix)
-        workspace_name = self.project.get_workspace_name(dev_name)
+        # In live mode, use the host folder name; otherwise use constructed name
+        workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
         container_workspace_dir = f"/workspaces/{workspace_name}"
         
         try:
