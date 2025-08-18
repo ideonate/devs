@@ -189,6 +189,8 @@ This is the latest update on the {event_type}, but you should just get the full 
 You are working in the repository `{repo_name}`.
 The workspace path is `{workspace_path}`.
 Your GitHub username is `{self.config.github_mentioned_user}`.
+
+Always remember to PUSH your work to origin!
 """
             
             logger.info("Built Claude prompt",
