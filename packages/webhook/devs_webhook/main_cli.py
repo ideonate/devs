@@ -1,7 +1,11 @@
 """CLI for webhook management."""
 
+import os
+import subprocess
 import click
+import httpx
 import uvicorn
+from httpx import BasicAuth
 from pathlib import Path
 
 from .config import get_config
@@ -53,7 +57,6 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
         click.echo(f"📄 Loading environment variables from {env_file}")
     
     # Set environment variables for FastAPI app
-    import os
     if dev:
         os.environ["DEV_MODE"] = "true"
         os.environ["LOG_FORMAT"] = "console"
@@ -91,28 +94,50 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
 @cli.command()
 def status():
     """Show webhook handler status."""
-    import httpx
-    
     config = get_config()
-    url = f"http://{config.webhook_host}:{config.webhook_port}/status"
+    base_url = f"http://{config.webhook_host}:{config.webhook_port}"
     
+    # Try authenticated /status endpoint first if credentials are available
+    if config.admin_username and config.admin_password:
+        try:
+            auth = BasicAuth(config.admin_username, config.admin_password)
+            response = httpx.get(f"{base_url}/status", auth=auth, timeout=5.0)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                click.echo("🟢 Webhook Handler Status")
+                click.echo(f"Queued tasks: {data['queued_tasks']}")
+                click.echo(f"Container pool size: {data['container_pool_size']}")
+                click.echo(f"Mentioned user: @{data['mentioned_user']}")
+                
+                containers = data['containers']
+                click.echo(f"\nContainers:")
+                click.echo(f"  Available: {len(containers['available'])}")
+                click.echo(f"  Busy: {len(containers['busy'])}")
+                
+                for name, info in containers['busy'].items():
+                    click.echo(f"    {name}: {info['repo']} (expires: {info['expires_at']})")
+                return
+                
+        except Exception as e:
+            # Fall through to health endpoint
+            pass
+    
+    # Fall back to unauthenticated /health endpoint
     try:
-        response = httpx.get(url, timeout=5.0)
+        response = httpx.get(f"{base_url}/health", timeout=5.0)
         if response.status_code == 200:
             data = response.json()
             
-            click.echo("🟢 Webhook Handler Status")
-            click.echo(f"Queued tasks: {data['queued_tasks']}")
-            click.echo(f"Container pool size: {data['container_pool_size']}")
-            click.echo(f"Mentioned user: @{data['mentioned_user']}")
+            click.echo("🟢 Webhook Handler Health")
+            click.echo(f"Service: {data['service']} v{data['version']}")
+            click.echo(f"Status: {data['status']}")
+            click.echo(f"Mentioned user: @{data['config']['mentioned_user']}")
+            click.echo(f"Container pool: {data['config']['container_pool']}")
+            click.echo(f"Dev mode: {data['dev_mode']}")
             
-            containers = data['containers']
-            click.echo(f"\nContainers:")
-            click.echo(f"  Available: {len(containers['available'])}")
-            click.echo(f"  Busy: {len(containers['busy'])}")
-            
-            for name, info in containers['busy'].items():
-                click.echo(f"    {name}: {info['repo']} (expires: {info['expires_at']})")
+            click.echo("\n💡 For detailed status, configure admin credentials")
         else:
             click.echo(f"❌ Server returned {response.status_code}")
             
@@ -131,7 +156,7 @@ def config():
         click.echo(f"Container pool: {', '.join(config.get_container_pool_list())}")
         click.echo(f"Container timeout: {config.container_timeout_minutes} minutes")
         click.echo(f"Repository cache: {config.repo_cache_dir}")
-        click.echo(f"Workspace directory: {config.workspace_dir}")
+        click.echo(f"Workspace directory: {config.workspaces_dir}")
         click.echo(f"Server: {config.webhook_host}:{config.webhook_port}")
         click.echo(f"Webhook path: {config.webhook_path}")
         click.echo(f"Log level: {config.log_level}")
@@ -158,17 +183,22 @@ def config():
 @click.argument('container_name')
 def stop_container(container_name: str):
     """Stop a specific container."""
-    import httpx
-    
     config = get_config()
     url = f"http://{config.webhook_host}:{config.webhook_port}/container/{container_name}/stop"
     
     try:
-        response = httpx.post(url, timeout=10.0)
+        # Include authentication if available
+        auth = None
+        if config.admin_username and config.admin_password:
+            auth = BasicAuth(config.admin_username, config.admin_password)
+        
+        response = httpx.post(url, auth=auth, timeout=10.0)
         if response.status_code == 200:
             click.echo(f"✅ Container {container_name} stopped")
         elif response.status_code == 404:
             click.echo(f"❌ Container {container_name} not found")
+        elif response.status_code == 401:
+            click.echo(f"❌ Authentication required. Configure admin credentials.")
         else:
             click.echo(f"❌ Failed to stop container: {response.status_code}")
             
@@ -199,7 +229,6 @@ def test_setup():
     
     # Test GitHub CLI
     try:
-        import subprocess
         result = subprocess.run(['gh', '--version'], capture_output=True, text=True)
         if result.returncode == 0:
             click.echo("✅ GitHub CLI available")
@@ -210,7 +239,6 @@ def test_setup():
     
     # Test Docker
     try:
-        import subprocess
         result = subprocess.run(['docker', '--version'], capture_output=True, text=True)
         if result.returncode == 0:
             click.echo("✅ Docker available")
@@ -221,7 +249,6 @@ def test_setup():
     
     # Test DevContainer CLI
     try:
-        import subprocess
         result = subprocess.run(['devcontainer', '--version'], capture_output=True, text=True)
         if result.returncode == 0:
             click.echo("✅ DevContainer CLI available")
@@ -248,8 +275,6 @@ def test(prompt: str, repo: str, host: str, port: int):
         devs-webhook test "Fix the login bug"
         devs-webhook test "Add dark mode toggle" --repo myorg/myproject
     """
-    import httpx
-    
     config = get_config()
     
     # Use CLI options or config defaults
@@ -267,9 +292,15 @@ def test(prompt: str, repo: str, host: str, port: int):
         click.echo(f"📝 Prompt: {prompt}")
         click.echo(f"📦 Repository: {repo}")
         
+        # Include authentication if available
+        auth = None
+        if config.admin_username and config.admin_password:
+            auth = BasicAuth(config.admin_username, config.admin_password)
+        
         response = httpx.post(
             url,
             json=payload,
+            auth=auth,
             timeout=10.0
         )
         
