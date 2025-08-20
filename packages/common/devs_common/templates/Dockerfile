@@ -1,11 +1,14 @@
 FROM node:22
 
-ARG TZ
+# Timezone configuration
+ARG TZ=Europe/London
 ENV TZ="$TZ"
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 
 # Install basic development tools and utilities
 RUN apt update && apt install -y less \
+  tzdata \
   git \
   procps \
   sudo \

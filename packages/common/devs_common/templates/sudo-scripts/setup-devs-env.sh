@@ -64,6 +64,10 @@ check_github_token_setup() {
             echo "✅ Git user.email set to: $GH_USER_EMAIL"
         fi
         
+        # Set git to not trust ctime to avoid confusion with host timezone differences
+        git config --global core.trustctime false
+        echo "✅ Git core.trustctime set to false (prevents timezone-related rebase issues)"
+        
         # Ensure it's available in all shell sessions for the node user
         if ! grep -q "source /home/node/.devs-env/.env" /home/node/.zshrc 2>/dev/null; then
             echo "# Load devs environment variables" >> /home/node/.zshrc
