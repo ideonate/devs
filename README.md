@@ -144,7 +144,7 @@ MIT License - see individual package directories for details.
 3. Make your changes in the appropriate package directory
 4. Add tests for new functionality
 5. Ensure all tests pass
-6. Submit a pull request
+6. Submit a Pull Request
 
 ## Support
 
