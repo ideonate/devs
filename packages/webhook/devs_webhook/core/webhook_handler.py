@@ -108,6 +108,16 @@ class WebhookHandler:
                            delivery_id=delivery_id)
                 return
             
+            # Check if the user who triggered the event is authorized
+            trigger_user = event.sender.login
+            if not self.config.is_user_authorized_to_trigger(trigger_user):
+                logger.warning("User not authorized to trigger webhook processing",
+                              user=trigger_user,
+                              repo=event.repository.full_name,
+                              delivery_id=delivery_id,
+                              event_type=type(event).__name__)
+                return
+            
             # Check if repository is allowed
             repo_owner = event.repository.owner.login
             if not self.config.is_repository_allowed(event.repository.full_name, repo_owner):
@@ -195,6 +205,7 @@ class WebhookHandler:
             "container_pool_size": len(self.config.get_container_pool_list()),
             "containers": container_status,
             "mentioned_user": self.config.github_mentioned_user,
+            "authorized_trigger_users": self.config.get_authorized_trigger_users_list(),
             "deduplication_cache": get_cache_stats(),
         }
     

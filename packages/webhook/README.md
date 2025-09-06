@@ -38,6 +38,11 @@ export CLAUDE_API_KEY="your-claude-api-key"
 export ADMIN_USERNAME="admin"  # Default: admin
 export ADMIN_PASSWORD="your-secure-password"  # Required in production
 
+# Access control settings
+export ALLOWED_ORGS="myorg,anotherorg"  # GitHub orgs allowed to use webhook
+export ALLOWED_USERS="user1,user2"       # GitHub users allowed to use webhook
+export AUTHORIZED_TRIGGER_USERS="danlester,admin"  # Users who can trigger processing
+
 # Optional settings (with defaults)
 export CONTAINER_POOL="eamonn,harry,darren"
 export CONTAINER_TIMEOUT_MINUTES="30"
@@ -211,19 +216,22 @@ The webhook handler automatically detects and uses these settings when processin
 
 ### Environment Variables
 
-| Variable                    | Default                      | Description                     |
-| --------------------------- | ---------------------------- | ------------------------------- |
-| `GITHUB_WEBHOOK_SECRET`     | Required                     | GitHub webhook secret           |
-| `GITHUB_TOKEN`              | Required                     | GitHub personal access token    |
-| `GITHUB_MENTIONED_USER`     | Required                     | Username to watch for @mentions |
-| `CLAUDE_API_KEY`            | Required                     | Claude API key                  |
-| `CONTAINER_POOL`            | `eamonn,harry,darren`        | Container names                 |
-| `CONTAINER_TIMEOUT_MINUTES` | `30`                         | Container timeout               |
-| `MAX_CONCURRENT_TASKS`      | `3`                          | Max parallel tasks              |
-| `REPO_CACHE_DIR`            | `~/.devs-webhook/repos`      | Repository cache                |
-| `WORKSPACE_DIR`             | `~/.devs-webhook/workspaces` | Container workspaces            |
-| `WEBHOOK_HOST`              | `0.0.0.0`                    | Server host                     |
-| `WEBHOOK_PORT`              | `8000`                       | Server port                     |
+| Variable                    | Default                      | Description                              |
+| --------------------------- | ---------------------------- | ---------------------------------------- |
+| `GITHUB_WEBHOOK_SECRET`     | Required                     | GitHub webhook secret                    |
+| `GITHUB_TOKEN`              | Required                     | GitHub personal access token             |
+| `GITHUB_MENTIONED_USER`     | Required                     | Username to watch for @mentions          |
+| `CLAUDE_API_KEY`            | Required                     | Claude API key                           |
+| `ALLOWED_ORGS`              | (empty)                      | Comma-separated list of allowed GitHub orgs |
+| `ALLOWED_USERS`             | (empty)                      | Comma-separated list of allowed GitHub users |
+| `AUTHORIZED_TRIGGER_USERS`  | (empty - allows all)         | Comma-separated list of users who can trigger events |
+| `CONTAINER_POOL`            | `eamonn,harry,darren`        | Container names                          |
+| `CONTAINER_TIMEOUT_MINUTES` | `30`                         | Container timeout                        |
+| `MAX_CONCURRENT_TASKS`      | `3`                          | Max parallel tasks                       |
+| `REPO_CACHE_DIR`            | `~/.devs-webhook/repos`      | Repository cache                         |
+| `WORKSPACE_DIR`             | `~/.devs-webhook/workspaces` | Container workspaces                     |
+| `WEBHOOK_HOST`              | `0.0.0.0`                    | Server host                              |
+| `WEBHOOK_PORT`              | `8000`                       | Server port                              |
 
 ## Deployment
 
@@ -294,6 +302,28 @@ sudo journalctl -u devs-webhook -f   # View logs
 See [`systemd/README.md`](systemd/README.md) for detailed systemd setup instructions.
 
 ## Security
+
+### Access Control
+
+The webhook handler implements multiple layers of access control:
+
+1. **Authorized Trigger Users** (`AUTHORIZED_TRIGGER_USERS`):
+   - Only users in this list can trigger webhook processing
+   - If empty, all users are allowed (backward compatibility)
+   - Prevents unauthorized users from triggering actions
+   - Example: `AUTHORIZED_TRIGGER_USERS="danlester,teamlead"`
+
+2. **Repository Allowlist** (`ALLOWED_ORGS` and `ALLOWED_USERS`):
+   - Restricts which repositories can use the webhook
+   - Checks repository owner against allowed organizations and users
+   - Both settings work together (any match allows access)
+   - Example: `ALLOWED_ORGS="mycompany"` and `ALLOWED_USERS="trusted-user"`
+
+3. **@mention Detection** (`GITHUB_MENTIONED_USER`):
+   - Only processes events where the configured user is @mentioned
+   - Prevents accidental or unwanted processing
+
+### Other Security Features
 
 - **Webhook Signatures**: All webhooks are verified using HMAC signatures
 - **Token Scope**: GitHub token should have minimal required permissions

@@ -36,6 +36,10 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default="", 
         description="Comma-separated list of allowed GitHub usernames"
     )
+    authorized_trigger_users: str = Field(
+        default="",
+        description="Comma-separated list of GitHub usernames authorized to trigger webhook processing"
+    )
     
     # Basic auth settings for admin endpoints
     admin_username: str = Field(
@@ -111,6 +115,12 @@ class WebhookConfig(BaseSettings, BaseConfig):
             return []
         return [user.strip().lower() for user in self.allowed_users.split(',') if user.strip()]
     
+    def get_authorized_trigger_users_list(self) -> List[str]:
+        """Get authorized trigger users as a list."""
+        if not self.authorized_trigger_users:
+            return []
+        return [user.strip().lower() for user in self.authorized_trigger_users.split(',') if user.strip()]
+    
     def get_container_pool_list(self) -> List[str]:
         """Get container pool as a list."""
         if not self.container_pool:
@@ -157,6 +167,24 @@ class WebhookConfig(BaseSettings, BaseConfig):
         
         # Check if owner is in allowed orgs or users
         return repo_owner.lower() in allowed_orgs or repo_owner.lower() in allowed_users
+    
+    def is_user_authorized_to_trigger(self, username: str) -> bool:
+        """Check if a user is authorized to trigger webhook processing.
+        
+        Args:
+            username: GitHub username that triggered the event
+            
+        Returns:
+            True if user is authorized, False otherwise
+        """
+        authorized_users = self.get_authorized_trigger_users_list()
+        
+        # If no authorized users are configured, allow all (backward compatibility)
+        if not authorized_users:
+            return True
+        
+        # Check if the user is in the authorized list
+        return username.lower() in authorized_users
     
     def get_default_workspaces_dir(self) -> Path:
         """Get default workspaces directory for webhook package."""
