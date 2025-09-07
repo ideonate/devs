@@ -199,6 +199,11 @@ prompt_extra: |          # Additional instructions for Claude
   - Always use tabs for indentation
   - Keep functions under 50 lines
   - Add JSDoc comments to all public functions
+direct_commit: true      # Commit directly to default branch instead of creating PRs
+prompt_override: |       # Complete replacement for the default prompt (optional)
+  Custom prompt template here...
+  Available variables: {event_type}, {event_type_full}, {task_description},
+  {repo_name}, {workspace_path}, {github_username}
 ```
 
 Available options:
@@ -211,6 +216,19 @@ Available options:
   - Use for project-specific guidelines, coding standards, or constraints
   - Can be multi-line using YAML's `|` syntax
   - Default: empty string
+
+- **`direct_commit`**: Whether to commit directly to the default branch
+  - When `true`, Claude will commit directly to the default branch instead of creating PRs
+  - When `false`, Claude will create feature branches and pull requests (default behavior)
+  - Only creates PRs if there would be merge conflicts
+  - Default: `false`
+
+- **`prompt_override`**: Complete replacement for the default prompt (advanced)
+  - Allows full customization of Claude's instructions
+  - Use Python string formatting with available variables
+  - Variables: `{event_type}`, `{event_type_full}`, `{task_description}`, `{repo_name}`, `{workspace_path}`, `{github_username}`
+  - Takes precedence over all other prompt settings
+  - Default: not set (uses standard prompt)
 
 The webhook handler automatically detects and uses these settings when processing tasks for the repository.
 

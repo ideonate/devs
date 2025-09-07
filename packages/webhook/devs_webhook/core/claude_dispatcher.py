@@ -162,13 +162,52 @@ class ClaudeDispatcher:
             event_type = "PR" if is_pr else "issue"
             event_type_full = "GitHub PR" if is_pr else "GitHub issue"
             
-            # Add PR-closing instruction only for issues
-            pr_closing_instruction = ""
-            if not is_pr:
-                pr_closing_instruction = " (mention that it closes an issue number if it does)"
-            
-            # Build unified prompt with variable parts
-            prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
+            # Check if we have a prompt override
+            if devs_options and devs_options.prompt_override:
+                # Use the complete override prompt
+                prompt = devs_options.prompt_override.format(
+                    event_type=event_type,
+                    event_type_full=event_type_full,
+                    task_description=task_description,
+                    repo_name=repo_name,
+                    workspace_path=workspace_path,
+                    github_username=self.config.github_mentioned_user
+                )
+            elif devs_options and devs_options.direct_commit:
+                # Use direct commit prompt variant
+                prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
+You have been mentioned in a {event_type_full} and need to take action.
+
+You should ensure you're on the latest commits in the repo's default branch ({devs_options.default_branch if devs_options else 'main'}). 
+Commit your changes directly to the {devs_options.default_branch if devs_options else 'main'} branch unless there would be conflicts.
+Only create a pull request if there would be merge conflicts when committing to {devs_options.default_branch if devs_options else 'main'}.
+
+If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the {event_type}.
+
+You should always comment back in any case to say what you've done (unless you are sure it wasn't intended for you). The `gh` CLI is available for GitHub operations, and you can use `git` too.
+
+{devs_options.prompt_extra if devs_options and devs_options.prompt_extra else ''}
+
+This is the latest update on the {event_type}, but you should just get the full thread for more details:
+<latest_comment>
+{task_description}
+</latest_comment>
+
+You are working in the repository `{repo_name}`.
+The workspace path is `{workspace_path}`.
+Your GitHub username is `{self.config.github_mentioned_user}`.
+
+Always remember to PUSH your work to origin!
+"""
+            else:
+                # Use the standard PR-based prompt
+                # Add PR-closing instruction only for issues
+                pr_closing_instruction = ""
+                if not is_pr:
+                    pr_closing_instruction = " (mention that it closes an issue number if it does)"
+                
+                # Build unified prompt with variable parts
+                prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
 You have been mentioned in a {event_type_full} and need to take action.
 
 You should ensure you're on the latest commits in the repo's default branch. 
