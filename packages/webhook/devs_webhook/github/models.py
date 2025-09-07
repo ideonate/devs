@@ -290,6 +290,8 @@ class DevsOptions(BaseModel):
     """DEVS.yml configuration options."""
     default_branch: str = "main"
     prompt_extra: str = ""
+    prompt_override: Optional[str] = None
+    direct_commit: bool = False
 
 
 # Discriminated union for automatic event type detection

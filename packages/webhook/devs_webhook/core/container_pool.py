@@ -493,11 +493,17 @@ class ContainerPool:
                             devs_options.default_branch = data['default_branch']
                         if 'prompt_extra' in data:
                             devs_options.prompt_extra = data['prompt_extra']
+                        if 'prompt_override' in data:
+                            devs_options.prompt_override = data['prompt_override']
+                        if 'direct_commit' in data:
+                            devs_options.direct_commit = data['direct_commit']
                         
                         logger.info("Loaded DEVS.yml configuration",
                                    repo=repo_name,
                                    default_branch=devs_options.default_branch,
-                                   has_prompt_extra=bool(devs_options.prompt_extra))
+                                   has_prompt_extra=bool(devs_options.prompt_extra),
+                                   has_prompt_override=bool(devs_options.prompt_override),
+                                   direct_commit=devs_options.direct_commit)
             except Exception as e:
                 logger.warning("Failed to parse DEVS.yml",
                               repo=repo_name,
