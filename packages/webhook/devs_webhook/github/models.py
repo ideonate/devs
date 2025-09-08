@@ -292,6 +292,7 @@ class DevsOptions(BaseModel):
     prompt_extra: str = ""
     prompt_override: Optional[str] = None
     direct_commit: bool = False
+    single_queue: bool = False  # Restrict repo to single queue processing
 
 
 # Discriminated union for automatic event type detection

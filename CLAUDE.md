@@ -277,6 +277,7 @@ Projects can include a `DEVS.yml` file in their repository root:
 default_branch: develop  # Override default branch (default: main)
 prompt_extra: |          # Additional Claude instructions
   This project uses specific coding standards...
+single_queue: true       # Process all events sequentially in same container (default: false)
 ```
 
 ### DevContainer Support
