@@ -56,9 +56,6 @@ class ContainerPool:
         # Track single-queue repos and their assigned containers
         self.single_queue_repos: Dict[str, str] = {}  # repo_name -> container_name
         
-        # Cache DEVS options for repositories to avoid re-reading
-        self.devs_options_cache: Dict[str, DevsOptions] = {}  # repo_name -> DevsOptions
-        
         # Start worker tasks for each container
         self._start_workers()
 
@@ -86,25 +83,16 @@ class ContainerPool:
                        repo=repo_name,
                        container=container_name)
     
-    def _read_devs_options(self, repo_path: Path, repo_name: str, use_cache: bool = True) -> DevsOptions:
+    def _read_devs_options(self, repo_path: Path, repo_name: str) -> DevsOptions:
         """Read and parse DEVS.yml options from repository.
-        
-        Uses a cache to avoid re-reading the same file multiple times.
-        The cache is invalidated when the repository is updated (git pull).
         
         Args:
             repo_path: Path to repository
             repo_name: Repository name for logging
-            use_cache: Whether to use cached values if available
             
         Returns:
             DevsOptions with values from DEVS.yml or defaults
         """
-        # Check cache first if enabled
-        if use_cache and repo_name in self.devs_options_cache:
-            logger.debug("Using cached DEVS.yml options", repo=repo_name)
-            return self.devs_options_cache[repo_name]
-        
         devs_options = DevsOptions()  # Start with defaults
         devs_yml_path = repo_path / "DEVS.yml"
         
@@ -137,9 +125,6 @@ class ContainerPool:
                               repo=repo_name,
                               error=str(e))
                 # Continue with defaults if parsing fails
-        
-        # Cache the result for future use
-        self.devs_options_cache[repo_name] = devs_options
         
         return devs_options
     
@@ -503,10 +488,6 @@ class ContainerPool:
                                repo=repo_name,
                                stdout=stdout.decode()[:200] if stdout else "")
                     logger.info("Repository updated", repo=repo_name, path=str(repo_path))
-                    # Clear cached DEVS options since repo was updated
-                    if repo_name in self.devs_options_cache:
-                        del self.devs_options_cache[repo_name]
-                        logger.debug("Cleared cached DEVS.yml options after git pull", repo=repo_name)
                 else:
                     # Pull failed - remove and re-clone
                     logger.warning("Git pull failed, removing and re-cloning",
@@ -519,9 +500,6 @@ class ContainerPool:
                                repo=repo_name,
                                repo_path=str(repo_path))
                     shutil.rmtree(repo_path)
-                    # Clear cached DEVS options since we're re-cloning
-                    if repo_name in self.devs_options_cache:
-                        del self.devs_options_cache[repo_name]
                     
                     # Now fall through to clone logic
                     
@@ -537,9 +515,6 @@ class ContainerPool:
                     logger.info("Removed existing repository directory",
                                repo=repo_name,
                                repo_path=str(repo_path))
-                    # Clear cached DEVS options since we're re-cloning
-                    if repo_name in self.devs_options_cache:
-                        del self.devs_options_cache[repo_name]
                 except Exception as rm_error:
                     logger.error("Failed to remove repository directory",
                                 repo=repo_name,
