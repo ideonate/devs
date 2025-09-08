@@ -53,6 +53,9 @@ class ContainerPool:
         # Container workers - one per dev name
         self.container_workers: Dict[str, asyncio.Task] = {}
         
+        # Track single-queue repos and their assigned containers
+        self.single_queue_repos: Dict[str, str] = {}  # repo_name -> container_name
+        
         # Start worker tasks for each container
         self._start_workers()
 
@@ -63,6 +66,66 @@ class ContainerPool:
                    containers=self.config.get_container_pool_list())
     
     
+    def register_single_queue_repo(self, repo_name: str, container_name: str) -> None:
+        """Register a repository as requiring single-queue processing.
+        
+        This is called by the worker after detecting single_queue in DEVS.yml.
+        The registration is kept in memory only and resets on restart.
+        
+        Args:
+            repo_name: Repository name (owner/repo)
+            container_name: Container assigned to this repo
+        """
+        if repo_name not in self.single_queue_repos:
+            self.single_queue_repos[repo_name] = container_name
+            logger.info("Registered single-queue repository",
+                       repo=repo_name,
+                       container=container_name)
+    
+    def _read_devs_options(self, repo_path: Path, repo_name: str) -> DevsOptions:
+        """Read and parse DEVS.yml options from repository.
+        
+        Args:
+            repo_path: Path to repository
+            repo_name: Repository name for logging
+            
+        Returns:
+            DevsOptions with values from DEVS.yml or defaults
+        """
+        devs_options = DevsOptions()  # Start with defaults
+        devs_yml_path = repo_path / "DEVS.yml"
+        
+        if devs_yml_path.exists():
+            try:
+                with open(devs_yml_path, 'r') as f:
+                    data = yaml.safe_load(f)
+                    if data:
+                        # Update devs_options with values from DEVS.yml
+                        if 'default_branch' in data:
+                            devs_options.default_branch = data['default_branch']
+                        if 'prompt_extra' in data:
+                            devs_options.prompt_extra = data['prompt_extra']
+                        if 'prompt_override' in data:
+                            devs_options.prompt_override = data['prompt_override']
+                        if 'direct_commit' in data:
+                            devs_options.direct_commit = data['direct_commit']
+                        if 'single_queue' in data:
+                            devs_options.single_queue = data['single_queue']
+                        
+                        logger.info("Loaded DEVS.yml configuration",
+                                   repo=repo_name,
+                                   default_branch=devs_options.default_branch,
+                                   has_prompt_extra=bool(devs_options.prompt_extra),
+                                   has_prompt_override=bool(devs_options.prompt_override),
+                                   direct_commit=devs_options.direct_commit,
+                                   single_queue=devs_options.single_queue)
+            except Exception as e:
+                logger.warning("Failed to parse DEVS.yml",
+                              repo=repo_name,
+                              error=str(e))
+                # Continue with defaults if parsing fails
+        
+        return devs_options
     
     async def queue_task(
         self,
@@ -72,6 +135,10 @@ class ContainerPool:
         event: WebhookEvent,
     ) -> bool:
         """Queue a task for execution in the next available container.
+        
+        For repositories with single_queue enabled in DEVS.yml, all tasks
+        are routed to the same container to avoid conflicts. The single_queue
+        setting is detected after the first clone and cached in memory.
         
         Args:
             task_id: Unique task identifier
@@ -83,15 +150,33 @@ class ContainerPool:
             True if task was queued successfully
         """
         try:
-            # Find container with shortest queue
-            best_container = None
-            min_queue_size = float('inf')
+            # Check if we already know this repo needs single-queue processing
+            # This is populated after the first clone by the worker
+            single_queue_required = False
             
-            for dev_name in self.config.get_container_pool_list():
-                queue_size = self.container_queues[dev_name].qsize()
-                if queue_size < min_queue_size:
-                    min_queue_size = queue_size
-                    best_container = dev_name
+            if repo_name in self.single_queue_repos:
+                # We already know this repo needs single-queue processing
+                single_queue_required = True
+                logger.info("Repository known to require single-queue processing",
+                           repo=repo_name)
+            
+            # Determine which container to use
+            best_container = None
+            
+            if single_queue_required:
+                # Use the previously assigned container for this single-queue repo
+                best_container = self.single_queue_repos[repo_name]
+                logger.info("Using previously assigned container for single-queue repo",
+                           repo=repo_name,
+                           container=best_container)
+            else:
+                # Normal load balancing - find container with shortest queue
+                min_queue_size = float('inf')
+                for dev_name in self.config.get_container_pool_list():
+                    queue_size = self.container_queues[dev_name].qsize()
+                    if queue_size < min_queue_size:
+                        min_queue_size = queue_size
+                        best_container = dev_name
             
             if best_container is None:
                 logger.error("No containers available for task queuing")
@@ -108,11 +193,13 @@ class ContainerPool:
             # Add to queue
             await self.container_queues[best_container].put(queued_task)
             
+            queue_size = self.container_queues[best_container].qsize()
             logger.info("Task queued successfully",
                        task_id=task_id,
                        container=best_container,
-                       queue_size=min_queue_size + 1,
-                       repo=repo_name)
+                       queue_size=queue_size,
+                       repo=repo_name,
+                       single_queue=single_queue_required)
             
             return True
             
@@ -198,6 +285,25 @@ class ContainerPool:
                        repo_name=repo_name)
             
             devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
+            
+            # After first clone, check if this repo needs single-queue processing
+            # and register it in memory for future events
+            if devs_options and devs_options.single_queue:
+                if repo_name not in self.single_queue_repos:
+                    # This is the first time we've seen this repo needs single-queue
+                    # Register it with the current container
+                    self.register_single_queue_repo(repo_name, dev_name)
+                    logger.info("Detected single_queue requirement after first clone",
+                               repo=repo_name,
+                               container=dev_name)
+            elif repo_name in self.single_queue_repos:
+                # The repo was previously single-queue but no longer is
+                # Remove it from the single_queue_repos tracking
+                previous_container = self.single_queue_repos[repo_name]
+                del self.single_queue_repos[repo_name]
+                logger.info("Removed single_queue requirement - DEVS.yml no longer has single_queue=true",
+                           repo=repo_name,
+                           previously_assigned_container=previous_container)
             
             logger.info("Repository cloning completed, launching worker subprocess",
                        task_id=queued_task.task_id,
@@ -479,37 +585,8 @@ class ContainerPool:
                             error=str(e))
                 raise
         
-        # Check for DEVS.yml file
-        devs_yml_path = repo_path / "DEVS.yml"
-        devs_options = DevsOptions()  # Start with defaults
-        
-        if devs_yml_path.exists():
-            try:
-                with open(devs_yml_path, 'r') as f:
-                    data = yaml.safe_load(f)
-                    if data:
-                        # Update devs_options with values from DEVS.yml
-                        if 'default_branch' in data:
-                            devs_options.default_branch = data['default_branch']
-                        if 'prompt_extra' in data:
-                            devs_options.prompt_extra = data['prompt_extra']
-                        if 'prompt_override' in data:
-                            devs_options.prompt_override = data['prompt_override']
-                        if 'direct_commit' in data:
-                            devs_options.direct_commit = data['direct_commit']
-                        
-                        logger.info("Loaded DEVS.yml configuration",
-                                   repo=repo_name,
-                                   default_branch=devs_options.default_branch,
-                                   has_prompt_extra=bool(devs_options.prompt_extra),
-                                   has_prompt_override=bool(devs_options.prompt_override),
-                                   direct_commit=devs_options.direct_commit)
-            except Exception as e:
-                logger.warning("Failed to parse DEVS.yml",
-                              repo=repo_name,
-                              error=str(e))
-                # Continue with defaults if parsing fails
-        
+        # Read DEVS.yml configuration using shared method
+        devs_options = self._read_devs_options(repo_path, repo_name)
         return devs_options
     
     async def shutdown(self) -> None:
@@ -611,6 +688,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                     for name, info in self.running_containers.items()
                 },
                 "total_containers": len(self.config.get_container_pool_list()),
+                "single_queue_repos": self.single_queue_repos.copy(),
             }
 
     async def _idle_cleanup_worker(self) -> None:

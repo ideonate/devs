@@ -200,6 +200,7 @@ prompt_extra: |          # Additional instructions for Claude
   - Keep functions under 50 lines
   - Add JSDoc comments to all public functions
 direct_commit: true      # Commit directly to default branch instead of creating PRs
+single_queue: true       # Process all events for this repo sequentially in same container
 prompt_override: |       # Complete replacement for the default prompt (optional)
   Custom prompt template here...
   Available variables: {event_type}, {event_type_full}, {task_description},
@@ -222,6 +223,12 @@ Available options:
   - When `false`, Claude will create feature branches and pull requests (default behavior)
   - Only creates PRs if there would be merge conflicts
   - Default: `false`
+
+- **`single_queue`**: Process all events for this repository sequentially
+  - When `true`, all webhook events for this repository are processed by the same container in order
+  - Prevents conflicts when multiple events would modify the same files
+  - Useful for repositories where strict ordering is important
+  - Default: `false` (events can be processed in parallel by different containers)
 
 - **`prompt_override`**: Complete replacement for the default prompt (advanced)
   - Allows full customization of Claude's instructions
