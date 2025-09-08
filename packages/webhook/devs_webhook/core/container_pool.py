@@ -56,6 +56,9 @@ class ContainerPool:
         # Track single-queue repos and their assigned containers
         self.single_queue_repos: Dict[str, str] = {}  # repo_name -> container_name
         
+        # Cache DEVS options for repositories to avoid re-reading
+        self.devs_options_cache: Dict[str, DevsOptions] = {}  # repo_name -> DevsOptions
+        
         # Start worker tasks for each container
         self._start_workers()
 
@@ -66,6 +69,63 @@ class ContainerPool:
                    containers=self.config.get_container_pool_list())
     
     
+    
+    def _read_devs_options(self, repo_path: Path, repo_name: str, use_cache: bool = True) -> DevsOptions:
+        """Read and parse DEVS.yml options from repository.
+        
+        Uses a cache to avoid re-reading the same file multiple times.
+        The cache is invalidated when the repository is updated (git pull).
+        
+        Args:
+            repo_path: Path to repository
+            repo_name: Repository name for logging
+            use_cache: Whether to use cached values if available
+            
+        Returns:
+            DevsOptions with values from DEVS.yml or defaults
+        """
+        # Check cache first if enabled
+        if use_cache and repo_name in self.devs_options_cache:
+            logger.debug("Using cached DEVS.yml options", repo=repo_name)
+            return self.devs_options_cache[repo_name]
+        
+        devs_options = DevsOptions()  # Start with defaults
+        devs_yml_path = repo_path / "DEVS.yml"
+        
+        if devs_yml_path.exists():
+            try:
+                with open(devs_yml_path, 'r') as f:
+                    data = yaml.safe_load(f)
+                    if data:
+                        # Update devs_options with values from DEVS.yml
+                        if 'default_branch' in data:
+                            devs_options.default_branch = data['default_branch']
+                        if 'prompt_extra' in data:
+                            devs_options.prompt_extra = data['prompt_extra']
+                        if 'prompt_override' in data:
+                            devs_options.prompt_override = data['prompt_override']
+                        if 'direct_commit' in data:
+                            devs_options.direct_commit = data['direct_commit']
+                        if 'single_queue' in data:
+                            devs_options.single_queue = data['single_queue']
+                        
+                        logger.info("Loaded DEVS.yml configuration",
+                                   repo=repo_name,
+                                   default_branch=devs_options.default_branch,
+                                   has_prompt_extra=bool(devs_options.prompt_extra),
+                                   has_prompt_override=bool(devs_options.prompt_override),
+                                   direct_commit=devs_options.direct_commit,
+                                   single_queue=devs_options.single_queue)
+            except Exception as e:
+                logger.warning("Failed to parse DEVS.yml",
+                              repo=repo_name,
+                              error=str(e))
+                # Continue with defaults if parsing fails
+        
+        # Cache the result for future use
+        self.devs_options_cache[repo_name] = devs_options
+        
+        return devs_options
     
     async def queue_task(
         self,
@@ -91,22 +151,15 @@ class ContainerPool:
         try:
             # Check if this repo needs single-queue processing
             repo_path = self.config.repo_cache_dir / repo_name.replace("/", "-")
-            devs_yml_path = repo_path / "DEVS.yml"
             single_queue_required = False
             
-            # Check if DEVS.yml exists and has single_queue enabled
-            if repo_path.exists() and devs_yml_path.exists():
-                try:
-                    with open(devs_yml_path, 'r') as f:
-                        data = yaml.safe_load(f)
-                        if data and data.get('single_queue', False):
-                            single_queue_required = True
-                            logger.info("Repository requires single-queue processing",
-                                       repo=repo_name)
-                except Exception as e:
-                    logger.warning("Failed to check DEVS.yml for single_queue",
-                                  repo=repo_name,
-                                  error=str(e))
+            # Check if repository exists and has DEVS.yml with single_queue enabled
+            if repo_path.exists():
+                devs_options = self._read_devs_options(repo_path, repo_name)
+                single_queue_required = devs_options.single_queue
+                if single_queue_required:
+                    logger.info("Repository requires single-queue processing",
+                               repo=repo_name)
             
             # Determine which container to use
             best_container = None
@@ -439,6 +492,10 @@ class ContainerPool:
                                repo=repo_name,
                                stdout=stdout.decode()[:200] if stdout else "")
                     logger.info("Repository updated", repo=repo_name, path=str(repo_path))
+                    # Clear cached DEVS options since repo was updated
+                    if repo_name in self.devs_options_cache:
+                        del self.devs_options_cache[repo_name]
+                        logger.debug("Cleared cached DEVS.yml options after git pull", repo=repo_name)
                 else:
                     # Pull failed - remove and re-clone
                     logger.warning("Git pull failed, removing and re-cloning",
@@ -451,6 +508,9 @@ class ContainerPool:
                                repo=repo_name,
                                repo_path=str(repo_path))
                     shutil.rmtree(repo_path)
+                    # Clear cached DEVS options since we're re-cloning
+                    if repo_name in self.devs_options_cache:
+                        del self.devs_options_cache[repo_name]
                     
                     # Now fall through to clone logic
                     
@@ -466,6 +526,9 @@ class ContainerPool:
                     logger.info("Removed existing repository directory",
                                repo=repo_name,
                                repo_path=str(repo_path))
+                    # Clear cached DEVS options since we're re-cloning
+                    if repo_name in self.devs_options_cache:
+                        del self.devs_options_cache[repo_name]
                 except Exception as rm_error:
                     logger.error("Failed to remove repository directory",
                                 repo=repo_name,
@@ -529,40 +592,8 @@ class ContainerPool:
                             error=str(e))
                 raise
         
-        # Check for DEVS.yml file
-        devs_yml_path = repo_path / "DEVS.yml"
-        devs_options = DevsOptions()  # Start with defaults
-        
-        if devs_yml_path.exists():
-            try:
-                with open(devs_yml_path, 'r') as f:
-                    data = yaml.safe_load(f)
-                    if data:
-                        # Update devs_options with values from DEVS.yml
-                        if 'default_branch' in data:
-                            devs_options.default_branch = data['default_branch']
-                        if 'prompt_extra' in data:
-                            devs_options.prompt_extra = data['prompt_extra']
-                        if 'prompt_override' in data:
-                            devs_options.prompt_override = data['prompt_override']
-                        if 'direct_commit' in data:
-                            devs_options.direct_commit = data['direct_commit']
-                        if 'single_queue' in data:
-                            devs_options.single_queue = data['single_queue']
-                        
-                        logger.info("Loaded DEVS.yml configuration",
-                                   repo=repo_name,
-                                   default_branch=devs_options.default_branch,
-                                   has_prompt_extra=bool(devs_options.prompt_extra),
-                                   has_prompt_override=bool(devs_options.prompt_override),
-                                   direct_commit=devs_options.direct_commit,
-                                   single_queue=devs_options.single_queue)
-            except Exception as e:
-                logger.warning("Failed to parse DEVS.yml",
-                              repo=repo_name,
-                              error=str(e))
-                # Continue with defaults if parsing fails
-        
+        # Read DEVS.yml configuration using shared method
+        devs_options = self._read_devs_options(repo_path, repo_name)
         return devs_options
     
     async def shutdown(self) -> None:
