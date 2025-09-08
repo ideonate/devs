@@ -73,7 +73,7 @@ def mock_event():
 
 @pytest.mark.asyncio
 async def test_single_queue_repo_assignment(mock_config, mock_event):
-    """Test that single-queue repos are assigned to the same container."""
+    """Test that single-queue repos are assigned to the same container after detection."""
     with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config), \
          patch('devs_webhook.core.container_pool.ClaudeDispatcher'):
         pool = ContainerPool()
@@ -90,7 +90,11 @@ async def test_single_queue_repo_assignment(mock_config, mock_event):
             pool.container_workers[name].cancel()
         pool.cleanup_worker.cancel()
         
-        # Queue first task
+        # Simulate the registration that would happen after first clone
+        # In real flow, this happens in _process_task_subprocess after _ensure_repository_cloned
+        pool.register_single_queue_repo("test-org/test-repo", "eamonn")
+        
+        # Queue first task - should go to the registered container
         success1 = await pool.queue_task(
             task_id="task-1",
             repo_name="test-org/test-repo",
@@ -99,10 +103,10 @@ async def test_single_queue_repo_assignment(mock_config, mock_event):
         )
         assert success1
         
-        # Check that repo was assigned to a container
+        # Check that repo is registered for single-queue
         assert "test-org/test-repo" in pool.single_queue_repos
         assigned_container = pool.single_queue_repos["test-org/test-repo"]
-        assert assigned_container in mock_config.get_container_pool_list()
+        assert assigned_container == "eamonn"
         
         # Queue second task for same repo
         success2 = await pool.queue_task(
@@ -116,12 +120,12 @@ async def test_single_queue_repo_assignment(mock_config, mock_event):
         # Verify same container was used
         assert pool.single_queue_repos["test-org/test-repo"] == assigned_container
         
-        # Both tasks should be in the same queue
-        assert pool.container_queues[assigned_container].qsize() == 2
+        # Both tasks should be in the same queue (eamonn)
+        assert pool.container_queues["eamonn"].qsize() == 2
         
         # Other queues should be empty
         for name in mock_config.get_container_pool_list():
-            if name != assigned_container:
+            if name != "eamonn":
                 assert pool.container_queues[name].qsize() == 0
 
 
@@ -187,6 +191,9 @@ async def test_mixed_repos(mock_config, mock_event):
             pool.container_workers[name].cancel()
         pool.cleanup_worker.cancel()
         
+        # Simulate registration of single-queue repo (would happen after first clone)
+        pool.register_single_queue_repo("test-org/single-repo", "harry")
+        
         # Queue tasks for single-queue repo
         await pool.queue_task("task-1", "test-org/single-repo", "Task 1", mock_event)
         await pool.queue_task("task-2", "test-org/single-repo", "Task 2", mock_event)
@@ -206,6 +213,36 @@ async def test_mixed_repos(mock_config, mock_event):
         # Total tasks should be 4
         total_tasks = sum(q.qsize() for q in pool.container_queues.values())
         assert total_tasks == 4
+
+
+@pytest.mark.asyncio
+async def test_register_single_queue_repo(mock_config):
+    """Test the register_single_queue_repo method."""
+    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config), \
+         patch('devs_webhook.core.container_pool.ClaudeDispatcher'):
+        pool = ContainerPool()
+        
+        # Cancel worker tasks
+        for name in mock_config.get_container_pool_list():
+            pool.container_workers[name].cancel()
+        pool.cleanup_worker.cancel()
+        
+        # Initially no single-queue repos
+        assert len(pool.single_queue_repos) == 0
+        
+        # Register a repo
+        pool.register_single_queue_repo("test-org/repo1", "eamonn")
+        assert pool.single_queue_repos["test-org/repo1"] == "eamonn"
+        
+        # Register another repo
+        pool.register_single_queue_repo("test-org/repo2", "harry")
+        assert pool.single_queue_repos["test-org/repo2"] == "harry"
+        assert len(pool.single_queue_repos) == 2
+        
+        # Try to register the same repo again - should not change
+        pool.register_single_queue_repo("test-org/repo1", "darren")
+        assert pool.single_queue_repos["test-org/repo1"] == "eamonn"  # Unchanged
+        assert len(pool.single_queue_repos) == 2
 
 
 @pytest.mark.asyncio

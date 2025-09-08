@@ -70,6 +70,22 @@ class ContainerPool:
     
     
     
+    def register_single_queue_repo(self, repo_name: str, container_name: str) -> None:
+        """Register a repository as requiring single-queue processing.
+        
+        This is called by the worker after detecting single_queue in DEVS.yml.
+        The registration is kept in memory only and resets on restart.
+        
+        Args:
+            repo_name: Repository name (owner/repo)
+            container_name: Container assigned to this repo
+        """
+        if repo_name not in self.single_queue_repos:
+            self.single_queue_repos[repo_name] = container_name
+            logger.info("Registered single-queue repository",
+                       repo=repo_name,
+                       container=container_name)
+    
     def _read_devs_options(self, repo_path: Path, repo_name: str, use_cache: bool = True) -> DevsOptions:
         """Read and parse DEVS.yml options from repository.
         
@@ -137,7 +153,8 @@ class ContainerPool:
         """Queue a task for execution in the next available container.
         
         For repositories with single_queue enabled in DEVS.yml, all tasks
-        are routed to the same container to avoid conflicts.
+        are routed to the same container to avoid conflicts. The single_queue
+        setting is detected after the first clone and cached in memory.
         
         Args:
             task_id: Unique task identifier
@@ -149,42 +166,25 @@ class ContainerPool:
             True if task was queued successfully
         """
         try:
-            # Check if this repo needs single-queue processing
-            repo_path = self.config.repo_cache_dir / repo_name.replace("/", "-")
+            # Check if we already know this repo needs single-queue processing
+            # This is populated after the first clone by the worker
             single_queue_required = False
             
-            # Check if repository exists and has DEVS.yml with single_queue enabled
-            if repo_path.exists():
-                devs_options = self._read_devs_options(repo_path, repo_name)
-                single_queue_required = devs_options.single_queue
-                if single_queue_required:
-                    logger.info("Repository requires single-queue processing",
-                               repo=repo_name)
+            if repo_name in self.single_queue_repos:
+                # We already know this repo needs single-queue processing
+                single_queue_required = True
+                logger.info("Repository known to require single-queue processing",
+                           repo=repo_name)
             
             # Determine which container to use
             best_container = None
             
             if single_queue_required:
-                # Check if this repo already has an assigned container
-                if repo_name in self.single_queue_repos:
-                    best_container = self.single_queue_repos[repo_name]
-                    logger.info("Using previously assigned container for single-queue repo",
-                               repo=repo_name,
-                               container=best_container)
-                else:
-                    # Assign to container with shortest queue and remember the assignment
-                    min_queue_size = float('inf')
-                    for dev_name in self.config.get_container_pool_list():
-                        queue_size = self.container_queues[dev_name].qsize()
-                        if queue_size < min_queue_size:
-                            min_queue_size = queue_size
-                            best_container = dev_name
-                    
-                    if best_container:
-                        self.single_queue_repos[repo_name] = best_container
-                        logger.info("Assigned single-queue repo to container",
-                                   repo=repo_name,
-                                   container=best_container)
+                # Use the previously assigned container for this single-queue repo
+                best_container = self.single_queue_repos[repo_name]
+                logger.info("Using previously assigned container for single-queue repo",
+                           repo=repo_name,
+                           container=best_container)
             else:
                 # Normal load balancing - find container with shortest queue
                 min_queue_size = float('inf')
@@ -301,6 +301,17 @@ class ContainerPool:
                        repo_name=repo_name)
             
             devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
+            
+            # After first clone, check if this repo needs single-queue processing
+            # and register it in memory for future events
+            if devs_options and devs_options.single_queue:
+                if repo_name not in self.single_queue_repos:
+                    # This is the first time we've seen this repo needs single-queue
+                    # Register it with the current container
+                    self.register_single_queue_repo(repo_name, dev_name)
+                    logger.info("Detected single_queue requirement after first clone",
+                               repo=repo_name,
+                               container=dev_name)
             
             logger.info("Repository cloning completed, launching worker subprocess",
                        task_id=queued_task.task_id,
