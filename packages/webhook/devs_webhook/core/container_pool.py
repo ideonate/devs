@@ -56,7 +56,6 @@ class ContainerPool:
         # Track single-queue repos and their assigned containers
         self.single_queue_repos: Dict[str, str] = {}  # repo_name -> container_name
         
-        
         # Start worker tasks for each container
         self._start_workers()
 
