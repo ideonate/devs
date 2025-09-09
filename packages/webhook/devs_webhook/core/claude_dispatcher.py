@@ -182,6 +182,8 @@ You should ensure you're on the latest commits in the repo's default branch ({de
 Commit your changes directly to the {devs_options.default_branch if devs_options else 'main'} branch unless there would be conflicts.
 Only create a pull request if there would be merge conflicts when committing to {devs_options.default_branch if devs_options else 'main'}.
 
+IMPORTANT: Do not close the issue unless the user explicitly instructs you to do so. Even if you implement a solution, leave the issue open for the user to review and close when they're satisfied.
+
 If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the {event_type}.
 
 You should always comment back in any case to say what you've done (unless you are sure it wasn't intended for you). The `gh` CLI is available for GitHub operations, and you can use `git` too.
@@ -213,6 +215,8 @@ You have been mentioned in a {event_type_full} and need to take action.
 You should ensure you're on the latest commits in the repo's default branch. 
 Generally work on feature branches for changes. 
 Submit any changes as a pull request when done{pr_closing_instruction}.
+
+IMPORTANT: Do not close the issue unless the user explicitly instructs you to do so. Even if you implement a solution, leave the issue open for the user to review and close when they're satisfied.
 
 If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the {event_type}.
 
