@@ -129,21 +129,8 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Detailed health check."""
-    config = get_config()
-    
-    return {
-        "status": "healthy",
-        "service": "devs-webhook",
-        "version": "0.1.0",
-        "dev_mode": config.dev_mode,
-        "config": {
-            "mentioned_user": config.github_mentioned_user,
-            "container_pool": config.container_pool,
-            "webhook_path": config.webhook_path,
-            "log_format": config.log_format,
-        }
-    }
+    """Health check endpoint."""
+    return {"status": "healthy", "service": "devs-webhook"}
 
 
 @app.post("/webhook")

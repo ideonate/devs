@@ -9,8 +9,8 @@ Type=exec
 User=%USER%
 Group=%GROUP%
 WorkingDirectory=%WORKING_DIR%
-Environment="PATH=/usr/local/bin:/usr/bin:/bin"
-ExecStart=%PYTHON_PATH% -m devs_webhook.cli serve --reload --env-file=%ENV_FILE%
+Environment="PATH=%NODE_BIN_PATH%:/usr/local/bin:/usr/bin:/bin"
+ExecStart=%WEBHOOK_BIN% serve --port=%PORT% --env-file=%ENV_FILE%
 Restart=on-failure
 RestartSec=5
 
@@ -19,10 +19,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%WORKING_DIR%/.devs %WORKING_DIR%/.cache
+ReadWritePaths=%HOME_DIR%/.devs %WORKING_DIR%/.cache %HOME_DIR%/.docker /tmp
 
 # Resource limits
-MemoryLimit=2G
+MemoryMax=2G
 CPUQuota=200%
 
 # Logging

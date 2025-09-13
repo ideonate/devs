@@ -39,6 +39,8 @@ INSTALL_GROUP="${USER}"
 WORKING_DIR="${PWD}"
 ENV_FILE=""
 PYTHON_PATH=$(which python3)
+WEBHOOK_BIN=$(which devs-webhook 2>/dev/null || echo "")
+PORT=8051
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -62,6 +64,14 @@ while [[ $# -gt 0 ]]; do
             PYTHON_PATH="$2"
             shift 2
             ;;
+        --webhook-bin)
+            WEBHOOK_BIN="$2"
+            shift 2
+            ;;
+        --port)
+            PORT="$2"
+            shift 2
+            ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -71,6 +81,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --working-dir DIR     Working directory for the service (default: current directory)"
             echo "  --env-file FILE       Path to .env file (required)"
             echo "  --python-path PATH    Path to Python executable (default: $(which python3))"
+            echo "  --webhook-bin PATH    Path to devs-webhook executable (default: auto-detect)"
+            echo "  --port PORT           Port to run the webhook server on (default: 8051)"
             echo "  --help                Show this help message"
             echo ""
             echo "Example:"
@@ -107,9 +119,42 @@ if [[ ! -f "$TEMPLATE_FILE" ]]; then
     exit 1
 fi
 
+# Try to find devs-webhook if not specified
+if [[ -z "$WEBHOOK_BIN" ]]; then
+    # Check in the current Python environment first
+    if command -v devs-webhook &> /dev/null; then
+        WEBHOOK_BIN=$(which devs-webhook)
+    # Check if we can use Python module directly
+    elif $PYTHON_PATH -c "import devs_webhook" 2>/dev/null; then
+        WEBHOOK_BIN="$PYTHON_PATH -m devs_webhook"
+    else
+        print_error "Error: Could not find devs-webhook. Please install it or specify --webhook-bin"
+        exit 1
+    fi
+fi
+
+# Detect Node.js binary path (for devcontainer CLI)
+NODE_BIN_PATH=""
+if command -v node &> /dev/null; then
+    # Get the directory containing node binary
+    NODE_BIN_PATH=$(dirname "$(which node)")
+    print_status "Detected Node.js binary path: $NODE_BIN_PATH"
+
+    # Check if devcontainer CLI is available
+    if [[ -x "$NODE_BIN_PATH/devcontainer" ]]; then
+        print_status "Found devcontainer CLI at: $NODE_BIN_PATH/devcontainer"
+    else
+        print_warning "devcontainer CLI not found in $NODE_BIN_PATH"
+        print_warning "You may need to install it with: npm install -g @devcontainers/cli"
+    fi
+else
+    print_warning "Node.js not found. The devcontainer CLI may not be accessible."
+fi
+
 # Convert to absolute paths
 ENV_FILE=$(realpath "$ENV_FILE")
 WORKING_DIR=$(realpath "$WORKING_DIR")
+HOME_DIR=$(eval echo ~$INSTALL_USER)
 
 print_status "Setting up devs-webhook systemd service..."
 echo ""
@@ -119,6 +164,10 @@ echo "  Group: $INSTALL_GROUP"
 echo "  Working Directory: $WORKING_DIR"
 echo "  Environment File: $ENV_FILE"
 echo "  Python Path: $PYTHON_PATH"
+echo "  Webhook Binary: $WEBHOOK_BIN"
+echo "  Home Directory: $HOME_DIR"
+echo "  Port: $PORT"
+echo "  Node.js Bin Path: ${NODE_BIN_PATH:-Not detected}"
 echo ""
 
 # Check if service already exists
@@ -145,6 +194,10 @@ sudo sed -e "s|%USER%|$INSTALL_USER|g" \
          -e "s|%WORKING_DIR%|$WORKING_DIR|g" \
          -e "s|%ENV_FILE%|$ENV_FILE|g" \
          -e "s|%PYTHON_PATH%|$PYTHON_PATH|g" \
+         -e "s|%WEBHOOK_BIN%|$WEBHOOK_BIN|g" \
+         -e "s|%HOME_DIR%|$HOME_DIR|g" \
+         -e "s|%PORT%|$PORT|g" \
+         -e "s|%NODE_BIN_PATH%|$NODE_BIN_PATH|g" \
          "$TEMPLATE_FILE" | sudo tee "$SERVICE_FILE" > /dev/null
 
 # Reload systemd
