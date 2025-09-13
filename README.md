@@ -21,13 +21,13 @@ devs start frontend backend
 devs vscode frontend backend
 ```
 
-### 🔄 Webhook Handler
+### 🔄 [Webhook Handler](packages/webhook/)
 
-GitHub App webhook handler for automated devcontainer operations.
+GitHub webhook handler for automated devcontainer operations in response to @mentions in issues and PRs.
 
-### 🛠️ Common Utilities _(Coming Soon)_
+### 🛠️ [Common Utilities](packages/common/)
 
-Shared utilities between CLI and webhook packages.
+Shared utilities between CLI and webhook packages including container management, workspace handling, and devcontainer templates.
 
 ## Quick Start
 
@@ -84,8 +84,8 @@ devs stop sally bob charlie
 devs/
 ├── packages/
 │   ├── cli/                    # Main CLI tool
-│   ├── webhook/               # GitHub webhook handler (planned)
-│   └── common/                # Shared utilities (planned)
+│   ├── webhook/               # GitHub webhook handler
+│   └── common/                # Shared utilities
 ├── docs/                      # Documentation
 ├── scripts/                   # Development scripts
 ├── devs                       # Legacy zsh script (to be removed)
