@@ -83,5 +83,14 @@
     "DEVS_ENV_MOUNT_PATH": "${localEnv:DEVS_ENV_MOUNT_PATH}"
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
-  "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh"
+  "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh",
+  "forwardPorts": [],
+  "portsAttributes": {
+    "3306": {
+      "onAutoForward": "ignore"
+    },
+    "6379": {
+      "onAutoForward": "ignore"
+    }
+  }
 }
