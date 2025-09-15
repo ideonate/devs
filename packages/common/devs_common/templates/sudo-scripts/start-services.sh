@@ -17,9 +17,20 @@ if ! pgrep -x mysqld > /dev/null; then
         sleep 1
     done
     
-    # Initialize MariaDB without password for development
-    mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '';" 2>/dev/null || true
-    mysql -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+    # Create a development user 'dbuser' with password 'dbuser' and full privileges
+    # Using sudo mysql since initial connection requires socket auth (as root)
+    echo "Creating dbuser..."
+    sudo mysql -e "CREATE USER IF NOT EXISTS 'dbuser'@'localhost' IDENTIFIED BY 'dbuser';" || echo "Failed to create dbuser@localhost"
+    sudo mysql -e "CREATE USER IF NOT EXISTS 'dbuser'@'127.0.0.1' IDENTIFIED BY 'dbuser';" || echo "Failed to create dbuser@127.0.0.1"
+    sudo mysql -e "CREATE USER IF NOT EXISTS 'dbuser'@'%' IDENTIFIED BY 'dbuser';" || echo "Failed to create dbuser@%"
+    sudo mysql -e "GRANT ALL PRIVILEGES ON *.* TO 'dbuser'@'localhost' WITH GRANT OPTION;" || echo "Failed to grant privileges to dbuser@localhost"
+    sudo mysql -e "GRANT ALL PRIVILEGES ON *.* TO 'dbuser'@'127.0.0.1' WITH GRANT OPTION;" || echo "Failed to grant privileges to dbuser@127.0.0.1"
+    sudo mysql -e "GRANT ALL PRIVILEGES ON *.* TO 'dbuser'@'%' WITH GRANT OPTION;" || echo "Failed to grant privileges to dbuser@%"
+
+    echo "Flushing privileges..."
+    sudo mysql -e "FLUSH PRIVILEGES;" || echo "Failed to flush privileges"
+
+    echo "✅ Database users configured: dbuser (password: dbuser)"
 else
     echo "✅ MariaDB (MySQL) is already running"
 fi

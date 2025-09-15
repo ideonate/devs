@@ -51,10 +51,11 @@ RUN mkdir -p /var/lib/mysql /var/lib/redis /var/run/mysqld /var/run/redis \
   && chown -R mysql:mysql /var/lib/mysql /var/run/mysqld \
   && chown -R redis:redis /var/lib/redis /var/run/redis
 
-# Configure MariaDB to not require root password and listen on all interfaces
+# Configure MariaDB to listen on all interfaces
+# Note: Removed skip-grant-tables so we can properly create users with passwords
+# The start-services.sh script will handle user creation and authentication setup
 RUN mkdir -p /etc/mysql/conf.d && \
   echo "[mysqld]" > /etc/mysql/conf.d/99-devcontainer.cnf && \
-  echo "skip-grant-tables" >> /etc/mysql/conf.d/99-devcontainer.cnf && \
   echo "bind-address = 0.0.0.0" >> /etc/mysql/conf.d/99-devcontainer.cnf && \
   echo "port = 3306" >> /etc/mysql/conf.d/99-devcontainer.cnf
 
