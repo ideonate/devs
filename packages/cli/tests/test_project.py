@@ -4,8 +4,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from devs.core.project import Project, ProjectInfo
-from devs.exceptions import DevcontainerConfigError
+from devs_common.core.project import Project, ProjectInfo
+from devs_common.exceptions import DevcontainerConfigError, ProjectNotFoundError
 
 
 class TestProject:
@@ -13,7 +13,10 @@ class TestProject:
     
     def test_extract_project_name_from_ssh_url(self):
         """Test project name extraction from SSH git URLs."""
-        project = Project()
+        # Create project without triggering git detection
+        project = Project.__new__(Project)
+        project.project_dir = Path.cwd()
+        project._info = None
         
         # SSH format
         result = project._extract_project_name_from_url("git@github.com:org/repo.git")
@@ -25,7 +28,10 @@ class TestProject:
     
     def test_extract_project_name_from_https_url(self):
         """Test project name extraction from HTTPS git URLs."""
-        project = Project()
+        # Create project without triggering git detection
+        project = Project.__new__(Project)
+        project.project_dir = Path.cwd()
+        project._info = None
         
         # HTTPS format
         result = project._extract_project_name_from_url("https://github.com/org/repo.git")
@@ -37,7 +43,10 @@ class TestProject:
     
     def test_extract_project_name_invalid_url(self):
         """Test project name extraction from invalid URLs."""
-        project = Project()
+        # Create project without triggering git detection
+        project = Project.__new__(Project)
+        project.project_dir = Path.cwd()
+        project._info = None
         
         result = project._extract_project_name_from_url("invalid-url")
         assert result == ""
@@ -47,7 +56,9 @@ class TestProject:
     
     def test_get_container_name(self):
         """Test container name generation."""
-        project = Project()
+        # Create project without triggering git detection
+        project = Project.__new__(Project)
+        project.project_dir = Path.cwd()
         project._info = ProjectInfo(
             directory=Path("/test/project"),
             name="test-project",
@@ -61,7 +72,9 @@ class TestProject:
     
     def test_get_workspace_name(self):
         """Test workspace name generation."""
-        project = Project()
+        # Create project without triggering git detection
+        project = Project.__new__(Project)
+        project.project_dir = Path.cwd()
         project._info = ProjectInfo(
             directory=Path("/test/project"),
             name="test-project", 
@@ -71,7 +84,7 @@ class TestProject:
         )
         
         result = project.get_workspace_name("sally")
-        assert result == "project-sally"
+        assert result == "test-project-sally"
     
     def test_check_devcontainer_config_missing(self, tmp_path):
         """Test devcontainer config check when file is missing."""
@@ -93,7 +106,7 @@ class TestProject:
         # Should not raise an exception
         project.check_devcontainer_config()
     
-    @patch('devs.core.project.Repo')
+    @patch('devs_common.core.project.Repo')
     def test_compute_project_info_with_git(self, mock_repo, tmp_path):
         """Test project info computation for git repository."""
         # Mock git repo
@@ -121,17 +134,18 @@ class TestProject:
         assert info.git_remote_url == "git@github.com:test/project.git"
         assert info.is_git_repo == True
     
-    @patch('devs.core.project.Repo')
+    @patch('devs_common.core.project.Repo')
     def test_compute_project_info_without_git(self, mock_repo, tmp_path):
-        """Test project info computation for non-git directory."""
+        """Test project info computation for non-git directory raises error."""
         # Mock git repo to raise InvalidGitRepositoryError
         from git.exc import InvalidGitRepositoryError
         mock_repo.side_effect = InvalidGitRepositoryError("Not a git repo")
-        
+
         project = Project(tmp_path)
-        info = project._compute_project_info()
-        
-        assert info.directory == tmp_path.resolve()
-        assert info.name == tmp_path.name.lower()
-        assert info.git_remote_url == ""
-        assert info.is_git_repo == False
+
+        # Should raise ProjectNotFoundError when not in a git repository
+        with pytest.raises(ProjectNotFoundError) as exc_info:
+            project._compute_project_info()
+
+        assert "not a git repository" in str(exc_info.value)
+        assert "requires a git repository" in str(exc_info.value)

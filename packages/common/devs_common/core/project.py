@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from git import Repo, InvalidGitRepositoryError
 from git.exc import GitCommandError
 
-from ..exceptions import DevcontainerConfigError
+from ..exceptions import DevcontainerConfigError, ProjectNotFoundError
 
 
 class ProjectInfo(NamedTuple):
@@ -42,33 +42,37 @@ class Project:
     def _compute_project_info(self) -> ProjectInfo:
         """Compute project information from directory and git repo."""
         project_dir = self.project_dir.resolve()
-        
-        # Try to get project name from git repo
+
+        # Require that this is a git repository
         project_name = ""
         git_remote_url = ""
         is_git_repo = False
-        
+
         try:
             repo = Repo(project_dir, search_parent_directories=True)
             is_git_repo = True
-            
+
             # Try to get remote URL
             if repo.remotes:
                 origin = repo.remotes.origin if 'origin' in [r.name for r in repo.remotes] else repo.remotes[0]
                 git_remote_url = origin.url
                 project_name = self._extract_project_name_from_url(git_remote_url)
-            
+
         except (InvalidGitRepositoryError, GitCommandError):
-            # Not a git repo or no remotes
-            pass
-        
-        # Fallback to directory name if no git info
+            # Not a git repo - raise an error
+            raise ProjectNotFoundError(
+                f"The directory '{project_dir}' is not a git repository.\n"
+                "The 'devs' CLI requires a git repository to function properly.\n"
+                "Please run this command from within a git repository."
+            )
+
+        # Fallback to directory name if no git remote URL
         if not project_name:
             project_name = project_dir.name.lower()
-        
+
         # Generate hex path for VS Code integration
         hex_path = project_dir.as_posix().encode('utf-8').hex()
-        
+
         return ProjectInfo(
             directory=project_dir,
             name=project_name,

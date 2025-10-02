@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, Mock, patch, call
 
 import pytest
 
-from devs.core.integration import VSCodeIntegration, ExternalToolIntegration, ClaudeIntegration
+from devs.core.integration import VSCodeIntegration, ExternalToolIntegration
 from devs_common.exceptions import VSCodeError, DependencyError
 
 
@@ -279,17 +279,19 @@ class TestExternalToolIntegration:
         assert status["devcontainer_cli"] is True
 
 
+# Commenting out ClaudeIntegration tests as the class no longer exists
+"""
 class TestClaudeIntegration:
-    """Test suite for ClaudeIntegration class."""
-    
+    '''Test suite for ClaudeIntegration class.'''
+
     def test_init(self, mock_project, mock_container_manager):
-        """Test ClaudeIntegration initialization."""
+        '''Test ClaudeIntegration initialization.'''
         integration = ClaudeIntegration(mock_project, mock_container_manager)
         assert integration.project == mock_project
         assert integration.container_manager == mock_container_manager
-    
+
     def test_run_claude_command_success(self, mock_project, mock_container_manager):
-        """Test successful Claude command execution."""
+        '''Test successful Claude command execution.'''
         integration = ClaudeIntegration(mock_project, mock_container_manager)
         
         # Mock successful execution
@@ -308,7 +310,7 @@ class TestClaudeIntegration:
         assert "test prompt" in call_args[0][1]
     
     def test_run_claude_command_with_env(self, mock_project, mock_container_manager, monkeypatch):
-        """Test Claude command execution with environment variables."""
+        '''Test Claude command execution with environment variables.'''
         monkeypatch.setenv("CLAUDE_API_KEY", "test-key")
         
         integration = ClaudeIntegration(mock_project, mock_container_manager)
@@ -326,7 +328,7 @@ class TestClaudeIntegration:
         assert env_vars.get("CLAUDE_API_KEY") == "test-key"
     
     def test_run_claude_command_failure(self, mock_project, mock_container_manager):
-        """Test Claude command execution failure."""
+        '''Test Claude command execution failure.'''
         integration = ClaudeIntegration(mock_project, mock_container_manager)
         
         # Mock failed execution
@@ -338,7 +340,7 @@ class TestClaudeIntegration:
         assert "Error: Claude not found" in output
     
     def test_run_claude_command_container_error(self, mock_project, mock_container_manager):
-        """Test Claude command when container execution fails."""
+        '''Test Claude command when container execution fails.'''
         integration = ClaudeIntegration(mock_project, mock_container_manager)
         
         # Mock container execution error
@@ -347,3 +349,4 @@ class TestClaudeIntegration:
         
         with pytest.raises(ContainerError):
             integration.run_claude_command("alice", "test prompt")
+"""
