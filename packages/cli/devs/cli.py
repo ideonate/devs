@@ -26,6 +26,27 @@ from .exceptions import (
 console = Console()
 
 
+def parse_env_vars(env_tuples: tuple) -> dict:
+    """Parse environment variables from --env options.
+    
+    Args:
+        env_tuples: Tuple of strings in format 'VAR=value'
+        
+    Returns:
+        Dictionary of environment variables
+        
+    Raises:
+        click.BadParameter: If format is invalid
+    """
+    env_dict = {}
+    for env_str in env_tuples:
+        if '=' not in env_str:
+            raise click.BadParameter(f"Environment variable must be in format VAR=value, got: {env_str}")
+        key, value = env_str.split('=', 1)
+        env_dict[key] = value
+    return env_dict
+
+
 def debug_option(f):
     """Decorator to add debug option and handle debug flag inheritance."""
     @click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
@@ -86,17 +107,24 @@ def cli(ctx, debug: bool) -> None:
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--rebuild', is_flag=True, help='Force rebuild of container images')
 @click.option('--live', is_flag=True, help='Mount current directory as workspace instead of copying')
+@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
 @debug_option
-def start(dev_names: tuple, rebuild: bool, live: bool, debug: bool) -> None:
+def start(dev_names: tuple, rebuild: bool, live: bool, env: tuple, debug: bool) -> None:
     """Start named devcontainers.
     
     DEV_NAMES: One or more development environment names to start
     
     Example: devs start sally bob
     Example: devs start sally --live  # Mount current directory directly
+    Example: devs start sally --env QUART_PORT=5001 --env DB_HOST=localhost:3307
     """
     check_dependencies()
     project = get_project()
+    
+    # Parse environment variables
+    extra_env = parse_env_vars(env) if env else None
+    if extra_env:
+        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
     
     console.print(f"🚀 Starting devcontainers for project: {project.info.name}")
     
@@ -116,7 +144,8 @@ def start(dev_names: tuple, rebuild: bool, live: bool, debug: bool) -> None:
                 workspace_dir, 
                 force_rebuild=rebuild,
                 debug=debug,
-                live=live
+                live=live,
+                extra_env=extra_env
             ):
                 continue
             else:
@@ -138,17 +167,24 @@ def start(dev_names: tuple, rebuild: bool, live: bool, debug: bool) -> None:
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--delay', default=2.0, help='Delay between opening VS Code windows (seconds)')
 @click.option('--live', is_flag=True, help='Start containers with current directory mounted as workspace')
+@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
 @debug_option
-def vscode(dev_names: tuple, delay: float, live: bool, debug: bool) -> None:
+def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, debug: bool) -> None:
     """Open devcontainers in VS Code.
     
     DEV_NAMES: One or more development environment names to open
     
     Example: devs vscode sally bob
     Example: devs vscode sally --live  # Start with current directory mounted
+    Example: devs vscode sally --env QUART_PORT=5001
     """
     check_dependencies()
     project = get_project()
+    
+    # Parse environment variables
+    extra_env = parse_env_vars(env) if env else None
+    if extra_env:
+        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -165,7 +201,7 @@ def vscode(dev_names: tuple, delay: float, live: bool, debug: bool) -> None:
             workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
             
             # Ensure container is running before launching VS Code
-            if container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
+            if container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
                 workspace_dirs.append(workspace_dir)
                 valid_dev_names.append(dev_name)
             else:
@@ -215,17 +251,24 @@ def stop(dev_names: tuple) -> None:
 @cli.command()
 @click.argument('dev_name')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
+@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
 @debug_option
-def shell(dev_name: str, live: bool, debug: bool) -> None:
+def shell(dev_name: str, live: bool, env: tuple, debug: bool) -> None:
     """Open shell in devcontainer.
     
     DEV_NAME: Development environment name
     
     Example: devs shell sally
     Example: devs shell sally --live  # Start with current directory mounted
+    Example: devs shell sally --env QUART_PORT=5001
     """
     check_dependencies()
     project = get_project()
+    
+    # Parse environment variables
+    extra_env = parse_env_vars(env) if env else None
+    if extra_env:
+        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -234,7 +277,7 @@ def shell(dev_name: str, live: bool, debug: bool) -> None:
         # Ensure workspace exists (handles live mode internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
         # Ensure container is running
-        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live)
+        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
         
         # Open shell
         container_manager.exec_shell(dev_name, workspace_dir, debug=debug, live=live)
@@ -249,8 +292,9 @@ def shell(dev_name: str, live: bool, debug: bool) -> None:
 @click.argument('prompt')
 @click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
+@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
 @debug_option
-def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, debug: bool) -> None:
+def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
     """Execute Claude CLI in devcontainer.
     
     DEV_NAME: Development environment name
@@ -259,9 +303,15 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, debug:
     Example: devs claude sally "Summarize this codebase"
     Example: devs claude sally "Fix the tests" --reset-workspace
     Example: devs claude sally "Fix the tests" --live  # Run with current directory
+    Example: devs claude sally "Start the server" --env QUART_PORT=5001
     """
     check_dependencies()
     project = get_project()
+    
+    # Parse environment variables
+    extra_env = parse_env_vars(env) if env else None
+    if extra_env:
+        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
     
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
@@ -270,7 +320,7 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, debug:
         # Ensure workspace exists (handles live mode and reset internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
         # Ensure container is running
-        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live)
+        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
         
         # Execute Claude
         console.print(f"🤖 Executing Claude in {dev_name}...")

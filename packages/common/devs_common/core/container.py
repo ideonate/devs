@@ -124,7 +124,8 @@ class ContainerManager:
         workspace_dir: Path,
         force_rebuild: bool = False,
         debug: bool = False,
-        live: bool = False
+        live: bool = False,
+        extra_env: Optional[Dict[str, str]] = None
     ) -> bool:
         """Ensure a container is running for the specified dev environment.
         
@@ -134,6 +135,7 @@ class ContainerManager:
             force_rebuild: Force rebuild even if not needed
             debug: Show debug output for devcontainer operations
             live: Whether to use live mode (mount current directory instead of copying)
+            extra_env: Additional environment variables to pass to container
             
         Returns:
             True if container is running successfully
@@ -233,7 +235,8 @@ class ContainerManager:
                 remove_existing=True,
                 debug=debug,
                 config_path=config_path,
-                live=live
+                live=live,
+                extra_env=extra_env
             )
             
             if not success:

@@ -20,7 +20,8 @@ def prepare_devcontainer_environment(
     container_workspace_name: str,
     git_remote_url: str = "",
     debug: bool = False,
-    live: bool = False
+    live: bool = False,
+    extra_env: Optional[dict] = None
 ) -> dict:
     """Prepare environment variables for devcontainer operations.
     
@@ -32,6 +33,7 @@ def prepare_devcontainer_environment(
         git_remote_url: Git remote URL (optional)
         debug: Whether debug mode is enabled
         live: Whether to use live mode (mount current directory)
+        extra_env: Additional environment variables to pass to container
         
     Returns:
         Dictionary of environment variables
@@ -78,6 +80,10 @@ def prepare_devcontainer_environment(
     # Pass through GH_TOKEN if available (for GitHub authentication)
     if 'GH_TOKEN' in os.environ:
         env['GH_TOKEN'] = os.environ['GH_TOKEN']
+    
+    # Merge in any extra environment variables
+    if extra_env:
+        env.update(extra_env)
     
     return env
 
@@ -163,7 +169,8 @@ class DevContainerCLI:
         remove_existing: bool = True,
         debug: bool = False,
         config_path: Optional[Path] = None,
-        live: bool = False
+        live: bool = False,
+        extra_env: Optional[dict] = None
     ) -> bool:
         """Start a devcontainer.
         
@@ -178,6 +185,7 @@ class DevContainerCLI:
             debug: Whether to show debug output
             config_path: Optional path to external devcontainer config directory
             live: Whether to use live mode (mount current directory)
+            extra_env: Additional environment variables to pass to container
             
         Returns:
             True if successful
@@ -224,7 +232,8 @@ class DevContainerCLI:
                 container_workspace_name=container_workspace_name,
                 git_remote_url=git_remote_url,
                 debug=debug,
-                live=live
+                live=live,
+                extra_env=extra_env
             )
             
             # Check if GH_TOKEN is configured and warn if missing
