@@ -69,7 +69,14 @@ class TestDispatcher:
                 )
             
             # Create GitHub check run
-            installation_id = str(event.installation.id) if event.installation else None
+            # Safely extract installation ID, handling potential encoding issues
+            installation_id = None
+            try:
+                if event.installation and hasattr(event.installation, 'id') and event.installation.id is not None:
+                    installation_id = str(event.installation.id)
+            except (AttributeError, TypeError, ValueError) as e:
+                logger.warning("Could not extract installation ID", error=str(e))
+                installation_id = None
             check_run_id = await self.github_client.create_check_run(
                 repo=event.repository.full_name,
                 name="devs-ci",
@@ -102,7 +109,15 @@ class TestDispatcher:
             
             # Report results to GitHub
             if check_run_id:
-                installation_id = str(event.installation.id) if event.installation else None
+                # Safely extract installation ID, handling potential encoding issues
+                installation_id = None
+                try:
+                    if event.installation and hasattr(event.installation, 'id') and event.installation.id is not None:
+                        installation_id = str(event.installation.id)
+                except (AttributeError, TypeError, ValueError) as e:
+                    logger.warning("Could not extract installation ID", error=str(e))
+                    installation_id = None
+                
                 await self._report_test_results(
                     event.repository.full_name,
                     check_run_id,
@@ -133,7 +148,15 @@ class TestDispatcher:
             
             # Report failure to GitHub if we created a check run
             if check_run_id:
-                installation_id = str(event.installation.id) if event.installation else None
+                # Safely extract installation ID, handling potential encoding issues
+                installation_id = None
+                try:
+                    if event.installation and hasattr(event.installation, 'id') and event.installation.id is not None:
+                        installation_id = str(event.installation.id)
+                except (AttributeError, TypeError, ValueError) as e:
+                    logger.warning("Could not extract installation ID", error=str(e))
+                    installation_id = None
+                
                 await self.github_client.complete_check_run_failure(
                     repo=event.repository.full_name,
                     check_run_id=check_run_id,

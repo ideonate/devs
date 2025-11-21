@@ -684,14 +684,30 @@ class ContainerPool:
                 # Check result based on exit code
                 if process.returncode == 0:
                     # Success - task completed
+                    stdout_content = stdout.decode('utf-8', errors='replace') if stdout else ''
+                    stderr_content = stderr.decode('utf-8', errors='replace') if stderr else ''
+                    
                     logger.info("Subprocess task completed successfully",
                                task_id=queued_task.task_id,
                                container=dev_name,
                                return_code=process.returncode)
                     
+                    # Log stdout and stderr for debugging (even on success)
+                    if stdout_content:
+                        logger.info("Subprocess stdout",
+                                   task_id=queued_task.task_id,
+                                   container=dev_name,
+                                   stdout=stdout_content[:2000])  # First 2000 chars
+                    
+                    if stderr_content:
+                        logger.info("Subprocess stderr",
+                                   task_id=queued_task.task_id, 
+                                   container=dev_name,
+                                   stderr=stderr_content[:2000])  # First 2000 chars
+                    
                     # Try to extract Claude's output from JSON if possible (for logging)
                     try:
-                        result_data = json.loads(stdout.decode('utf-8'))
+                        result_data = json.loads(stdout_content)
                         output_preview = result_data.get('output', '')[:200]
                         logger.info("Task output preview",
                                    task_id=queued_task.task_id,
@@ -718,6 +734,19 @@ class ContainerPool:
                                 container=dev_name,
                                 return_code=process.returncode,
                                 error=error_msg)
+                    
+                    # Log stdout and stderr for debugging
+                    if stdout_content:
+                        logger.error("Subprocess stdout",
+                                    task_id=queued_task.task_id,
+                                    container=dev_name,
+                                    stdout=stdout_content[:2000])  # First 2000 chars
+                    
+                    if stderr_content:
+                        logger.error("Subprocess stderr", 
+                                    task_id=queued_task.task_id,
+                                    container=dev_name,
+                                    stderr=stderr_content[:2000])  # First 2000 chars
                     
                     # Post error to GitHub with both stdout and stderr
                     error_details = f"Task processing failed with exit code {process.returncode}\n\n"
