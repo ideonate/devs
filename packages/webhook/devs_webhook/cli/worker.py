@@ -98,8 +98,9 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, task_typ
         event_data = payload.get('event')
         devs_options_data = payload.get('devs_options')
         
-        if not task_description:
-            raise ValueError("task_description required in stdin JSON")
+        # task_description is only required for claude tasks, not for tests
+        if task_type == 'claude' and not task_description:
+            raise ValueError("task_description required in stdin JSON for claude tasks")
         if not event_data:
             raise ValueError("event required in stdin JSON")
         
@@ -164,7 +165,7 @@ def _process_task_subprocess(
     dev_name: str, 
     repo_name: str,
     repo_path: Path,
-    task_description: str,
+    task_description: Optional[str],
     event,
     devs_options,
     task_type: str = 'claude'
@@ -176,7 +177,7 @@ def _process_task_subprocess(
         dev_name: Name of container to execute in
         repo_name: Repository name (owner/repo)
         repo_path: Path to repository on host
-        task_description: Task description for Claude (unused for tests)
+        task_description: Task description for Claude (unused for tests, can be None for test tasks)
         event: WebhookEvent instance
         devs_options: DevsOptions instance
         task_type: Task type ('claude' or 'tests')
@@ -235,6 +236,10 @@ def _process_task_subprocess(
                        task_id=task_id,
                        dev_name=dev_name,
                        workspace_name=workspace_name)
+            
+            # Ensure task_description is provided for Claude tasks
+            if not task_description:
+                raise ValueError("task_description is required for Claude tasks")
             
             # Execute Claude task
             result = asyncio.run(dispatcher.execute_task(
