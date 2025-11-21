@@ -349,6 +349,68 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: t
         sys.exit(1)
 
 
+@cli.command()
+@click.argument('dev_name')
+@click.option('--command', default='runtests.sh', help='Test command to run (default: runtests.sh)')
+@click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
+@click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
+@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
+@debug_option
+def runtests(dev_name: str, command: str, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
+    """Run tests in devcontainer.
+    
+    DEV_NAME: Development environment name
+    
+    Example: devs runtests sally
+    Example: devs runtests sally --command "npm test"
+    Example: devs runtests sally --reset-workspace
+    Example: devs runtests sally --live  # Run with current directory
+    Example: devs runtests sally --env NODE_ENV=test
+    """
+    check_dependencies()
+    project = get_project()
+    
+    # Parse environment variables
+    extra_env = parse_env_vars(env) if env else None
+    if extra_env:
+        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
+    
+    container_manager = ContainerManager(project, config)
+    workspace_manager = WorkspaceManager(project, config)
+    
+    try:
+        # Ensure workspace exists (handles live mode and reset internally)
+        workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
+        # Ensure container is running
+        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
+        
+        # Execute test command
+        console.print(f"🧪 Running tests in {dev_name}...")
+        if reset_workspace and not live:
+            console.print("🗑️  Workspace contents reset")
+        console.print(f"🔧 Command: {command}")
+        console.print("")
+        
+        success, output, error = container_manager.exec_command(
+            dev_name, workspace_dir, command, debug=debug, stream=True, live=live
+        )
+        
+        console.print("")  # Add spacing after streamed output
+        if success:
+            console.print("✅ Tests completed successfully")
+        else:
+            console.print("❌ Tests failed")
+            if error:
+                console.print("")
+                console.print("🚫 Error:")
+                console.print(error)
+            sys.exit(1)
+        
+    except (ContainerError, WorkspaceError) as e:
+        console.print(f"❌ Error running tests in {dev_name}: {e}")
+        sys.exit(1)
+
+
 @cli.command('claude-auth')
 @click.option('--api-key', help='Claude API key to authenticate with')
 @debug_option
