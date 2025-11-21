@@ -6,7 +6,7 @@ import structlog
 from ..config import get_config
 from ..github.parser import WebhookParser
 from ..github.client import GitHubClient
-from ..github.models import IssueEvent, PullRequestEvent, CommentEvent
+from ..github.models import IssueEvent, PullRequestEvent, CommentEvent, DevsOptions
 from .container_pool import ContainerPool
 from .deduplication import is_duplicate_content, get_cache_stats
 
@@ -128,13 +128,29 @@ class WebhookHandler:
                               event_type=type(event).__name__)
                 return
             
-            # Check if we should process this event
-            if not WebhookParser.should_process_event(event, self.config.github_mentioned_user):
-                logger.info("Event does not contain target mentions",
+            # Load repository configuration to check for CI mode
+            devs_options = await self._load_devs_options(event.repository.full_name)
+            
+            # Check if we should process this event for CI
+            process_for_ci = WebhookParser.should_process_event_for_ci(event, devs_options)
+            
+            # Check if we should process this event for mentions
+            process_for_mentions = WebhookParser.should_process_event(event, self.config.github_mentioned_user)
+            
+            # Skip if neither CI nor mentions apply
+            if not process_for_ci and not process_for_mentions:
+                logger.info("Event does not trigger CI or contain target mentions",
                            event_type=type(event).__name__,
                            mentioned_user=self.config.github_mentioned_user,
+                           ci_enabled=devs_options.ci_enabled if devs_options else False,
                            delivery_id=delivery_id)
                 return
+            
+            logger.info("Event processing mode determined",
+                       event_type=type(event).__name__,
+                       process_for_ci=process_for_ci,
+                       process_for_mentions=process_for_mentions,
+                       delivery_id=delivery_id)
             
             # Check for duplicate content
             content_hash = event.get_content_hash()
@@ -160,26 +176,63 @@ class WebhookHandler:
                        action=event.action,
                        delivery_id=delivery_id)
             
-            # Get context from the event for Claude
-            task_description = event.get_context_for_claude()
+            tasks_queued = []
             
-            # Queue the task in the container pool
-            success = await self.container_pool.queue_task(
-                task_id=delivery_id,
-                repo_name=event.repository.full_name,
-                task_description=task_description,
-                event=event
-            )
-            
-            if success:
-                logger.info("Task queued successfully",
-                           delivery_id=delivery_id,
-                           repo=event.repository.full_name)
+            # Queue CI task if applicable
+            if process_for_ci:
+                ci_task_id = f"{delivery_id}-ci"
+                ci_success = await self.container_pool.queue_task(
+                    task_id=ci_task_id,
+                    repo_name=event.repository.full_name,
+                    task_description="",  # Not used for CI tasks
+                    event=event,
+                    task_type='tests'
+                )
                 
-                # Try to add "eyes" reaction to indicate we're looking into it
-                await self._add_eyes_reaction(event, event.repository.full_name)
+                if ci_success:
+                    tasks_queued.append("CI tests")
+                    logger.info("CI task queued successfully",
+                               delivery_id=ci_task_id,
+                               repo=event.repository.full_name)
+                else:
+                    logger.error("Failed to queue CI task",
+                                delivery_id=ci_task_id,
+                                repo=event.repository.full_name)
+            
+            # Queue mention-based task if applicable
+            if process_for_mentions:
+                # Get context from the event for Claude
+                task_description = event.get_context_for_claude()
+                
+                mention_task_id = f"{delivery_id}-claude" if process_for_ci else delivery_id
+                mention_success = await self.container_pool.queue_task(
+                    task_id=mention_task_id,
+                    repo_name=event.repository.full_name,
+                    task_description=task_description,
+                    event=event,
+                    task_type='claude'
+                )
+                
+                if mention_success:
+                    tasks_queued.append("Claude processing")
+                    logger.info("Claude task queued successfully",
+                               delivery_id=mention_task_id,
+                               repo=event.repository.full_name)
+                    
+                    # Try to add "eyes" reaction to indicate we're looking into it
+                    await self._add_eyes_reaction(event, event.repository.full_name)
+                else:
+                    logger.error("Failed to queue Claude task",
+                                delivery_id=mention_task_id,
+                                repo=event.repository.full_name)
+            
+            if tasks_queued:
+                logger.info("Tasks queued successfully",
+                           delivery_id=delivery_id,
+                           repo=event.repository.full_name,
+                           tasks=tasks_queued)
             else:
-                logger.error("Failed to queue task",
+                logger.error("Failed to queue any tasks",
                             delivery_id=delivery_id,
                             repo=event.repository.full_name)
             
@@ -216,3 +269,23 @@ class WebhookHandler:
     async def list_containers(self) -> Dict[str, Any]:
         """List all managed containers."""
         return await self.container_pool.get_status()
+    
+    async def _load_devs_options(self, repo_name: str) -> Optional[DevsOptions]:
+        """Load DEVS.yml configuration for a repository.
+        
+        Args:
+            repo_name: Repository name in format "owner/repo"
+            
+        Returns:
+            DevsOptions instance or None if not found
+        """
+        try:
+            # Use container pool's method to load devs options
+            # This will clone the repo if needed and read DEVS.yml
+            devs_options = await self.container_pool._ensure_repository_cloned(repo_name)
+            return devs_options
+        except Exception as e:
+            logger.warning("Failed to load DEVS.yml configuration",
+                          repo=repo_name,
+                          error=str(e))
+            return None

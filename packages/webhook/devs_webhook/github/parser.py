@@ -2,7 +2,7 @@
 
 import json
 from typing import Optional, Dict, Any
-from .models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent
+from .models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent, PushEvent
 
 
 class WebhookParser:
@@ -31,6 +31,8 @@ class WebhookParser:
                 return WebhookParser._parse_issue_comment_event(data)
             elif event_type == "pull_request_review_comment":
                 return WebhookParser._parse_pr_comment_event(data)
+            elif event_type == "push":
+                return WebhookParser._parse_push_event(data)
             else:
                 # Unsupported event type
                 return None
@@ -78,6 +80,25 @@ class WebhookParser:
             sender=data["sender"],
             comment=data["comment"],
             pull_request=data.get("pull_request")  # Present for PR comments
+        )
+    
+    @staticmethod
+    def _parse_push_event(data: Dict[str, Any]) -> PushEvent:
+        """Parse a push webhook event."""
+        return PushEvent(
+            action="pushed",  # Push events don't have an action field, so we set a default
+            repository=data["repository"],
+            sender=data["sender"],
+            ref=data["ref"],
+            before=data["before"],
+            after=data["after"],
+            created=data.get("created", False),
+            deleted=data.get("deleted", False),
+            forced=data.get("forced", False),
+            base_ref=data.get("base_ref"),
+            compare=data.get("compare", ""),
+            commits=data.get("commits", []),
+            head_commit=data.get("head_commit")
         )
     
     @staticmethod
@@ -237,4 +258,63 @@ class WebhookParser:
                    should_process=len(mentions) > 0)
         
         return len(mentions) > 0
+    
+    @staticmethod
+    def should_process_event_for_ci(event: WebhookEvent, devs_options) -> bool:
+        """Check if an event should be processed for CI mode.
+        
+        Args:
+            event: Parsed webhook event
+            devs_options: DevsOptions configuration for the repository
+            
+        Returns:
+            True if the event should trigger CI processing
+        """
+        import structlog
+        logger = structlog.get_logger()
+        
+        # CI must be enabled in repository configuration
+        if not devs_options or not devs_options.ci_enabled:
+            logger.info("CI not enabled for repository", repo=event.repository.full_name)
+            return False
+        
+        logger.info("Checking if event should trigger CI",
+                   event_type=type(event).__name__,
+                   action=event.action,
+                   repo=event.repository.full_name)
+        
+        # Handle pull request events for CI
+        if isinstance(event, PullRequestEvent):
+            # Process PR opened, synchronize (new commits), reopened
+            ci_pr_actions = ["opened", "synchronize", "reopened"]
+            should_process = event.action in ci_pr_actions
+            
+            logger.info("PR event CI check",
+                       action=event.action,
+                       ci_pr_actions=ci_pr_actions,
+                       should_process=should_process)
+            
+            return should_process
+        
+        # Handle push events for CI
+        elif isinstance(event, PushEvent):
+            # Only process pushes to configured branches
+            # Extract branch name from ref (refs/heads/main -> main)
+            branch = event.ref.replace('refs/heads/', '') if event.ref.startswith('refs/heads/') else event.ref
+            
+            # Check if branch is in CI configuration
+            ci_branches = devs_options.ci_branches or ["main", "master"]
+            should_process = branch in ci_branches
+            
+            logger.info("Push event CI check",
+                       branch=branch,
+                       ci_branches=ci_branches,
+                       should_process=should_process)
+            
+            return should_process
+        
+        # Other event types don't trigger CI
+        logger.info("Event type does not trigger CI",
+                   event_type=type(event).__name__)
+        return False
     

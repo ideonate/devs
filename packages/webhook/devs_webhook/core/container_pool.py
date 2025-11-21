@@ -30,6 +30,7 @@ class QueuedTask(NamedTuple):
     repo_name: str
     task_description: str
     event: WebhookEvent
+    task_type: str = 'claude'
 
 
 
@@ -133,6 +134,7 @@ class ContainerPool:
         repo_name: str,
         task_description: str,
         event: WebhookEvent,
+        task_type: str = 'claude'
     ) -> bool:
         """Queue a task for execution in the next available container.
         
@@ -143,8 +145,9 @@ class ContainerPool:
         Args:
             task_id: Unique task identifier
             repo_name: Repository name (owner/repo)
-            task_description: Task description for Claude
+            task_description: Task description for Claude (unused for tests)
             event: Original webhook event
+            task_type: Task type ('claude' or 'tests')
             
         Returns:
             True if task was queued successfully
@@ -188,6 +191,7 @@ class ContainerPool:
                 repo_name=repo_name,
                 task_description=task_description,
                 event=event,
+                task_type=task_type
             )
             
             # Add to queue
@@ -327,6 +331,7 @@ class ContainerPool:
                 "--dev-name", dev_name,
                 "--repo-name", repo_name,
                 "--repo-path", str(repo_path),
+                "--task-type", queued_task.task_type,
                 "--timeout", str(3600)  # 60 minute timeout
             ]
             

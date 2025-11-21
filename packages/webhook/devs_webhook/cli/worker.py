@@ -15,6 +15,7 @@ from devs_common.core.project import Project
 
 from ..config import get_config
 from ..core.claude_dispatcher import ClaudeDispatcher
+from ..core.test_dispatcher import TestDispatcher
 from ..github.models import AnyWebhookEvent, DevsOptions
 
 logger = structlog.get_logger()
@@ -25,8 +26,9 @@ logger = structlog.get_logger()
 @click.option('--dev-name', required=True, help='Development container name')
 @click.option('--repo-name', required=True, help='Repository name (owner/repo)')
 @click.option('--repo-path', required=True, help='Path to repository on host')
+@click.option('--task-type', default='claude', help='Task type: claude or tests (default: claude)')
 @click.option('--timeout', default=3600, help='Task timeout in seconds (default: 3600)')
-def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, timeout: int):
+def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, task_type: str, timeout: int):
     """Process a single webhook task in an isolated subprocess.
     
     This command runs the complete task processing logic in a separate process to provide
@@ -121,7 +123,8 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, timeout:
             repo_path=Path(repo_path),
             task_description=task_description,
             event=event,
-            devs_options=parsed_devs_options
+            devs_options=parsed_devs_options,
+            task_type=task_type
         )
         
         # Output result as JSON to stdout
@@ -163,7 +166,8 @@ def _process_task_subprocess(
     repo_path: Path,
     task_description: str,
     event,
-    devs_options
+    devs_options,
+    task_type: str = 'claude'
 ) -> dict:
     """Process a single task in subprocess (extracted from ContainerPool._process_task).
     
@@ -172,9 +176,10 @@ def _process_task_subprocess(
         dev_name: Name of container to execute in
         repo_name: Repository name (owner/repo)
         repo_path: Path to repository on host
-        task_description: Task description for Claude
+        task_description: Task description for Claude (unused for tests)
         event: WebhookEvent instance
         devs_options: DevsOptions instance
+        task_type: Task type ('claude' or 'tests')
         
     Returns:
         Dict with 'success', 'output', and optionally 'error' keys
@@ -183,7 +188,8 @@ def _process_task_subprocess(
                task_id=task_id,
                dev_name=dev_name,
                repo_name=repo_name,
-               repo_path=str(repo_path))
+               repo_path=str(repo_path),
+               task_type=task_type)
     
     try:
         # Verify repository exists (should already be cloned by container_pool)
@@ -194,7 +200,8 @@ def _process_task_subprocess(
         logger.info("Creating project instance",
                    task_id=task_id,
                    dev_name=dev_name,
-                   repo_path=str(repo_path))
+                   repo_path=str(repo_path),
+                   task_type=task_type)
         
         project = Project(repo_path)
         workspace_name = project.get_workspace_name(dev_name)
@@ -203,25 +210,40 @@ def _process_task_subprocess(
                    task_id=task_id,
                    dev_name=dev_name,
                    project_name=project.info.name,
-                   workspace_name=workspace_name)
+                   workspace_name=workspace_name,
+                   task_type=task_type)
         
-        # Initialize dispatcher
-        claude_dispatcher = ClaudeDispatcher()
-        
-        logger.info("Executing task with Claude dispatcher",
-                   task_id=task_id,
-                   dev_name=dev_name,
-                   workspace_name=workspace_name)
-        
-        # Execute the task (this is where Docker operations happen in isolation)
-        # Note: execute_task is still async, so we need to run it in the subprocess event loop
-        result = asyncio.run(claude_dispatcher.execute_task(
-            dev_name=dev_name,
-            repo_path=repo_path,
-            task_description=task_description,
-            event=event,
-            devs_options=devs_options
-        ))
+        # Initialize appropriate dispatcher based on task type
+        if task_type == 'tests':
+            dispatcher = TestDispatcher()
+            logger.info("Executing task with Test dispatcher",
+                       task_id=task_id,
+                       dev_name=dev_name,
+                       workspace_name=workspace_name)
+            
+            # Execute tests
+            result = asyncio.run(dispatcher.execute_tests(
+                dev_name=dev_name,
+                repo_path=repo_path,
+                event=event,
+                devs_options=devs_options
+            ))
+        else:
+            # Default to Claude execution
+            dispatcher = ClaudeDispatcher()
+            logger.info("Executing task with Claude dispatcher",
+                       task_id=task_id,
+                       dev_name=dev_name,
+                       workspace_name=workspace_name)
+            
+            # Execute Claude task
+            result = asyncio.run(dispatcher.execute_task(
+                dev_name=dev_name,
+                repo_path=repo_path,
+                task_description=task_description,
+                event=event,
+                devs_options=devs_options
+            ))
         
         if result.success:
             logger.info("Task execution completed successfully",
