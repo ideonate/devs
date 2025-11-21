@@ -703,7 +703,7 @@ class ContainerPool:
                         logger.info("Subprocess stderr",
                                    task_id=queued_task.task_id, 
                                    container=dev_name,
-                                   stderr=stderr_content[:2000])  # First 2000 chars
+                                   stderr=stderr_content[:8000])  # First 8000 chars for debugging
                     
                     # Try to extract Claude's output from JSON if possible (for logging)
                     try:
