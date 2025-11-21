@@ -6,6 +6,7 @@ import subprocess
 from functools import wraps
 
 import click
+import yaml
 from rich.console import Console
 from rich.table import Table
 
@@ -61,11 +62,6 @@ def load_devs_env_vars(dev_name: str) -> dict:
     Returns:
         Dictionary of environment variables from DEVS.yml files
     """
-    try:
-        import yaml
-    except ImportError:
-        console.print("⚠️  Warning: PyYAML not installed, cannot load DEVS.yml env vars")
-        return {}
     
     result = {}
     
