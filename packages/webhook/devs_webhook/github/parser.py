@@ -50,11 +50,13 @@ class WebhookParser:
     @staticmethod
     def _parse_issue_event(data: Dict[str, Any]) -> IssueEvent:
         """Parse an issue webhook event."""
+        # Ensure installation data is included if present
         return IssueEvent(**data)
     
     @staticmethod
     def _parse_pull_request_event(data: Dict[str, Any]) -> PullRequestEvent:
         """Parse a pull request webhook event."""
+        # Ensure installation data is included if present
         return PullRequestEvent(**data)
     
     @staticmethod
@@ -68,7 +70,8 @@ class WebhookParser:
             repository=data["repository"],
             sender=data["sender"],
             comment=data["comment"],
-            issue=issue_data  # Keep as issue, detect PR in logic
+            issue=issue_data,  # Keep as issue, detect PR in logic
+            installation=data.get("installation")  # Include installation if present
         )
     
     @staticmethod
@@ -79,7 +82,8 @@ class WebhookParser:
             repository=data["repository"], 
             sender=data["sender"],
             comment=data["comment"],
-            pull_request=data.get("pull_request")  # Present for PR comments
+            pull_request=data.get("pull_request"),  # Present for PR comments
+            installation=data.get("installation")  # Include installation if present
         )
     
     @staticmethod
@@ -89,6 +93,7 @@ class WebhookParser:
             action="pushed",  # Push events don't have an action field, so we set a default
             repository=data["repository"],
             sender=data["sender"],
+            installation=data.get("installation"),  # Include installation if present
             ref=data["ref"],
             before=data["before"],
             after=data["after"],

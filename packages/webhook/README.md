@@ -334,6 +334,94 @@ The webhook handler automatically detects and uses these settings when processin
 | `WEBHOOK_HOST`              | `0.0.0.0`                    | Server host                              |
 | `WEBHOOK_PORT`              | `8000`                       | Server port                              |
 
+### GitHub App Authentication (Optional)
+
+For enhanced GitHub Checks API support, you can optionally configure GitHub App authentication. This provides better permissions and rate limits for API operations, especially when using the Checks API to report test results.
+
+#### When to Use GitHub App Authentication
+
+- **Enhanced Checks API**: GitHub Apps have better permissions for creating and updating check runs
+- **Better Rate Limits**: GitHub Apps get higher API rate limits
+- **Organization Repositories**: Required for some organization-level permissions
+- **Better Security**: App-based authentication is more secure than personal tokens
+
+If GitHub App authentication is not configured, the webhook will fall back to personal token authentication.
+
+#### Setting Up a GitHub App
+
+1. **Create a GitHub App**:
+   - Go to GitHub Settings → Developer settings → GitHub Apps
+   - Click "New GitHub App"
+   - Fill in the app details:
+     - **App name**: `devs-webhook-your-org`
+     - **Homepage URL**: Your webhook server URL
+     - **Webhook URL**: `https://your-domain.com/webhook`
+     - **Webhook secret**: Use your `GITHUB_WEBHOOK_SECRET`
+
+2. **Configure Permissions**:
+   - **Repository permissions**:
+     - Contents: Read & Write
+     - Issues: Read & Write
+     - Pull requests: Read & Write
+     - Checks: Write
+     - Metadata: Read
+   - **Subscribe to events**:
+     - Issues
+     - Pull request
+     - Issue comments
+     - Pull request reviews
+     - Push (for CI features)
+
+3. **Generate Private Key**:
+   - In the app settings, scroll down to "Private keys"
+   - Click "Generate a private key"
+   - Download the `.pem` file
+
+4. **Install the App**:
+   - Go to the app's public page or your organization/account settings
+   - Install the app on the repositories you want to use
+   - Note the installation ID from the URL (e.g., `/installations/12345`)
+
+#### Configuration
+
+Add these environment variables to enable GitHub App authentication:
+
+```bash
+# GitHub App authentication (optional)
+export GITHUB_APP_ID="123456"
+export GITHUB_APP_PRIVATE_KEY="/path/to/private-key.pem"
+export GITHUB_APP_INSTALLATION_ID="12345"  # Optional, can be auto-discovered
+
+# Or provide private key content directly
+export GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEA...
+-----END RSA PRIVATE KEY-----"
+```
+
+#### Environment Variables for GitHub App
+
+| Variable                    | Default      | Description                              |
+| --------------------------- | ------------ | ---------------------------------------- |
+| `GITHUB_APP_ID`            | (empty)      | GitHub App ID (e.g., 123456)            |
+| `GITHUB_APP_PRIVATE_KEY`   | (empty)      | Private key content or path to .pem file |
+| `GITHUB_APP_INSTALLATION_ID` | (empty)    | Installation ID (auto-discovered if empty) |
+
+#### How It Works
+
+When GitHub App authentication is configured:
+
+1. **Checks API Operations**: The webhook will use GitHub App authentication for creating and updating check runs, providing better permissions and reliability
+2. **Fallback Behavior**: If GitHub App authentication fails, the webhook automatically falls back to personal token authentication  
+3. **Auto-Discovery**: If `GITHUB_APP_INSTALLATION_ID` is not provided, the webhook will automatically discover the installation ID for each repository
+4. **Selective Usage**: GitHub App auth is only used when beneficial (like Checks API), while other operations may still use personal tokens
+
+#### Troubleshooting GitHub App Setup
+
+- **"Installation not found"**: Ensure the app is installed on the repository
+- **"Invalid private key"**: Verify the private key format and content
+- **"Permission denied"**: Check the app has required permissions (Contents, Issues, Pull requests, Checks)
+- **"App authentication failed"**: Verify the App ID and private key are correct
+
 ## Deployment
 
 ### Local Development

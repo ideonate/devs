@@ -20,7 +20,8 @@ class WebhookHandler:
         """Initialize webhook handler."""
         self.config = get_config()
         self.container_pool = ContainerPool()
-        self.github_client = GitHubClient(self.config.github_token)
+        
+        self.github_client = GitHubClient(self.config)
         
         logger.info("Webhook handler initialized", 
                    mentioned_user=self.config.github_mentioned_user,

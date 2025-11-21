@@ -7,6 +7,12 @@ from pydantic import BaseModel, Field, Discriminator, Tag
 from datetime import datetime
 
 
+class GitHubInstallation(BaseModel):
+    """GitHub App installation model."""
+    id: int
+    account: Optional[Dict[str, Any]] = None
+
+
 class GitHubUser(BaseModel):
     """GitHub user model."""
     login: str
@@ -80,6 +86,7 @@ class WebhookEvent(BaseModel):
     action: str
     repository: GitHubRepository
     sender: GitHubUser
+    installation: Optional[GitHubInstallation] = None
     is_test: bool = Field(default=False, description="Indicates if this is a test event")
     
     def extract_mentions(self, target_user: str) -> List[str]:

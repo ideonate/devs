@@ -18,7 +18,8 @@ class RepositoryManager:
     def __init__(self):
         """Initialize repository manager."""
         self.config = get_config()
-        self.github_client = GitHubClient(self.config.github_token)
+        
+        self.github_client = GitHubClient(self.config)
         
         # Track repository status
         self.repo_locks: Dict[str, asyncio.Lock] = {}

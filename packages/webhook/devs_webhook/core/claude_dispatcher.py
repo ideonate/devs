@@ -27,7 +27,8 @@ class ClaudeDispatcher:
     def __init__(self):
         """Initialize Claude dispatcher."""
         self.config = get_config()
-        self.github_client = GitHubClient(self.config.github_token)
+        
+        self.github_client = GitHubClient(self.config)
         
         logger.info("Claude dispatcher initialized")
     

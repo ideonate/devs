@@ -6,7 +6,7 @@ import os
 import shutil
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, Set, Any, NamedTuple
+from typing import Dict, Optional, Any, NamedTuple
 from pathlib import Path
 import structlog
 import yaml
@@ -16,7 +16,6 @@ from devs_common.core.container import ContainerManager
 from devs_common.core.workspace import WorkspaceManager
 
 from ..config import get_config
-from .webhook_config import WebhookConfig
 from ..github.models import WebhookEvent, DevsOptions, IssueEvent, PullRequestEvent, CommentEvent
 from .claude_dispatcher import ClaudeDispatcher, TaskResult
 from ..github.client import GitHubClient
@@ -959,7 +958,7 @@ class ContainerPool:
                 return
             
             # Create GitHub client
-            github_client = GitHubClient(self.config.github_token)
+            github_client = GitHubClient(self.config)
             
             # Build error comment
             comment = f"""I encountered an error while processing your request:

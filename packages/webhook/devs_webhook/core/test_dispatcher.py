@@ -28,7 +28,8 @@ class TestDispatcher:
     def __init__(self):
         """Initialize test dispatcher."""
         self.config = get_config()
-        self.github_client = GitHubClient(self.config.github_token)
+        
+        self.github_client = GitHubClient(self.config)
         
         logger.info("Test dispatcher initialized")
     
@@ -68,11 +69,13 @@ class TestDispatcher:
                 )
             
             # Create GitHub check run
+            installation_id = str(event.installation.id) if event.installation else None
             check_run_id = await self.github_client.create_check_run(
                 repo=event.repository.full_name,
                 name="devs-ci",
                 head_sha=commit_sha,
-                status="in_progress"
+                status="in_progress",
+                installation_id=installation_id
             )
             
             if check_run_id:
@@ -99,10 +102,12 @@ class TestDispatcher:
             
             # Report results to GitHub
             if check_run_id:
+                installation_id = str(event.installation.id) if event.installation else None
                 await self._report_test_results(
                     event.repository.full_name,
                     check_run_id,
-                    result
+                    result,
+                    installation_id
                 )
             
             if result.success:
@@ -128,11 +133,13 @@ class TestDispatcher:
             
             # Report failure to GitHub if we created a check run
             if check_run_id:
+                installation_id = str(event.installation.id) if event.installation else None
                 await self.github_client.complete_check_run_failure(
                     repo=event.repository.full_name,
                     check_run_id=check_run_id,
                     title="Test execution failed",
-                    summary=f"An error occurred during test execution: {error_msg}"
+                    summary=f"An error occurred during test execution: {error_msg}",
+                    installation_id=installation_id
                 )
             
             return TestResult(success=False, output="", error=error_msg)
@@ -262,7 +269,8 @@ class TestDispatcher:
         self,
         repo_name: str,
         check_run_id: int,
-        result: TestResult
+        result: TestResult,
+        installation_id: Optional[str] = None
     ) -> None:
         """Report test results to GitHub via Checks API.
         
@@ -270,6 +278,7 @@ class TestDispatcher:
             repo_name: Repository name (owner/repo)
             check_run_id: GitHub check run ID
             result: Test execution result
+            installation_id: GitHub App installation ID if known from webhook event
         """
         try:
             if result.success:
@@ -277,7 +286,8 @@ class TestDispatcher:
                     repo=repo_name,
                     check_run_id=check_run_id,
                     title="Tests passed",
-                    summary=f"All tests completed successfully (exit code: {result.exit_code})"
+                    summary=f"All tests completed successfully (exit code: {result.exit_code})",
+                    installation_id=installation_id
                 )
                 logger.info("Reported test success to GitHub",
                            repo=repo_name,
@@ -293,7 +303,8 @@ class TestDispatcher:
                     check_run_id=check_run_id,
                     title="Tests failed",
                     summary=f"Tests failed with exit code: {result.exit_code}",
-                    text=error_text
+                    text=error_text,
+                    installation_id=installation_id
                 )
                 logger.info("Reported test failure to GitHub",
                            repo=repo_name,
