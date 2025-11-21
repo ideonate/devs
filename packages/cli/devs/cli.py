@@ -47,6 +47,101 @@ def parse_env_vars(env_tuples: tuple) -> dict:
     return env_dict
 
 
+def load_devs_env_vars(dev_name: str) -> dict:
+    """Load environment variables from DEVS.yml for a specific dev environment.
+    
+    Loads from multiple sources in priority order:
+    1. ~/.devs/envs/{org-repo}/DEVS.yml (user-specific overrides)
+    2. ~/.devs/envs/default/DEVS.yml (user defaults)
+    3. {project-root}/DEVS.yml (repository configuration)
+    
+    Args:
+        dev_name: Development environment name
+        
+    Returns:
+        Dictionary of environment variables from DEVS.yml files
+    """
+    try:
+        import yaml
+    except ImportError:
+        console.print("⚠️  Warning: PyYAML not installed, cannot load DEVS.yml env vars")
+        return {}
+    
+    result = {}
+    
+    def _load_env_vars_from_file(file_path: Path) -> dict:
+        """Load env_vars section from a DEVS.yml file."""
+        if not file_path.exists():
+            return {}
+        
+        try:
+            with open(file_path, 'r') as f:
+                data = yaml.safe_load(f)
+            
+            if not data or 'env_vars' not in data:
+                return {}
+            
+            env_vars = data['env_vars']
+            
+            # Start with defaults
+            env_result = env_vars.get('default', {}).copy()
+            
+            # Apply container-specific overrides
+            if dev_name in env_vars:
+                env_result.update(env_vars[dev_name])
+            
+            return env_result
+            
+        except Exception as e:
+            console.print(f"⚠️  Warning: Failed to parse {file_path} env_vars: {e}")
+            return {}
+    
+    # 1. Load repository DEVS.yml (lowest priority)
+    repo_devs_yml = Path.cwd() / "DEVS.yml"
+    result.update(_load_env_vars_from_file(repo_devs_yml))
+    
+    # 2. Load user default DEVS.yml
+    user_envs_dir = Path.home() / ".devs" / "envs"
+    default_devs_yml = user_envs_dir / "default" / "DEVS.yml"
+    result.update(_load_env_vars_from_file(default_devs_yml))
+    
+    # 3. Load user project-specific DEVS.yml (highest priority)
+    try:
+        from .core import Project
+        project = Project()
+        project_name = project.info.name  # This gives us the org-repo format
+        project_devs_yml = user_envs_dir / project_name / "DEVS.yml"
+        result.update(_load_env_vars_from_file(project_devs_yml))
+    except Exception:
+        # If we can't detect the project name, skip project-specific overrides
+        pass
+    
+    return result
+
+
+def merge_env_vars(devs_env: dict, cli_env: dict) -> dict:
+    """Merge environment variables with CLI taking priority over DEVS.yml.
+    
+    Args:
+        devs_env: Environment variables from DEVS.yml
+        cli_env: Environment variables from CLI --env flags
+        
+    Returns:
+        Merged environment variables with CLI overrides applied
+    """
+    if not devs_env and not cli_env:
+        return {}
+    
+    # Start with DEVS.yml env vars
+    merged = devs_env.copy() if devs_env else {}
+    
+    # CLI env vars take priority
+    if cli_env:
+        merged.update(cli_env)
+    
+    return merged
+
+
 def debug_option(f):
     """Decorator to add debug option and handle debug flag inheritance."""
     @click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
@@ -121,11 +216,6 @@ def start(dev_names: tuple, rebuild: bool, live: bool, env: tuple, debug: bool) 
     check_dependencies()
     project = get_project()
     
-    # Parse environment variables
-    extra_env = parse_env_vars(env) if env else None
-    if extra_env:
-        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
-    
     console.print(f"🚀 Starting devcontainers for project: {project.info.name}")
     
     container_manager = ContainerManager(project, config)
@@ -133,6 +223,14 @@ def start(dev_names: tuple, rebuild: bool, live: bool, env: tuple, debug: bool) 
     
     for dev_name in dev_names:
         console.print(f"   Starting: {dev_name}")
+        
+        # Load environment variables from DEVS.yml and merge with CLI --env flags
+        devs_env = load_devs_env_vars(dev_name)
+        cli_env = parse_env_vars(env) if env else {}
+        extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
+        
+        if extra_env:
+            console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
         
         try:
             # Create/ensure workspace exists (handles live mode internally)
@@ -181,11 +279,6 @@ def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, debug: bool) 
     check_dependencies()
     project = get_project()
     
-    # Parse environment variables
-    extra_env = parse_env_vars(env) if env else None
-    if extra_env:
-        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
-    
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
     vscode = VSCodeIntegration(project)
@@ -195,6 +288,14 @@ def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, debug: bool) 
     
     for dev_name in dev_names:
         console.print(f"   Preparing: {dev_name}")
+        
+        # Load environment variables from DEVS.yml and merge with CLI --env flags
+        devs_env = load_devs_env_vars(dev_name)
+        cli_env = parse_env_vars(env) if env else {}
+        extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
+        
+        if extra_env:
+            console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
         
         try:
             # Ensure workspace exists (handles live mode internally)
@@ -265,8 +366,11 @@ def shell(dev_name: str, live: bool, env: tuple, debug: bool) -> None:
     check_dependencies()
     project = get_project()
     
-    # Parse environment variables
-    extra_env = parse_env_vars(env) if env else None
+    # Load environment variables from DEVS.yml and merge with CLI --env flags
+    devs_env = load_devs_env_vars(dev_name)
+    cli_env = parse_env_vars(env) if env else {}
+    extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
+    
     if extra_env:
         console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
     
@@ -308,8 +412,11 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: t
     check_dependencies()
     project = get_project()
     
-    # Parse environment variables
-    extra_env = parse_env_vars(env) if env else None
+    # Load environment variables from DEVS.yml and merge with CLI --env flags
+    devs_env = load_devs_env_vars(dev_name)
+    cli_env = parse_env_vars(env) if env else {}
+    extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
+    
     if extra_env:
         console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
     
@@ -330,7 +437,7 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: t
         console.print("")
         
         success, output, error = container_manager.exec_claude(
-            dev_name, workspace_dir, prompt, debug=debug, stream=True, live=live
+            dev_name, workspace_dir, prompt, debug=debug, stream=True, live=live, extra_env=extra_env
         )
         
         console.print("")  # Add spacing after streamed output
@@ -370,8 +477,11 @@ def runtests(dev_name: str, command: str, reset_workspace: bool, live: bool, env
     check_dependencies()
     project = get_project()
     
-    # Parse environment variables
-    extra_env = parse_env_vars(env) if env else None
+    # Load environment variables from DEVS.yml and merge with CLI --env flags
+    devs_env = load_devs_env_vars(dev_name)
+    cli_env = parse_env_vars(env) if env else {}
+    extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
+    
     if extra_env:
         console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
     
@@ -392,7 +502,7 @@ def runtests(dev_name: str, command: str, reset_workspace: bool, live: bool, env
         console.print("")
         
         success, output, error = container_manager.exec_command(
-            dev_name, workspace_dir, command, debug=debug, stream=True, live=live
+            dev_name, workspace_dir, command, debug=debug, stream=True, live=live, extra_env=extra_env
         )
         
         console.print("")  # Add spacing after streamed output

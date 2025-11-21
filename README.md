@@ -74,7 +74,58 @@ devs stop sally bob charlie
 - **VS Code Integration**: Open containers in separate VS Code windows with clear titles
 - **Project Isolation**: Containers are prefixed with git repository names
 - **Workspace Isolation**: Each dev environment gets its own workspace copy
+- **Environment Variable Management**: Layered configuration system with user-specific overrides
+- **GitHub Webhook Integration**: Automated CI and Claude Code responses to @mentions
 - **Cross-Platform**: Works on any project with devcontainer configuration
+
+## Configuration
+
+### Environment Variables
+
+devs supports a powerful layered configuration system for environment variables:
+
+```bash
+# Basic usage with repository DEVS.yml
+devs start myenv
+
+# CLI overrides for testing
+devs start myenv --env DEBUG=true --env API_URL=http://localhost:3000
+```
+
+**Configuration priority (highest to lowest):**
+1. CLI `--env` flags
+2. `~/.devs/envs/{org-repo}/DEVS.yml` (user-specific project overrides)
+3. `~/.devs/envs/default/DEVS.yml` (user defaults)
+4. `{project-root}/DEVS.yml` (repository configuration)
+
+**Example DEVS.yml:**
+```yaml
+env_vars:
+  default:
+    NODE_ENV: development
+    API_URL: https://api.example.com
+  
+  myenv:  # Container-specific overrides
+    DEBUG: "true"
+    SPECIAL_FEATURE: "enabled"
+```
+
+**User-specific configuration:**
+```bash
+# Global defaults for all projects
+mkdir -p ~/.devs/envs/default
+echo 'env_vars:
+  default:
+    GLOBAL_SETTING: "user_preference"' > ~/.devs/envs/default/DEVS.yml
+
+# Project-specific overrides (replace "/" with "-" in repo name)
+mkdir -p ~/.devs/envs/myorg-myrepo
+echo 'env_vars:
+  myenv:
+    SECRET_KEY: "user_secret"' > ~/.devs/envs/myorg-myrepo/DEVS.yml
+```
+
+📖 **[See example-usage.md for detailed examples and scenarios](example-usage.md)**
 
 ## Development
 

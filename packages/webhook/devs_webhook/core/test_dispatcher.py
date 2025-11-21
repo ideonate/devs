@@ -172,8 +172,17 @@ class TestDispatcher:
                        container=dev_name,
                        workspace_dir=str(workspace_dir))
             
-            # 3. Ensure container is running
-            if not container_manager.ensure_container_running(dev_name, workspace_dir, debug=self.config.dev_mode):
+            # 3. Ensure container is running with environment variables from DEVS.yml
+            extra_env = None
+            if devs_options:
+                extra_env = devs_options.get_env_vars(dev_name)
+                
+            if not container_manager.ensure_container_running(
+                dev_name, 
+                workspace_dir, 
+                debug=self.config.dev_mode,
+                extra_env=extra_env
+            ):
                 return False, "", f"Failed to start container for {dev_name}", 1
             
             # 4. Checkout appropriate commit if this is a PR or push

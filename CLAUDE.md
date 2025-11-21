@@ -248,6 +248,57 @@ flake8 devs tests      # Linting
   devs start mydev  # Token automatically passed to container
   ```
 
+#### Container Environment Variables
+
+Environment variables can be configured in DEVS.yml files with a layered priority system:
+
+**Priority order (highest to lowest):**
+1. CLI `--env` flags 
+2. `~/.devs/envs/{org-repo}/DEVS.yml` (user-specific project overrides)
+3. `~/.devs/envs/default/DEVS.yml` (user defaults)
+4. `{project-root}/DEVS.yml` (repository configuration)
+
+**DEVS.yml Format:**
+```yaml
+env_vars:
+  default:
+    NODE_ENV: development
+    API_URL: https://api.example.com
+    DEBUG: "false"
+  
+  eamonn:  # Container-specific overrides
+    DEBUG: "true"
+    SPECIAL_FEATURE: "enabled"
+    
+  harry:
+    NODE_ENV: production
+    API_URL: https://prod-api.example.com
+```
+
+**User-Specific Configuration:**
+```bash
+# Global defaults for all projects
+mkdir -p ~/.devs/envs/default
+echo 'env_vars:
+  default:
+    GLOBAL_VAR: "user_default"' > ~/.devs/envs/default/DEVS.yml
+
+# Project-specific overrides  
+mkdir -p ~/.devs/envs/myorg-myrepo
+echo 'env_vars:
+  eamonn:
+    DEBUG: "true"' > ~/.devs/envs/myorg-myrepo/DEVS.yml
+```
+
+**Usage:**
+```bash
+# Environment variables applied automatically
+devs start eamonn  # Gets env vars from DEVS.yml layers
+
+# CLI overrides take highest priority
+devs start eamonn --env DEBUG=false --env NEW_VAR=test
+```
+
 #### Webhook Configuration
 
 **Core Settings**:

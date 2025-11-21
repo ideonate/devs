@@ -505,7 +505,7 @@ class ContainerManager:
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to exec shell in {dev_name}: {e}")
     
-    def exec_command(self, dev_name: str, workspace_dir: Path, command: str, stdin_input: Optional[str] = None, debug: bool = False, stream: bool = True, live: bool = False) -> tuple[bool, str, str]:
+    def exec_command(self, dev_name: str, workspace_dir: Path, command: str, stdin_input: Optional[str] = None, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str]:
         """Execute a command in the container.
         
         Args:
@@ -516,6 +516,7 @@ class ContainerManager:
             debug: Show debug output for devcontainer operations
             stream: Stream output to console in real-time
             live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
             
         Returns:
             Tuple of (success, stdout, stderr)
@@ -544,7 +545,7 @@ class ContainerManager:
                 live = existing_is_live
             
             # Ensure container is running
-            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
+            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
                 raise ContainerError(f"Failed to start container for {dev_name}")
             
             # Only print status messages if not in webhook mode (or if streaming)
@@ -644,7 +645,7 @@ class ContainerManager:
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to exec command in {dev_name}: {e}")
     
-    def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False) -> tuple[bool, str, str]:
+    def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str]:
         """Execute Claude CLI in the container.
         
         Args:
@@ -654,6 +655,7 @@ class ContainerManager:
             debug: Show debug output for devcontainer operations
             stream: Stream output to console in real-time
             live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
             
         Returns:
             Tuple of (success, stdout, stderr)
@@ -669,5 +671,6 @@ class ContainerManager:
             stdin_input=prompt,
             debug=debug,
             stream=stream,
-            live=live
+            live=live,
+            extra_env=extra_env
         )

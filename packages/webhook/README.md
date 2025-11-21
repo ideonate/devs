@@ -7,6 +7,8 @@ A GitHub webhook handler that automatically responds to @mentions in issues and 
 - **Smart @mention Detection**: Responds when a configured user is @mentioned in GitHub issues/PRs
 - **Container Pool Management**: Manages a pool of named devcontainers (eamonn, harry, darren by default)
 - **Claude Code Integration**: Uses Claude Code SDK to analyze issues and implement solutions
+- **GitHub Checks API CI**: Automated test execution on push/PR events with status reporting
+- **Environment Variable Management**: Layered DEVS.yml configuration with user-specific overrides
 - **Repository Management**: Automatically clones and caches GitHub repositories
 - **Automated Responses**: Creates pull requests, commits changes, and comments back on issues
 
@@ -205,6 +207,25 @@ prompt_override: |       # Complete replacement for the default prompt (optional
   Custom prompt template here...
   Available variables: {event_type}, {event_type_full}, {task_description},
   {repo_name}, {workspace_path}, {github_username}
+ci_enabled: true         # Enable CI mode for push/PR events
+ci_test_command: npm test # Command to run for CI tests
+ci_branches:             # Branches to run CI on
+  - main
+  - develop
+
+env_vars:                # Environment variables for containers
+  default:               # Default values for all containers
+    NODE_ENV: production
+    API_URL: https://api.example.com
+    DEBUG: "false"
+  
+  eamonn:                # Container-specific overrides
+    DEBUG: "true"
+    EAMONN_SPECIAL: "enabled"
+    
+  harry:
+    NODE_ENV: staging
+    API_URL: https://staging-api.example.com
 ```
 
 Available options:
@@ -236,6 +257,61 @@ Available options:
   - Variables: `{event_type}`, `{event_type_full}`, `{task_description}`, `{repo_name}`, `{workspace_path}`, `{github_username}`
   - Takes precedence over all other prompt settings
   - Default: not set (uses standard prompt)
+
+- **`ci_enabled`**: Enable continuous integration mode
+  - When `true`, webhook responds to push and PR events by running tests
+  - Tests are executed in containers and results reported via GitHub Checks API
+  - Default: `false`
+
+- **`ci_test_command`**: Command to run for CI tests
+  - Shell command executed in container for CI test runs
+  - Should exit with code 0 for success, non-zero for failure
+  - Default: `runtests.sh`
+
+- **`ci_branches`**: Branches to run CI on for push events
+  - List of branch names to trigger CI for push events
+  - PR events always trigger CI regardless of target branch
+  - Default: `["main", "master"]`
+
+- **`env_vars`**: Environment variables for containers
+  - Supports `default` section for all containers and container-specific overrides
+  - Container-specific variables override defaults
+  - User-specific overrides can be configured via `~/.devs/envs/{org-repo}/DEVS.yml`
+  - Variables are passed to container during startup
+  - Default: empty
+
+### User-Specific Configuration
+
+Users can override repository settings with their own DEVS.yml files:
+
+```bash
+# Global defaults for all projects
+mkdir -p ~/.devs/envs/default
+cat > ~/.devs/envs/default/DEVS.yml << 'EOF'
+env_vars:
+  default:
+    GLOBAL_SETTING: "user_preference"
+    MY_SECRET: "user_secret"
+EOF
+
+# Project-specific overrides (org-repo format)
+mkdir -p ~/.devs/envs/myorg-myrepo
+cat > ~/.devs/envs/myorg-myrepo/DEVS.yml << 'EOF'
+env_vars:
+  eamonn:
+    DEBUG: "true"
+    LOCAL_SECRET: "dev_secret"
+ci_enabled: true
+ci_test_command: "npm run test:full"
+EOF
+```
+
+**Priority order for configuration:**
+1. `~/.devs/envs/{org-repo}/DEVS.yml` (user-specific project overrides)
+2. `~/.devs/envs/default/DEVS.yml` (user defaults)
+3. `{repo-root}/DEVS.yml` (repository configuration)
+
+📖 **[See ../../example-usage.md for detailed examples and scenarios](../../example-usage.md)**
 
 The webhook handler automatically detects and uses these settings when processing tasks for the repository.
 
