@@ -6,7 +6,7 @@ import os
 import shutil
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, Set, Any, NamedTuple
+from typing import Dict, Optional, Any, NamedTuple
 from pathlib import Path
 import structlog
 import yaml
@@ -16,7 +16,6 @@ from devs_common.core.container import ContainerManager
 from devs_common.core.workspace import WorkspaceManager
 
 from ..config import get_config
-from .webhook_config import WebhookConfig
 from ..github.models import WebhookEvent, DevsOptions, IssueEvent, PullRequestEvent, CommentEvent
 from .claude_dispatcher import ClaudeDispatcher, TaskResult
 from ..github.client import GitHubClient
@@ -30,6 +29,7 @@ class QueuedTask(NamedTuple):
     repo_name: str
     task_description: str
     event: WebhookEvent
+    task_type: str = 'claude'
 
 
 
@@ -53,8 +53,11 @@ class ContainerPool:
         # Container workers - one per dev name
         self.container_workers: Dict[str, asyncio.Task] = {}
         
-        # Track single-queue repos and their assigned containers
-        self.single_queue_repos: Dict[str, str] = {}  # repo_name -> container_name
+        # Cache DEVS.yml configuration for repositories
+        self.repo_configs: Dict[str, DevsOptions] = {}  # repo_name -> DevsOptions
+        
+        # Track which container is assigned to single-queue repos
+        self.single_queue_assignments: Dict[str, str] = {}  # repo_name -> container_name
         
         # Start worker tasks for each container
         self._start_workers()
@@ -66,66 +69,360 @@ class ContainerPool:
                    containers=self.config.get_container_pool_list())
     
     
-    def register_single_queue_repo(self, repo_name: str, container_name: str) -> None:
-        """Register a repository as requiring single-queue processing.
-        
-        This is called by the worker after detecting single_queue in DEVS.yml.
-        The registration is kept in memory only and resets on restart.
+    def get_repo_config(self, repo_name: str) -> Optional[DevsOptions]:
+        """Get cached repository configuration.
         
         Args:
             repo_name: Repository name (owner/repo)
-            container_name: Container assigned to this repo
+            
+        Returns:
+            DevsOptions if cached, None if not yet loaded
         """
-        if repo_name not in self.single_queue_repos:
-            self.single_queue_repos[repo_name] = container_name
-            logger.info("Registered single-queue repository",
+        return self.repo_configs.get(repo_name)
+    
+    async def ensure_repo_config(self, repo_name: str) -> DevsOptions:
+        """Ensure repository configuration is loaded and cached.
+        
+        First checks user-specific DEVS.yml files, only clones repository if needed.
+        
+        Args:
+            repo_name: Repository name (owner/repo)
+            
+        Returns:
+            DevsOptions from cache or newly loaded from DEVS.yml
+        """
+        # Check if already cached
+        if repo_name in self.repo_configs:
+            return self.repo_configs[repo_name]
+        
+        # Try to load from user-specific configuration first (no cloning needed)
+        devs_options = self._try_load_user_config(repo_name)
+        
+        if devs_options is not None:
+            # Found user configuration, cache it
+            logger.info("Repository config loaded from user-specific DEVS.yml (no cloning needed)",
+                       repo=repo_name)
+            self.repo_configs[repo_name] = devs_options
+        else:
+            # No user config found, need to clone and read repository DEVS.yml
+            logger.info("No user-specific config found, cloning repository to read DEVS.yml",
+                       repo=repo_name)
+            
+            # Calculate repo path
+            repo_path = self.config.repo_cache_dir / repo_name.replace('/', '-')
+            
+            # Clone repository and read config
+            devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
+            
+            # Cache the config
+            self.repo_configs[repo_name] = devs_options
+        
+        # Update single-queue assignment tracking if needed
+        if devs_options.single_queue and repo_name not in self.single_queue_assignments:
+            # We'll assign a container when the first task is actually queued
+            pass
+        
+        logger.info("Repository config cached",
+                   repo=repo_name,
+                   single_queue=devs_options.single_queue,
+                   ci_enabled=devs_options.ci_enabled)
+        
+        return devs_options
+    
+    def _try_load_user_config(self, repo_name: str) -> Optional[DevsOptions]:
+        """Try to load configuration from user-specific DEVS.yml files only.
+        
+        Checks for user-specific configuration without cloning the repository.
+        
+        Args:
+            repo_name: Repository name (owner/repo)
+            
+        Returns:
+            DevsOptions if user-specific config exists, None otherwise
+        """
+        def _load_devs_yml(file_path: Path) -> dict:
+            """Load and parse a DEVS.yml file, returning empty dict if not found."""
+            if not file_path.exists():
+                return {}
+            
+            try:
+                with open(file_path, 'r') as f:
+                    data = yaml.safe_load(f)
+                    return data if data else {}
+            except Exception as e:
+                logger.warning("Failed to parse user DEVS.yml",
+                              file_path=str(file_path),
+                              error=str(e))
+                return {}
+        
+        # Check for user-specific configuration files
+        user_envs_dir = Path.home() / ".devs" / "envs"
+        default_devs_yml = user_envs_dir / "default" / "DEVS.yml"
+        project_name = repo_name.replace('/', '-')  # Convert org/repo to org-repo
+        project_devs_yml = user_envs_dir / project_name / "DEVS.yml"
+        
+        # If no user configuration files exist, return None
+        if not default_devs_yml.exists() and not project_devs_yml.exists():
+            return None
+        
+        # Load user configuration
+        devs_options = DevsOptions()  # Start with defaults
+        
+        # 1. Load user default DEVS.yml
+        default_data = _load_devs_yml(default_devs_yml)
+        
+        # 2. Load user project-specific DEVS.yml (higher priority)
+        project_data = _load_devs_yml(project_devs_yml)
+        
+        # Merge data in priority order
+        all_data = {}
+        all_data.update(default_data)
+        all_data.update(project_data)
+        
+        # Update devs_options with merged values
+        if all_data:
+            if 'default_branch' in all_data:
+                devs_options.default_branch = all_data['default_branch']
+            if 'prompt_extra' in all_data:
+                devs_options.prompt_extra = all_data['prompt_extra']
+            if 'prompt_override' in all_data:
+                devs_options.prompt_override = all_data['prompt_override']
+            if 'direct_commit' in all_data:
+                devs_options.direct_commit = all_data['direct_commit']
+            if 'single_queue' in all_data:
+                devs_options.single_queue = all_data['single_queue']
+            if 'ci_enabled' in all_data:
+                devs_options.ci_enabled = all_data['ci_enabled']
+            if 'ci_test_command' in all_data:
+                devs_options.ci_test_command = all_data['ci_test_command']
+            if 'ci_branches' in all_data:
+                devs_options.ci_branches = all_data['ci_branches']
+            
+            # Merge env_vars from both sources
+            merged_env_vars = {}
+            for source_data in [default_data, project_data]:
+                if 'env_vars' in source_data and source_data['env_vars']:
+                    for container_name, env_dict in source_data['env_vars'].items():
+                        if container_name not in merged_env_vars:
+                            merged_env_vars[container_name] = {}
+                        merged_env_vars[container_name].update(env_dict)
+            
+            if merged_env_vars:
+                devs_options.env_vars = merged_env_vars
+            
+            logger.info("Loaded user-specific DEVS.yml configuration",
                        repo=repo_name,
-                       container=container_name)
+                       default_file_exists=default_devs_yml.exists(),
+                       project_file_exists=project_devs_yml.exists(),
+                       default_branch=devs_options.default_branch,
+                       single_queue=devs_options.single_queue,
+                       ci_enabled=devs_options.ci_enabled,
+                       env_vars_containers=list(devs_options.env_vars.keys()) if devs_options.env_vars else [])
+            
+            return devs_options
+        
+        # No meaningful configuration found
+        return None
     
     def _read_devs_options(self, repo_path: Path, repo_name: str) -> DevsOptions:
-        """Read and parse DEVS.yml options from repository.
+        """Read and parse DEVS.yml options from multiple sources.
+        
+        Loads from multiple sources in priority order:
+        1. ~/.devs/envs/{org-repo}/DEVS.yml (user-specific overrides)
+        2. ~/.devs/envs/default/DEVS.yml (user defaults)  
+        3. {repo_path}/DEVS.yml (repository configuration)
         
         Args:
             repo_path: Path to repository
-            repo_name: Repository name for logging
+            repo_name: Repository name (org/repo format)
             
         Returns:
-            DevsOptions with values from DEVS.yml or defaults
+            DevsOptions with values from DEVS.yml files or defaults
         """
         devs_options = DevsOptions()  # Start with defaults
-        devs_yml_path = repo_path / "DEVS.yml"
         
-        if devs_yml_path.exists():
+        def _load_devs_yml(file_path: Path) -> dict:
+            """Load and parse a DEVS.yml file, returning empty dict if not found."""
+            if not file_path.exists():
+                return {}
+            
             try:
-                with open(devs_yml_path, 'r') as f:
+                with open(file_path, 'r') as f:
                     data = yaml.safe_load(f)
-                    if data:
-                        # Update devs_options with values from DEVS.yml
-                        if 'default_branch' in data:
-                            devs_options.default_branch = data['default_branch']
-                        if 'prompt_extra' in data:
-                            devs_options.prompt_extra = data['prompt_extra']
-                        if 'prompt_override' in data:
-                            devs_options.prompt_override = data['prompt_override']
-                        if 'direct_commit' in data:
-                            devs_options.direct_commit = data['direct_commit']
-                        if 'single_queue' in data:
-                            devs_options.single_queue = data['single_queue']
-                        
-                        logger.info("Loaded DEVS.yml configuration",
-                                   repo=repo_name,
-                                   default_branch=devs_options.default_branch,
-                                   has_prompt_extra=bool(devs_options.prompt_extra),
-                                   has_prompt_override=bool(devs_options.prompt_override),
-                                   direct_commit=devs_options.direct_commit,
-                                   single_queue=devs_options.single_queue)
+                    return data if data else {}
             except Exception as e:
                 logger.warning("Failed to parse DEVS.yml",
-                              repo=repo_name,
+                              file_path=str(file_path),
                               error=str(e))
-                # Continue with defaults if parsing fails
+                return {}
+        
+        # 1. Load repository DEVS.yml (lowest priority)
+        repo_devs_yml = repo_path / "DEVS.yml"
+        repo_data = _load_devs_yml(repo_devs_yml)
+        
+        # 2. Load user default DEVS.yml 
+        user_envs_dir = Path.home() / ".devs" / "envs"
+        default_devs_yml = user_envs_dir / "default" / "DEVS.yml"
+        default_data = _load_devs_yml(default_devs_yml)
+        
+        # 3. Load user project-specific DEVS.yml (highest priority)
+        project_name = repo_name.replace('/', '-')  # Convert org/repo to org-repo
+        project_devs_yml = user_envs_dir / project_name / "DEVS.yml"
+        project_data = _load_devs_yml(project_devs_yml)
+        
+        # Merge data in priority order (later updates override earlier ones)
+        all_data = {}
+        for source_data in [repo_data, default_data, project_data]:
+            all_data.update(source_data)
+        
+        # Update devs_options with merged values
+        if all_data:
+            if 'default_branch' in all_data:
+                devs_options.default_branch = all_data['default_branch']
+            if 'prompt_extra' in all_data:
+                devs_options.prompt_extra = all_data['prompt_extra']
+            if 'prompt_override' in all_data:
+                devs_options.prompt_override = all_data['prompt_override']
+            if 'direct_commit' in all_data:
+                devs_options.direct_commit = all_data['direct_commit']
+            if 'single_queue' in all_data:
+                devs_options.single_queue = all_data['single_queue']
+            if 'ci_enabled' in all_data:
+                devs_options.ci_enabled = all_data['ci_enabled']
+            if 'ci_test_command' in all_data:
+                devs_options.ci_test_command = all_data['ci_test_command']
+            if 'ci_branches' in all_data:
+                devs_options.ci_branches = all_data['ci_branches']
+            
+            # Merge env_vars from all sources (repository < default < project)
+            merged_env_vars = {}
+            for source_data in [repo_data, default_data, project_data]:
+                if 'env_vars' in source_data and source_data['env_vars']:
+                    for container_name, env_dict in source_data['env_vars'].items():
+                        if container_name not in merged_env_vars:
+                            merged_env_vars[container_name] = {}
+                        merged_env_vars[container_name].update(env_dict)
+            
+            if merged_env_vars:
+                devs_options.env_vars = merged_env_vars
+            
+            logger.info("Loaded DEVS.yml configuration from multiple sources",
+                       repo=repo_name,
+                       repo_file_exists=repo_devs_yml.exists(),
+                       default_file_exists=default_devs_yml.exists(),
+                       project_file_exists=project_devs_yml.exists(),
+                       default_branch=devs_options.default_branch,
+                       has_prompt_extra=bool(devs_options.prompt_extra),
+                       has_prompt_override=bool(devs_options.prompt_override),
+                       direct_commit=devs_options.direct_commit,
+                       single_queue=devs_options.single_queue,
+                       ci_enabled=devs_options.ci_enabled,
+                       ci_test_command=devs_options.ci_test_command,
+                       ci_branches=devs_options.ci_branches,
+                       env_vars_containers=list(devs_options.env_vars.keys()) if devs_options.env_vars else [])
         
         return devs_options
+    
+    async def _ensure_repository_files_available(self, repo_name: str, repo_path: Path) -> None:
+        """Ensure repository files are available locally without re-reading config.
+        
+        This is used when we already have the DEVS.yml config cached but need
+        to ensure the actual repository files are available for the worker.
+        
+        Args:
+            repo_name: Repository name (owner/repo)
+            repo_path: Path where repository should be cloned
+        """
+        logger.info("Ensuring repository files are available",
+                   repo=repo_name,
+                   repo_path=str(repo_path),
+                   exists=repo_path.exists())
+        
+        if repo_path.exists():
+            # Repository already exists, try to pull latest changes
+            try:
+                logger.info("Repository exists, attempting to pull latest changes",
+                           repo=repo_name,
+                           repo_path=str(repo_path))
+                
+                # Set up authentication for private repos
+                if self.config.github_token:
+                    set_remote_cmd = ["git", "-C", str(repo_path), "remote", "set-url", "origin",
+                                    f"https://x-access-token:{self.config.github_token}@github.com/{repo_name}.git"]
+                    
+                    process = await asyncio.create_subprocess_exec(*set_remote_cmd)
+                    await process.wait()
+                
+                # Pull latest changes
+                pull_cmd = ["git", "-C", str(repo_path), "pull", "origin"]
+                process = await asyncio.create_subprocess_exec(
+                    *pull_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode != 0:
+                    error_msg = stderr.decode('utf-8', errors='replace') if stderr else "Unknown error"
+                    logger.warning("Failed to pull repository, will try fresh clone",
+                                  repo=repo_name,
+                                  error=error_msg)
+                    
+                    # Remove the directory and fall through to fresh clone
+                    import shutil
+                    shutil.rmtree(repo_path)
+                else:
+                    logger.info("Repository pull successful",
+                               repo=repo_name)
+                    return  # Success, repository is up to date
+                    
+            except Exception as e:
+                logger.warning("Error during repository pull, will try fresh clone",
+                              repo=repo_name,
+                              error=str(e))
+                # Remove the directory and fall through to fresh clone
+                import shutil
+                if repo_path.exists():
+                    shutil.rmtree(repo_path)
+        
+        # Clone repository fresh (either first time or after failed pull)
+        try:
+            logger.info("Cloning repository",
+                       repo=repo_name,
+                       repo_path=str(repo_path))
+            
+            # Ensure parent directory exists
+            repo_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Clone with authentication if we have a token
+            if self.config.github_token:
+                clone_url = f"https://x-access-token:{self.config.github_token}@github.com/{repo_name}.git"
+            else:
+                clone_url = f"https://github.com/{repo_name}.git"
+            
+            clone_cmd = ["git", "clone", "--depth", "1", clone_url, str(repo_path)]
+            process = await asyncio.create_subprocess_exec(
+                *clone_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                logger.info("Repository cloned successfully",
+                           repo=repo_name)
+            else:
+                error_msg = stderr.decode('utf-8', errors='replace') if stderr else stdout.decode('utf-8', errors='replace')
+                logger.error("Git clone failed",
+                            repo=repo_name,
+                            error=error_msg)
+                raise Exception(f"Git clone failed: {error_msg}")
+                
+        except Exception as e:
+            logger.error("Repository cloning failed",
+                        repo=repo_name,
+                        error=str(e))
+            raise
     
     async def queue_task(
         self,
@@ -133,6 +430,7 @@ class ContainerPool:
         repo_name: str,
         task_description: str,
         event: WebhookEvent,
+        task_type: str = 'claude'
     ) -> bool:
         """Queue a task for execution in the next available container.
         
@@ -143,32 +441,42 @@ class ContainerPool:
         Args:
             task_id: Unique task identifier
             repo_name: Repository name (owner/repo)
-            task_description: Task description for Claude
+            task_description: Task description for Claude (unused for tests)
             event: Original webhook event
+            task_type: Task type ('claude' or 'tests')
             
         Returns:
             True if task was queued successfully
         """
         try:
-            # Check if we already know this repo needs single-queue processing
-            # This is populated after the first clone by the worker
-            single_queue_required = False
-            
-            if repo_name in self.single_queue_repos:
-                # We already know this repo needs single-queue processing
-                single_queue_required = True
-                logger.info("Repository known to require single-queue processing",
-                           repo=repo_name)
+            # Get repository configuration (cached or load it)
+            repo_config = self.get_repo_config(repo_name)
+            single_queue_required = repo_config.single_queue if repo_config else False
             
             # Determine which container to use
             best_container = None
             
             if single_queue_required:
                 # Use the previously assigned container for this single-queue repo
-                best_container = self.single_queue_repos[repo_name]
-                logger.info("Using previously assigned container for single-queue repo",
-                           repo=repo_name,
-                           container=best_container)
+                if repo_name in self.single_queue_assignments:
+                    best_container = self.single_queue_assignments[repo_name]
+                    logger.info("Using previously assigned container for single-queue repo",
+                               repo=repo_name,
+                               container=best_container)
+                else:
+                    # First time for this single-queue repo, assign a container
+                    min_queue_size = float('inf')
+                    for dev_name in self.config.get_container_pool_list():
+                        queue_size = self.container_queues[dev_name].qsize()
+                        if queue_size < min_queue_size:
+                            min_queue_size = queue_size
+                            best_container = dev_name
+                    
+                    if best_container:
+                        self.single_queue_assignments[repo_name] = best_container
+                        logger.info("Assigned container for single-queue repo",
+                                   repo=repo_name,
+                                   container=best_container)
             else:
                 # Normal load balancing - find container with shortest queue
                 min_queue_size = float('inf')
@@ -188,6 +496,7 @@ class ContainerPool:
                 repo_name=repo_name,
                 task_description=task_description,
                 event=event,
+                task_type=task_type
             )
             
             # Add to queue
@@ -278,32 +587,47 @@ class ContainerPool:
                    repo_path=str(repo_path))
 
         try:
-            # Ensure repository is cloned FIRST, before launching subprocess
-            logger.info("Ensuring repository is cloned",
-                       task_id=queued_task.task_id,
-                       container=dev_name,
-                       repo_name=repo_name)
-            
-            devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
-            
-            # After first clone, check if this repo needs single-queue processing
-            # and register it in memory for future events
-            if devs_options and devs_options.single_queue:
-                if repo_name not in self.single_queue_repos:
-                    # This is the first time we've seen this repo needs single-queue
-                    # Register it with the current container
-                    self.register_single_queue_repo(repo_name, dev_name)
-                    logger.info("Detected single_queue requirement after first clone",
+            # Get cached config or ensure it's loaded
+            devs_options = self.get_repo_config(repo_name)
+            if devs_options is None:
+                # Not cached yet, need to clone and read config
+                logger.info("Repository config not cached, cloning to read DEVS.yml",
+                           task_id=queued_task.task_id,
+                           container=dev_name,
+                           repo_name=repo_name)
+                
+                devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
+                
+                # Cache the repository configuration for future use
+                self.repo_configs[repo_name] = devs_options
+                
+                # Handle single-queue container assignment
+                if devs_options and devs_options.single_queue:
+                    if repo_name not in self.single_queue_assignments:
+                        # This is the first time we've seen this repo needs single-queue
+                        # Register it with the current container
+                        self.single_queue_assignments[repo_name] = dev_name
+                        logger.info("Assigned container for single_queue repo after first clone",
+                                   repo=repo_name,
+                                   container=dev_name)
+                elif repo_name in self.single_queue_assignments:
+                    # The repo was previously single-queue but no longer is
+                    # Remove it from the assignments tracking
+                    previous_container = self.single_queue_assignments[repo_name]
+                    del self.single_queue_assignments[repo_name]
+                    logger.info("Removed single_queue assignment - DEVS.yml no longer has single_queue=true",
                                repo=repo_name,
-                               container=dev_name)
-            elif repo_name in self.single_queue_repos:
-                # The repo was previously single-queue but no longer is
-                # Remove it from the single_queue_repos tracking
-                previous_container = self.single_queue_repos[repo_name]
-                del self.single_queue_repos[repo_name]
-                logger.info("Removed single_queue requirement - DEVS.yml no longer has single_queue=true",
-                           repo=repo_name,
-                           previously_assigned_container=previous_container)
+                               previously_assigned_container=previous_container)
+            else:
+                # Config already cached, just ensure repository is cloned without re-reading config
+                logger.info("Using cached repository config, ensuring repo is cloned",
+                           task_id=queued_task.task_id,
+                           container=dev_name,
+                           repo_name=repo_name)
+                
+                # Still need to ensure the repository files are available locally
+                # but we can skip re-reading DEVS.yml
+                await self._ensure_repository_files_available(repo_name, repo_path)
             
             logger.info("Repository cloning completed, launching worker subprocess",
                        task_id=queued_task.task_id,
@@ -327,6 +651,7 @@ class ContainerPool:
                 "--dev-name", dev_name,
                 "--repo-name", repo_name,
                 "--repo-path", str(repo_path),
+                "--task-type", queued_task.task_type,
                 "--timeout", str(3600)  # 60 minute timeout
             ]
             
@@ -359,14 +684,30 @@ class ContainerPool:
                 # Check result based on exit code
                 if process.returncode == 0:
                     # Success - task completed
+                    stdout_content = stdout.decode('utf-8', errors='replace') if stdout else ''
+                    stderr_content = stderr.decode('utf-8', errors='replace') if stderr else ''
+                    
                     logger.info("Subprocess task completed successfully",
                                task_id=queued_task.task_id,
                                container=dev_name,
                                return_code=process.returncode)
                     
+                    # Log stdout and stderr for debugging (even on success)
+                    if stdout_content:
+                        logger.info("Subprocess stdout",
+                                   task_id=queued_task.task_id,
+                                   container=dev_name,
+                                   stdout=stdout_content[:2000])  # First 2000 chars
+                    
+                    if stderr_content:
+                        logger.info("Subprocess stderr",
+                                   task_id=queued_task.task_id, 
+                                   container=dev_name,
+                                   stderr=stderr_content[:8000])  # First 8000 chars for debugging
+                    
                     # Try to extract Claude's output from JSON if possible (for logging)
                     try:
-                        result_data = json.loads(stdout.decode('utf-8'))
+                        result_data = json.loads(stdout_content)
                         output_preview = result_data.get('output', '')[:200]
                         logger.info("Task output preview",
                                    task_id=queued_task.task_id,
@@ -393,6 +734,19 @@ class ContainerPool:
                                 container=dev_name,
                                 return_code=process.returncode,
                                 error=error_msg)
+                    
+                    # Log stdout and stderr for debugging
+                    if stdout_content:
+                        logger.error("Subprocess stdout",
+                                    task_id=queued_task.task_id,
+                                    container=dev_name,
+                                    stdout=stdout_content[:2000])  # First 2000 chars
+                    
+                    if stderr_content:
+                        logger.error("Subprocess stderr", 
+                                    task_id=queued_task.task_id,
+                                    container=dev_name,
+                                    stderr=stderr_content[:2000])  # First 2000 chars
                     
                     # Post error to GitHub with both stdout and stderr
                     error_details = f"Task processing failed with exit code {process.returncode}\n\n"
@@ -633,7 +987,7 @@ class ContainerPool:
                 return
             
             # Create GitHub client
-            github_client = GitHubClient(self.config.github_token)
+            github_client = GitHubClient(self.config)
             
             # Build error comment
             comment = f"""I encountered an error while processing your request:
@@ -688,7 +1042,8 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                     for name, info in self.running_containers.items()
                 },
                 "total_containers": len(self.config.get_container_pool_list()),
-                "single_queue_repos": self.single_queue_repos.copy(),
+                "single_queue_assignments": self.single_queue_assignments.copy(),
+                "cached_repo_configs": list(self.repo_configs.keys()),
             }
 
     async def _idle_cleanup_worker(self) -> None:

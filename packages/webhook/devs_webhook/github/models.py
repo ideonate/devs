@@ -7,6 +7,12 @@ from pydantic import BaseModel, Field, Discriminator, Tag
 from datetime import datetime
 
 
+class GitHubInstallation(BaseModel):
+    """GitHub App installation model."""
+    id: int
+    account: Optional[Dict[str, Any]] = None
+
+
 class GitHubUser(BaseModel):
     """GitHub user model."""
     login: str
@@ -80,6 +86,7 @@ class WebhookEvent(BaseModel):
     action: str
     repository: GitHubRepository
     sender: GitHubUser
+    installation: Optional[GitHubInstallation] = None
     is_test: bool = Field(default=False, description="Indicates if this is a test event")
     
     def extract_mentions(self, target_user: str) -> List[str]:
@@ -286,6 +293,80 @@ class TestIssueEvent(IssueEvent):
         return f"""Test event. """
 
 
+class GitHubCommit(BaseModel):
+    """GitHub commit model."""
+    id: str
+    message: str
+    timestamp: datetime
+    url: str
+    author: Dict[str, Any]
+    committer: Dict[str, Any]
+    added: List[str] = []
+    removed: List[str] = []
+    modified: List[str] = []
+
+
+class GitHubPush(BaseModel):
+    """GitHub push model."""
+    ref: str
+    before: str
+    after: str
+    created: bool
+    deleted: bool
+    forced: bool
+    base_ref: Optional[str] = None
+    compare: str
+    commits: List[GitHubCommit]
+    head_commit: Optional[GitHubCommit] = None
+
+
+class PushEvent(WebhookEvent):
+    """GitHub push webhook event."""
+    ref: str
+    before: str
+    after: str
+    created: bool = False
+    deleted: bool = False
+    forced: bool = False
+    base_ref: Optional[str] = None
+    compare: str = ""
+    commits: List[Dict[str, Any]] = []
+    head_commit: Optional[Dict[str, Any]] = None
+    
+    def _get_text_sources(self) -> List[Optional[str]]:
+        # Push events don't have text to search for mentions
+        return []
+    
+    def get_context_for_claude(self) -> str:
+        branch = self.ref.replace('refs/heads/', '') if self.ref.startswith('refs/heads/') else self.ref
+        
+        return f"""GitHub Push to {self.repository.full_name}
+        
+Branch: {branch}
+Pushed by: @{self.sender.login}
+Commits: {len(self.commits)}
+
+Latest commit: {self.head_commit['message'] if self.head_commit else 'No commits'}
+Compare: {self.compare}
+
+Action: {self.action}
+Repository: {self.repository.full_name}
+Clone URL: {self.repository.clone_url}
+"""
+
+    def get_content_hash(self) -> str:
+        """Get hash of push content for deduplication."""
+        content_parts = [
+            str(self.repository.full_name),
+            str(self.ref),
+            str(self.after),  # The commit SHA being pushed
+            str(len(self.commits)),
+            str(self.head_commit['message'] if self.head_commit else '')
+        ]
+        content_string = "|".join(content_parts)
+        return hashlib.sha256(content_string.encode()).hexdigest()[:16]
+
+
 class DevsOptions(BaseModel):
     """DEVS.yml configuration options."""
     default_branch: str = "main"
@@ -293,6 +374,28 @@ class DevsOptions(BaseModel):
     prompt_override: Optional[str] = None
     direct_commit: bool = False
     single_queue: bool = False  # Restrict repo to single queue processing
+    ci_enabled: bool = False  # Enable CI mode for this repository
+    ci_test_command: str = "runtests.sh"  # Command to run for CI tests
+    ci_branches: List[str] = ["main", "master"]  # Branches to run CI on for push events
+    env_vars: Dict[str, Dict[str, str]] = Field(default_factory=dict)  # Environment variables with defaults and per-container overrides
+    
+    def get_env_vars(self, container_name: Optional[str] = None) -> Dict[str, str]:
+        """Get environment variables for a specific container or defaults.
+        
+        Args:
+            container_name: Container name to get specific overrides for
+            
+        Returns:
+            Dictionary of environment variables with container-specific overrides applied
+        """
+        # Start with default env vars if they exist
+        env = self.env_vars.get('default', {}).copy()
+        
+        # Apply container-specific overrides if container name provided
+        if container_name and container_name in self.env_vars:
+            env.update(self.env_vars[container_name])
+        
+        return env
 
 
 # Discriminated union for automatic event type detection
@@ -301,6 +404,8 @@ def get_webhook_event_discriminator(v: Any) -> str:
     if isinstance(v, dict):
         if 'comment' in v:
             return 'comment'
+        elif 'ref' in v and 'commits' in v:
+            return 'push'
         elif 'issue' in v and ('pull_request' not in v or v.get('pull_request') is None):
             return 'issue'
         elif 'pull_request' in v and v.get('pull_request') is not None:
@@ -312,7 +417,8 @@ AnyWebhookEvent = Annotated[
     Union[
         Annotated[CommentEvent, Tag('comment')],
         Annotated[IssueEvent, Tag('issue')],
-        Annotated[PullRequestEvent, Tag('pull_request')]
+        Annotated[PullRequestEvent, Tag('pull_request')],
+        Annotated[PushEvent, Tag('push')]
     ],
     Discriminator(get_webhook_event_discriminator)
 ]

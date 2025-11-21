@@ -56,11 +56,7 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
     elif env_file:
         click.echo(f"📄 Loading environment variables from {env_file}")
     
-    # Set environment variables for FastAPI app
-    if dev:
-        os.environ["DEV_MODE"] = "true"
-        os.environ["LOG_FORMAT"] = "console"
-        os.environ["WEBHOOK_HOST"] = "127.0.0.1"
+    # Load .env file first (before creating config)
     if env_file:
         # Load the env file explicitly
         try:
@@ -69,7 +65,13 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
         except ImportError:
             click.echo("⚠️ python-dotenv not available, skipping .env file loading")
     
-    # Get config for display purposes
+    # Set environment variables for FastAPI app
+    if dev:
+        os.environ["DEV_MODE"] = "true"
+        os.environ["LOG_FORMAT"] = "console"
+        os.environ["WEBHOOK_HOST"] = "127.0.0.1"
+    
+    # Get config for display purposes (after loading env file)
     config = get_config()
     
     # Override config with CLI options  

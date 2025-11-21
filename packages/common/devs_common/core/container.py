@@ -505,22 +505,24 @@ class ContainerManager:
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to exec shell in {dev_name}: {e}")
     
-    def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False) -> tuple[bool, str, str]:
-        """Execute Claude CLI in the container.
+    def exec_command(self, dev_name: str, workspace_dir: Path, command: str, stdin_input: Optional[str] = None, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str]:
+        """Execute a command in the container.
         
         Args:
             dev_name: Development environment name
             workspace_dir: Workspace directory path
-            prompt: Prompt to send to Claude
+            command: Command to execute
+            stdin_input: Optional input to send via stdin
             debug: Show debug output for devcontainer operations
             stream: Stream output to console in real-time
             live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
             
         Returns:
             Tuple of (success, stdout, stderr)
             
         Raises:
-            ContainerError: If Claude execution fails
+            ContainerError: If command execution fails
         """
         project_prefix = self.config.project_prefix if self.config else "dev"
         container_name = self.project.get_container_name(dev_name, project_prefix)
@@ -543,23 +545,24 @@ class ContainerManager:
                 live = existing_is_live
             
             # Ensure container is running
-            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
+            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
                 raise ContainerError(f"Failed to start container for {dev_name}")
             
             # Only print status messages if not in webhook mode (or if streaming)
             if os.environ.get('DEVS_WEBHOOK_MODE') != '1' or stream:
-                console.print(f"🤖 Running Claude in: {dev_name} (container: {container_name})")
+                console.print(f"🔧 Running command in: {dev_name} (container: {container_name})")
                 console.print(f"   Workspace: {container_workspace_dir}")
+                console.print(f"   Command: {command}")
             
-            # Execute Claude CLI in the container
+            # Execute command in the container
             # Use same pattern as exec_shell: cd to workspace directory then run command
-            # Explicitly source .zshrc to ensure CLAUDE_CONFIG_DIR is set in non-interactive mode
+            # Explicitly source .zshrc to ensure environment is set up properly
             # Redirect source output to stderr to avoid corrupting stdout (important for webhook JSON output)
-            claude_cmd = f"source ~/.zshrc >/dev/stderr 2>&1 && cd {container_workspace_dir} && claude --dangerously-skip-permissions"
+            full_cmd = f"source ~/.zshrc >/dev/stderr 2>&1 && cd {container_workspace_dir} && {command}"
             cmd = [
                 'docker', 'exec', '-i',  # -i for stdin, no TTY
                 container_name,
-                '/bin/zsh', '-c', claude_cmd  # Use zsh with explicit sourcing
+                '/bin/zsh', '-c', full_cmd  # Use zsh with explicit sourcing
             ]
             
             if debug:
@@ -576,9 +579,11 @@ class ContainerManager:
                     bufsize=1  # Line buffered
                 )
                 
-                # Send prompt and close stdin
-                if process.stdin:
-                    process.stdin.write(prompt)
+                # Send stdin input if provided and close stdin
+                if process.stdin and stdin_input:
+                    process.stdin.write(stdin_input)
+                    process.stdin.close()
+                elif process.stdin:
                     process.stdin.close()
                 
                 # Collect output while streaming
@@ -613,21 +618,22 @@ class ContainerManager:
                 # Non-streaming mode (original behavior)
                 process = subprocess.run(
                     cmd, 
-                    input=prompt.encode('utf-8'),
-                    capture_output=True
+                    input=stdin_input.encode('utf-8') if stdin_input else None,
+                    capture_output=True,
+                    text=True
                 )
                 
-                stdout = process.stdout.decode('utf-8', errors='replace') if process.stdout else ""
-                stderr = process.stderr.decode('utf-8', errors='replace') if process.stderr else ""
+                stdout = process.stdout if process.stdout else ""
+                stderr = process.stderr if process.stderr else ""
                 success = process.returncode == 0
             
             if debug:
-                console.print(f"[dim]Claude exit code: {process.returncode}[/dim]")
+                console.print(f"[dim]Command exit code: {process.returncode}[/dim]")
                 if not stream:  # Only show this in debug if not already streamed
                     if stdout:
-                        console.print(f"[dim]Claude stdout: {stdout[:200]}...[/dim]")
+                        console.print(f"[dim]Command stdout: {stdout[:200]}...[/dim]")
                     if stderr:
-                        console.print(f"[dim]Claude stderr: {stderr[:200]}...[/dim]")
+                        console.print(f"[dim]Command stderr: {stderr[:200]}...[/dim]")
             
             if not success and stdout:
                 # If stderr is empty but stdout contains error patterns, use stdout as error
@@ -637,4 +643,34 @@ class ContainerManager:
             return success, stdout, stderr
             
         except (DockerError, subprocess.SubprocessError) as e:
-            raise ContainerError(f"Failed to exec Claude in {dev_name}: {e}")
+            raise ContainerError(f"Failed to exec command in {dev_name}: {e}")
+    
+    def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str]:
+        """Execute Claude CLI in the container.
+        
+        Args:
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            prompt: Prompt to send to Claude
+            debug: Show debug output for devcontainer operations
+            stream: Stream output to console in real-time
+            live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
+            
+        Returns:
+            Tuple of (success, stdout, stderr)
+            
+        Raises:
+            ContainerError: If Claude execution fails
+        """
+        # Simply delegate to exec_command with the Claude command and prompt as stdin
+        return self.exec_command(
+            dev_name=dev_name,
+            workspace_dir=workspace_dir,
+            command="claude --dangerously-skip-permissions",
+            stdin_input=prompt,
+            debug=debug,
+            stream=stream,
+            live=live,
+            extra_env=extra_env
+        )

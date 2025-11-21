@@ -27,7 +27,8 @@ class ClaudeDispatcher:
     def __init__(self):
         """Initialize Claude dispatcher."""
         self.config = get_config()
-        self.github_client = GitHubClient(self.config.github_token)
+        
+        self.github_client = GitHubClient(self.config)
         
         logger.info("Claude dispatcher initialized")
     
@@ -241,16 +242,21 @@ Always remember to PUSH your work to origin!
                        prompt_length=len(prompt),
                        event_type="PR" if is_pr else "Issue")
             
-            # 4. Execute Claude (like CLI pattern)
+            # 4. Execute Claude (like CLI pattern) with environment variables from DEVS.yml
             logger.info("Executing Claude via ContainerManager (like CLI)",
                        container=dev_name)
+            
+            extra_env = None
+            if devs_options:
+                extra_env = devs_options.get_env_vars(dev_name)
             
             success, stdout, stderr = container_manager.exec_claude(
                 dev_name=dev_name,
                 workspace_dir=workspace_dir,
                 prompt=prompt,
                 debug=self.config.dev_mode,
-                stream=False  # Don't stream in webhook mode
+                stream=False,  # Don't stream in webhook mode
+                extra_env=extra_env
             )
             
             # Log the actual output for debugging

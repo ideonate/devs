@@ -2,8 +2,8 @@
 
 import os
 from pathlib import Path
-from typing import List
 from functools import lru_cache
+from typing import List, Optional
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
@@ -12,6 +12,7 @@ except ImportError:
     SettingsConfigDict = None
 from pydantic import Field, model_validator
 from devs_common.config import BaseConfig
+import structlog
 
 
 class WebhookConfig(BaseSettings, BaseConfig):
@@ -26,6 +27,11 @@ class WebhookConfig(BaseSettings, BaseConfig):
     github_webhook_secret: str = Field(default="", description="GitHub webhook secret")
     github_token: str = Field(default="", description="GitHub personal access token")
     github_mentioned_user: str = Field(default="", description="GitHub username to watch for @mentions")
+    
+    # GitHub App settings (optional, for enhanced Checks API support)
+    github_app_id: str = Field(default="", description="GitHub App ID for app authentication")
+    github_app_private_key: str = Field(default="", description="GitHub App private key (PEM format) or path to private key file")
+    github_app_installation_id: str = Field(default="", description="GitHub App installation ID (optional, can be auto-discovered)")
     
     # Access control settings
     allowed_orgs: str = Field(
@@ -193,6 +199,74 @@ class WebhookConfig(BaseSettings, BaseConfig):
     def get_default_project_prefix(self) -> str:
         """Get default project prefix for webhook package."""
         return "dev"
+    
+    def has_github_app_auth(self) -> bool:
+        """Check if GitHub App authentication is configured.
+        
+        Returns:
+            True if both app_id and private_key are provided
+        """
+        return bool(self.github_app_id and self.github_app_private_key)
+    
+    def get_github_app_private_key(self) -> str:
+        """Get GitHub App private key content.
+        
+        If github_app_private_key is a file path, read the file.
+        Otherwise, return the value directly as PEM content.
+        
+        Returns:
+            Private key content in PEM format
+        
+        Raises:
+            FileNotFoundError: If private key file doesn't exist
+            ValueError: If private key is not configured
+        """
+        if not self.github_app_private_key:
+            raise ValueError("GitHub App private key not configured")
+        
+        # If it looks like a file path, read the file
+        if (self.github_app_private_key.startswith('/') or 
+            self.github_app_private_key.startswith('~/') or
+            '-----BEGIN' not in self.github_app_private_key):
+            key_path = Path(self.github_app_private_key).expanduser()
+            if not key_path.exists():
+                raise FileNotFoundError(f"GitHub App private key file not found: {key_path}")
+            return key_path.read_text()
+        
+        # Otherwise, treat as PEM content directly
+        return self.github_app_private_key
+    
+    def create_github_app_auth(self, context: str = "") -> Optional["GitHubAppAuth"]:
+        """Create a GitHubAppAuth instance if configuration is available.
+        
+        Args:
+            context: Context string for logging (e.g., "webhook handler", "claude dispatcher")
+            
+        Returns:
+            GitHubAppAuth instance if configured, None otherwise
+        """
+        if not self.has_github_app_auth():
+            return None
+            
+        try:
+            # Import here to avoid circular imports
+            from .github.app_auth import GitHubAppAuth
+            
+            app_auth = GitHubAppAuth(
+                app_id=self.github_app_id,
+                private_key=self.get_github_app_private_key(),
+                installation_id=self.github_app_installation_id if self.github_app_installation_id else None
+            )
+            
+            logger = structlog.get_logger()
+            logger.info("GitHub App authentication configured", context=context)
+            return app_auth
+            
+        except Exception as e:
+            logger = structlog.get_logger()
+            logger.error("Failed to initialize GitHub App authentication", 
+                        context=context, error=str(e))
+            return None
         
 
 @lru_cache()
