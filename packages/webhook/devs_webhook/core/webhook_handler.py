@@ -6,7 +6,7 @@ import structlog
 from ..config import get_config
 from ..github.parser import WebhookParser
 from ..github.client import GitHubClient
-from ..github.models import IssueEvent, PullRequestEvent, CommentEvent, DevsOptions
+from ..github.models import IssueEvent, PullRequestEvent, CommentEvent
 from .container_pool import ContainerPool
 from .deduplication import is_duplicate_content, get_cache_stats
 
@@ -129,7 +129,7 @@ class WebhookHandler:
                 return
             
             # Load repository configuration to check for CI mode
-            devs_options = await self._load_devs_options(event.repository.full_name)
+            devs_options = await self.container_pool.ensure_repo_config(event.repository.full_name)
             
             # Check if we should process this event for CI
             process_for_ci = WebhookParser.should_process_event_for_ci(event, devs_options)
@@ -270,22 +270,3 @@ class WebhookHandler:
         """List all managed containers."""
         return await self.container_pool.get_status()
     
-    async def _load_devs_options(self, repo_name: str) -> Optional[DevsOptions]:
-        """Load DEVS.yml configuration for a repository.
-        
-        Args:
-            repo_name: Repository name in format "owner/repo"
-            
-        Returns:
-            DevsOptions instance or None if not found
-        """
-        try:
-            # Use container pool's method to load devs options
-            # This will clone the repo if needed and read DEVS.yml
-            devs_options = await self.container_pool._ensure_repository_cloned(repo_name)
-            return devs_options
-        except Exception as e:
-            logger.warning("Failed to load DEVS.yml configuration",
-                          repo=repo_name,
-                          error=str(e))
-            return None
