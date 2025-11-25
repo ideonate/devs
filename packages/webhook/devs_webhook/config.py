@@ -88,6 +88,30 @@ class WebhookConfig(BaseSettings, BaseConfig):
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="json", description="Logging format (json|console)")
+
+    # Task source configuration
+    task_source: str = Field(
+        default="webhook",
+        description="Task source type: 'webhook' (FastAPI) or 'sqs' (AWS SQS polling)"
+    )
+
+    # AWS SQS configuration (only used when task_source='sqs')
+    aws_sqs_queue_url: str = Field(
+        default="",
+        description="AWS SQS queue URL for receiving webhook events"
+    )
+    aws_sqs_dlq_url: str = Field(
+        default="",
+        description="AWS SQS dead-letter queue URL for failed messages"
+    )
+    aws_region: str = Field(
+        default="us-east-1",
+        description="AWS region for SQS"
+    )
+    sqs_wait_time_seconds: int = Field(
+        default=20,
+        description="SQS long polling wait time in seconds (1-20)"
+    )
     
     @model_validator(mode='after')
     def adjust_dev_mode_defaults(self):
@@ -146,17 +170,30 @@ class WebhookConfig(BaseSettings, BaseConfig):
     def validate_required_settings(self) -> None:
         """Validate that required settings are present."""
         missing = []
-        
-        if not self.github_webhook_secret:
-            missing.append("github_webhook_secret (GITHUB_WEBHOOK_SECRET)")
+
+        # GitHub token is always required
         if not self.github_token:
             missing.append("github_token (GITHUB_TOKEN)")
         if not self.github_mentioned_user:
             missing.append("github_mentioned_user (GITHUB_MENTIONED_USER)")
-        
-        # Require admin password in production mode
-        if not self.dev_mode and not self.admin_password:
-            missing.append("admin_password (ADMIN_PASSWORD) - required in production mode")
+
+        # Task source specific validations
+        if self.task_source == "webhook":
+            # Webhook source requires webhook secret
+            if not self.github_webhook_secret:
+                missing.append("github_webhook_secret (GITHUB_WEBHOOK_SECRET) - required for webhook source")
+
+            # Require admin password in production mode
+            if not self.dev_mode and not self.admin_password:
+                missing.append("admin_password (ADMIN_PASSWORD) - required in production mode")
+
+        elif self.task_source == "sqs":
+            # SQS source requires queue URL
+            if not self.aws_sqs_queue_url:
+                missing.append("aws_sqs_queue_url (AWS_SQS_QUEUE_URL) - required for SQS source")
+
+        else:
+            missing.append(f"task_source must be 'webhook' or 'sqs', got '{self.task_source}'")
     
     def is_repository_allowed(self, repo_full_name: str, repo_owner: str) -> bool:
         """Check if a repository is allowed based on allowlist configuration.

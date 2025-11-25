@@ -1,4 +1,12 @@
-"""FastAPI webhook server."""
+"""FastAPI webhook server.
+
+This module provides the FastAPI application for receiving GitHub webhooks.
+It's part of the webhook task source and delegates processing to WebhookHandler,
+which in turn uses TaskProcessor for the core business logic.
+
+Architecture:
+    FastAPI endpoints -> WebhookHandler -> TaskProcessor -> ContainerPool
+"""
 
 import hmac
 import hashlib

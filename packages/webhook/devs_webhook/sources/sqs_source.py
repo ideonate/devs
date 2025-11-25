@@ -1,0 +1,277 @@
+"""SQS task source for receiving webhook events from AWS SQS.
+
+This module provides the SQS task source that polls an AWS SQS queue for
+webhook events and forwards them to the task processor.
+"""
+
+import asyncio
+import json
+import uuid
+from typing import Optional, Dict, Any
+import structlog
+
+from .base import TaskSource
+from ..core.task_processor import TaskProcessor
+from ..config import get_config
+
+logger = structlog.get_logger()
+
+
+class SQSTaskSource(TaskSource):
+    """Task source that polls AWS SQS for GitHub webhook events.
+
+    This allows decoupling the webhook receiver (which can be a separate
+    service) from the task processor. The webhook receiver puts messages
+    into SQS, and this source polls them for processing.
+
+    Expected SQS message format:
+    {
+        "headers": {
+            "x-github-event": "issues",
+            "x-github-delivery": "...",
+            ...
+        },
+        "payload": "<base64-encoded-or-raw-json>"
+    }
+    """
+
+    def __init__(self, task_processor: Optional[TaskProcessor] = None):
+        """Initialize SQS task source.
+
+        Args:
+            task_processor: Optional task processor instance. If not provided,
+                          a new one will be created.
+        """
+        self.task_processor = task_processor or TaskProcessor()
+        self.config = get_config()
+        self._running = False
+        self._poll_task: Optional[asyncio.Task] = None
+
+        # Import boto3 lazily to avoid requiring it for webhook-only deployments
+        try:
+            import boto3
+            self.sqs_client = boto3.client(
+                'sqs',
+                region_name=self.config.aws_region
+            )
+        except ImportError:
+            logger.error("boto3 not installed - required for SQS task source")
+            raise ImportError(
+                "boto3 is required for SQS task source. "
+                "Install with: pip install boto3"
+            )
+
+        logger.info(
+            "SQS task source initialized",
+            queue_url=self.config.aws_sqs_queue_url,
+            region=self.config.aws_region,
+        )
+
+    async def start(self) -> None:
+        """Start polling SQS for webhook events.
+
+        This method blocks until the source is stopped.
+        """
+        logger.info("Starting SQS task source")
+        self._running = True
+
+        try:
+            while self._running:
+                await self._poll_and_process_messages()
+        except asyncio.CancelledError:
+            logger.info("SQS polling cancelled")
+            raise
+        except Exception as e:
+            logger.error("SQS polling error", error=str(e), exc_info=True)
+            raise
+        finally:
+            self._running = False
+
+    async def stop(self) -> None:
+        """Stop polling SQS."""
+        logger.info("Stopping SQS task source")
+        self._running = False
+
+        if self._poll_task and not self._poll_task.done():
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                pass
+
+        logger.info("SQS task source stopped")
+
+    async def _poll_and_process_messages(self) -> None:
+        """Poll SQS and process any available messages.
+
+        This uses long polling to efficiently wait for messages.
+        """
+        try:
+            # Run SQS receive in executor to avoid blocking
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.sqs_client.receive_message(
+                    QueueUrl=self.config.aws_sqs_queue_url,
+                    MaxNumberOfMessages=1,  # Process one at a time
+                    WaitTimeSeconds=self.config.sqs_wait_time_seconds,
+                    AttributeNames=['All'],
+                    MessageAttributeNames=['All']
+                )
+            )
+
+            messages = response.get('Messages', [])
+
+            if not messages:
+                # No messages available, will poll again
+                return
+
+            for message in messages:
+                await self._process_message(message)
+
+        except Exception as e:
+            logger.error("Error polling SQS", error=str(e), exc_info=True)
+            # Wait a bit before retrying on error
+            await asyncio.sleep(5)
+
+    async def _process_message(self, message: Dict[str, Any]) -> None:
+        """Process a single SQS message.
+
+        Args:
+            message: SQS message containing webhook event
+        """
+        receipt_handle = message['ReceiptHandle']
+        message_id = message['MessageId']
+
+        try:
+            # Parse message body
+            body = json.loads(message['Body'])
+
+            # Extract headers and payload
+            headers = body.get('headers', {})
+            payload_data = body.get('payload')
+
+            # Convert payload to bytes if needed
+            if isinstance(payload_data, str):
+                # Check if it's base64 encoded
+                if payload_data.startswith('{') or payload_data.startswith('['):
+                    # Raw JSON string
+                    payload = payload_data.encode('utf-8')
+                else:
+                    # Assume base64 encoded
+                    import base64
+                    payload = base64.b64decode(payload_data)
+            elif isinstance(payload_data, dict):
+                # Already parsed JSON, re-encode to bytes
+                payload = json.dumps(payload_data).encode('utf-8')
+            else:
+                payload = payload_data
+
+            # Generate delivery ID if not present
+            delivery_id = headers.get('x-github-delivery', f'sqs-{message_id}')
+
+            logger.info(
+                "Processing SQS message",
+                message_id=message_id,
+                delivery_id=delivery_id,
+                event_type=headers.get('x-github-event', 'unknown'),
+            )
+
+            # Process the webhook event
+            await self.task_processor.process_webhook(
+                headers=headers,
+                payload=payload,
+                delivery_id=delivery_id
+            )
+
+            # Delete message from queue on success
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self.sqs_client.delete_message(
+                    QueueUrl=self.config.aws_sqs_queue_url,
+                    ReceiptHandle=receipt_handle
+                )
+            )
+
+            logger.info(
+                "SQS message processed successfully",
+                message_id=message_id,
+                delivery_id=delivery_id,
+            )
+
+        except Exception as e:
+            error_msg = f"Failed to process SQS message: {str(e)}"
+            logger.error(
+                "Error processing SQS message",
+                message_id=message_id,
+                error=error_msg,
+                exc_info=True,
+            )
+
+            # Send to DLQ if configured
+            if self.config.aws_sqs_dlq_url:
+                await self._send_to_dlq(message, error_msg)
+
+            # Delete message from main queue to prevent reprocessing
+            # (it's already in DLQ or we've logged the error)
+            try:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.sqs_client.delete_message(
+                        QueueUrl=self.config.aws_sqs_queue_url,
+                        ReceiptHandle=receipt_handle
+                    )
+                )
+                logger.info(
+                    "Deleted failed message from queue",
+                    message_id=message_id,
+                )
+            except Exception as delete_error:
+                logger.error(
+                    "Failed to delete message after error",
+                    message_id=message_id,
+                    error=str(delete_error),
+                )
+
+    async def _send_to_dlq(self, message: Dict[str, Any], error_msg: str) -> None:
+        """Send a failed message to the dead-letter queue.
+
+        Args:
+            message: Original SQS message
+            error_msg: Error message describing the failure
+        """
+        try:
+            message_id = message['MessageId']
+
+            # Add error information to the message
+            dlq_body = {
+                'original_message': message['Body'],
+                'error': error_msg,
+                'failed_at': asyncio.get_event_loop().time(),
+                'original_message_id': message_id,
+            }
+
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self.sqs_client.send_message(
+                    QueueUrl=self.config.aws_sqs_dlq_url,
+                    MessageBody=json.dumps(dlq_body)
+                )
+            )
+
+            logger.info(
+                "Sent failed message to DLQ",
+                message_id=message_id,
+                dlq_url=self.config.aws_sqs_dlq_url,
+            )
+
+        except Exception as e:
+            logger.error(
+                "Failed to send message to DLQ",
+                message_id=message.get('MessageId', 'unknown'),
+                error=str(e),
+                exc_info=True,
+            )

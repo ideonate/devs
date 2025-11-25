@@ -47,6 +47,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+sqs = [
+    "boto3>=1.18.0",  # AWS SQS support
+]
+all = [
+    "boto3>=1.18.0",  # Include all optional features
+]
 dev = [
     "pytest>=6.0",
     "pytest-cov",
@@ -55,6 +61,7 @@ dev = [
     "mypy",
     "flake8",
     "httpx",
+    "boto3>=1.18.0",  # For testing SQS functionality
 ]
 
 [project.scripts]

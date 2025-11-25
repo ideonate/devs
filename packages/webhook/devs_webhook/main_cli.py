@@ -23,21 +23,27 @@ cli.add_command(worker)
 
 
 @cli.command()
-@click.option('--host', default=None, help='Host to bind to')
-@click.option('--port', default=None, type=int, help='Port to bind to')
-@click.option('--reload', is_flag=True, help='Enable auto-reload for development')
+@click.option('--host', default=None, help='Host to bind to (webhook mode only)')
+@click.option('--port', default=None, type=int, help='Port to bind to (webhook mode only)')
+@click.option('--reload', is_flag=True, help='Enable auto-reload for development (webhook mode only)')
 @click.option('--env-file', type=click.Path(exists=True, path_type=Path), help='Path to .env file to load')
 @click.option('--dev', is_flag=True, help='Development mode (auto-loads .env, enables reload, console logs)')
-def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
-    """Start the webhook server.
-    
+@click.option('--source', type=click.Choice(['webhook', 'sqs'], case_sensitive=False), help='Task source override')
+def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source: str):
+    """Start the webhook handler server.
+
+    The server can run in two modes:
+    - webhook: Receives GitHub webhooks via FastAPI HTTP endpoint (default)
+    - sqs: Polls AWS SQS queue for webhook events
+
     Examples:
         devs-webhook serve --dev                    # Development mode with .env loading
         devs-webhook serve --env-file /path/.env    # Load specific .env file
         devs-webhook serve --host 127.0.0.1        # Override host from config
+        devs-webhook serve --source sqs            # Use SQS polling mode
     """
     setup_logging()
-    
+
     # Handle development mode
     if dev:
         reload = True
@@ -47,15 +53,15 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
             if not env_file.exists():
                 click.echo("⚠️  Development mode enabled but no .env file found")
                 env_file = None
-        
+
         click.echo("🚀 Development mode enabled")
         if env_file:
             click.echo(f"📄 Loading environment variables from {env_file}")
-    
-    # Load config with optional .env file  
+
+    # Load config with optional .env file
     elif env_file:
         click.echo(f"📄 Loading environment variables from {env_file}")
-    
+
     # Load .env file first (before creating config)
     if env_file:
         # Load the env file explicitly
@@ -64,33 +70,71 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool):
             load_dotenv(env_file)
         except ImportError:
             click.echo("⚠️ python-dotenv not available, skipping .env file loading")
-    
-    # Set environment variables for FastAPI app
+
+    # Set environment variables for dev mode
     if dev:
         os.environ["DEV_MODE"] = "true"
         os.environ["LOG_FORMAT"] = "console"
-        os.environ["WEBHOOK_HOST"] = "127.0.0.1"
-    
+        if not source or source == "webhook":
+            os.environ["WEBHOOK_HOST"] = "127.0.0.1"
+
+    # Override task source if specified via CLI
+    if source:
+        os.environ["TASK_SOURCE"] = source
+
     # Get config for display purposes (after loading env file)
     config = get_config()
-    
-    # Override config with CLI options  
-    actual_host = host or config.webhook_host
-    actual_port = port or config.webhook_port
-    
-    click.echo(f"Starting webhook server on {actual_host}:{actual_port}")
+
+    # Display configuration
+    click.echo(f"Task source: {config.task_source}")
     click.echo(f"Watching for @{config.github_mentioned_user} mentions")
     click.echo(f"Container pool: {', '.join(config.get_container_pool_list())}")
-    if dev:
-        click.echo("🔧 Development mode enabled - /testevent endpoint available")
-    
-    uvicorn.run(
-        "devs_webhook.app:app",
-        host=actual_host,
-        port=actual_port,
-        reload=reload,
-        log_config=None,  # Use our structlog config
-    )
+
+    # Start the appropriate task source
+    if config.task_source == "webhook":
+        # Override config with CLI options
+        actual_host = host or config.webhook_host
+        actual_port = port or config.webhook_port
+
+        click.echo(f"Starting webhook server on {actual_host}:{actual_port}")
+        if dev:
+            click.echo("🔧 Development mode enabled - /testevent endpoint available")
+
+        uvicorn.run(
+            "devs_webhook.app:app",
+            host=actual_host,
+            port=actual_port,
+            reload=reload,
+            log_config=None,  # Use our structlog config
+        )
+
+    elif config.task_source == "sqs":
+        click.echo(f"Starting SQS polling from: {config.aws_sqs_queue_url}")
+        click.echo(f"AWS region: {config.aws_region}")
+        if config.aws_sqs_dlq_url:
+            click.echo(f"DLQ configured: {config.aws_sqs_dlq_url}")
+
+        # Import and run SQS source
+        import asyncio
+        from .sources.sqs_source import SQSTaskSource
+
+        async def run_sqs():
+            sqs_source = SQSTaskSource()
+            try:
+                await sqs_source.start()
+            except KeyboardInterrupt:
+                click.echo("\n🛑 Shutting down SQS polling...")
+                await sqs_source.stop()
+
+        try:
+            asyncio.run(run_sqs())
+        except KeyboardInterrupt:
+            click.echo("🛑 Server stopped")
+
+    else:
+        click.echo(f"❌ Unknown task source: {config.task_source}")
+        click.echo("   Valid options: webhook, sqs")
+        exit(1)
 
 
 @cli.command()
