@@ -617,8 +617,8 @@ class ContainerManager:
             else:
                 # Non-streaming mode (original behavior)
                 process = subprocess.run(
-                    cmd, 
-                    input=stdin_input.encode('utf-8') if stdin_input else None,
+                    cmd,
+                    input=stdin_input if stdin_input else None,  # text=True means subprocess handles encoding
                     capture_output=True,
                     text=True
                 )
