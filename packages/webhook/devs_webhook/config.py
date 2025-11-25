@@ -171,18 +171,16 @@ class WebhookConfig(BaseSettings, BaseConfig):
         """Validate that required settings are present."""
         missing = []
 
-        # GitHub token is always required
+        # GitHub token and webhook secret are always required
         if not self.github_token:
             missing.append("github_token (GITHUB_TOKEN)")
         if not self.github_mentioned_user:
             missing.append("github_mentioned_user (GITHUB_MENTIONED_USER)")
+        if not self.github_webhook_secret:
+            missing.append("github_webhook_secret (GITHUB_WEBHOOK_SECRET) - required for signature verification")
 
         # Task source specific validations
         if self.task_source == "webhook":
-            # Webhook source requires webhook secret
-            if not self.github_webhook_secret:
-                missing.append("github_webhook_secret (GITHUB_WEBHOOK_SECRET) - required for webhook source")
-
             # Require admin password in production mode
             if not self.dev_mode and not self.admin_password:
                 missing.append("admin_password (ADMIN_PASSWORD) - required in production mode")
@@ -194,6 +192,12 @@ class WebhookConfig(BaseSettings, BaseConfig):
 
         else:
             missing.append(f"task_source must be 'webhook' or 'sqs', got '{self.task_source}'")
+
+        # Raise error if any required settings are missing
+        if missing:
+            raise ValueError(
+                f"Missing required configuration:\n  " + "\n  ".join(missing)
+            )
     
     def is_repository_allowed(self, repo_full_name: str, repo_owner: str) -> bool:
         """Check if a repository is allowed based on allowlist configuration.

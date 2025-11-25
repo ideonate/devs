@@ -5,12 +5,14 @@ A GitHub webhook handler that automatically responds to @mentions in issues and 
 ## Features
 
 - **Smart @mention Detection**: Responds when a configured user is @mentioned in GitHub issues/PRs
+- **Multiple Task Sources**: Support for direct webhook reception (FastAPI) or polling from AWS SQS queues
 - **Container Pool Management**: Manages a pool of named devcontainers (eamonn, harry, darren by default)
 - **Claude Code Integration**: Uses Claude Code SDK to analyze issues and implement solutions
 - **GitHub Checks API CI**: Automated test execution on push/PR events with status reporting
 - **Environment Variable Management**: Layered DEVS.yml configuration with user-specific overrides
 - **Repository Management**: Automatically clones and caches GitHub repositories
 - **Automated Responses**: Creates pull requests, commits changes, and comments back on issues
+- **Scalable Architecture**: Deploy as a single server or scale horizontally with SQS-based worker pools
 
 ## Quick Start
 
@@ -56,12 +58,52 @@ export WEBHOOK_PORT="8000"
 ### Start the Server
 
 ```bash
-# Start webhook server
+# Start webhook server (default mode)
 devs-webhook serve
 
 # Or with custom options
 devs-webhook serve --host 127.0.0.1 --port 8080 --reload
+
+# Start in SQS polling mode for scalable deployments
+export TASK_SOURCE=sqs
+export AWS_SQS_QUEUE_URL="https://sqs.us-east-1.amazonaws.com/123456789/devs-webhook-queue"
+devs-webhook serve --source sqs
 ```
+
+## Deployment Options
+
+### Webhook Mode (Default)
+
+Direct webhook reception using FastAPI. Suitable for:
+- Simple VPS deployments
+- Single-server setups
+- Low to moderate traffic
+
+```bash
+# GitHub Webhook → devs-webhook server (FastAPI) → Container Pool
+export TASK_SOURCE=webhook  # or omit (default)
+devs-webhook serve
+```
+
+### SQS Mode (Scalable)
+
+Decoupled architecture using AWS SQS. Suitable for:
+- High-traffic scenarios
+- Multiple worker instances
+- Better fault tolerance and retry logic
+
+```bash
+# GitHub Webhook → Lambda/API Gateway → SQS Queue → devs-webhook workers
+export TASK_SOURCE=sqs
+export AWS_SQS_QUEUE_URL="https://sqs.us-east-1.amazonaws.com/..."
+devs-webhook serve --source sqs
+```
+
+**Security**: Both modes validate GitHub webhook signatures for defense-in-depth security.
+
+For detailed configuration and deployment guides, see:
+- [Task Sources Documentation](docs/TASK_SOURCES.md) - Complete guide to webhook vs SQS modes
+- [Lambda Example](examples/sqs_webhook_forwarder.py) - Example Lambda function for SQS forwarding
 
 ## How It Works
 

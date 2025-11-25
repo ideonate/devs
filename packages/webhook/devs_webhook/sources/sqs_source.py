@@ -13,6 +13,7 @@ import structlog
 from .base import TaskSource
 from ..core.task_processor import TaskProcessor
 from ..config import get_config
+from ..utils.github import verify_github_signature
 
 logger = structlog.get_logger()
 
@@ -169,6 +170,34 @@ class SQSTaskSource(TaskSource):
 
             # Generate delivery ID if not present
             delivery_id = headers.get('x-github-delivery', f'sqs-{message_id}')
+
+            # Verify GitHub webhook signature (defense in depth)
+            signature = headers.get('x-hub-signature-256', '')
+            if not verify_github_signature(payload, signature, self.config.github_webhook_secret):
+                error_msg = "Invalid GitHub webhook signature - possible security breach or misconfiguration"
+                logger.error(
+                    "Invalid webhook signature from SQS message",
+                    message_id=message_id,
+                    delivery_id=delivery_id,
+                    signature_present=bool(signature),
+                )
+                # Send to DLQ for investigation
+                if self.config.aws_sqs_dlq_url:
+                    await self._send_to_dlq(message, error_msg)
+                # Delete from main queue (don't retry invalid signatures)
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.sqs_client.delete_message(
+                        QueueUrl=self.config.aws_sqs_queue_url,
+                        ReceiptHandle=receipt_handle
+                    )
+                )
+                logger.warning(
+                    "Rejected SQS message with invalid signature",
+                    message_id=message_id,
+                )
+                return
 
             logger.info(
                 "Processing SQS message",

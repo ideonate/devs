@@ -8,8 +8,6 @@ Architecture:
     FastAPI endpoints -> WebhookHandler -> TaskProcessor -> ContainerPool
 """
 
-import hmac
-import hashlib
 import secrets
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -22,6 +20,7 @@ from datetime import datetime, timezone
 from .config import get_config, WebhookConfig
 from .core.webhook_handler import WebhookHandler
 from .utils.logging import setup_logging
+from .utils.github import verify_github_signature
 
 # Set up logging
 setup_logging()
@@ -106,27 +105,7 @@ def verify_admin_credentials(
     return credentials.username
 
 
-def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
-    """Verify GitHub webhook signature.
-    
-    Args:
-        payload: Raw webhook payload
-        signature: GitHub signature header
-        secret: Webhook secret
-        
-    Returns:
-        True if signature is valid
-    """
-    if not signature.startswith("sha256="):
-        return False
-    
-    expected_signature = "sha256=" + hmac.new(
-        secret.encode("utf-8"),
-        payload,
-        hashlib.sha256
-    ).hexdigest()
-    
-    return hmac.compare_digest(signature, expected_signature)
+# verify_github_signature is now imported from .utils module
 
 
 @app.get("/")
@@ -154,7 +133,7 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     
     # Verify signature
     signature = headers.get("x-hub-signature-256", "")
-    if not verify_webhook_signature(payload, signature, config.github_webhook_secret):
+    if not verify_github_signature(payload, signature, config.github_webhook_secret):
         logger.warning("Invalid webhook signature", signature=signature)
         raise HTTPException(status_code=401, detail="Invalid signature")
     
