@@ -7,22 +7,20 @@ name = "devs-common"
 version = "0.1.0"
 description = "Shared utilities for devs package ecosystem"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Dan Lester"},
 ]
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License", 
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
-
 dependencies = [
     "docker>=6.0.0",
     "GitPython>=3.1.0",
@@ -31,6 +29,12 @@ dependencies = [
     "pydantic>=2.0.0",
     "pathspec>=0.11.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ideonate/devs"
+Repository = "https://github.com/ideonate/devs"
+Issues = "https://github.com/ideonate/devs/issues"
+Documentation = "https://github.com/ideonate/devs/tree/main/packages/common"
 
 [project.optional-dependencies]
 dev = [
@@ -41,6 +45,8 @@ dev = [
     "isort>=5.0.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
+    "build>=0.10.0",
+    "twine>=4.0.0",
 ]
 
 [tool.setuptools.packages.find]

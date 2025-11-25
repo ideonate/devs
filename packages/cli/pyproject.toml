@@ -3,12 +3,12 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "devs"
+name = "devs-cli"
 version = "0.1.0"
 description = "DevContainer Management Tool - Manage multiple named devcontainers for any project"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Dan Lester"},
 ]
@@ -17,7 +17,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
@@ -31,7 +30,7 @@ classifiers = [
 
 dependencies = [
     "click>=8.0.0",
-    # "devs-common>=0.1.0",  # Our common package - uncomment when publishing to PyPI
+    "devs-common>=0.1.0",
     "rich>=12.0.0",
     "pathspec>=0.10.0",
     "PyYAML>=6.0",
@@ -44,6 +43,8 @@ dev = [
     "black",
     "mypy",
     "flake8",
+    "build>=0.10.0",
+    "twine>=4.0.0",
 ]
 
 [project.scripts]
