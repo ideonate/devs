@@ -377,7 +377,14 @@ def shell(dev_name: str, live: bool, env: tuple, debug: bool) -> None:
         # Ensure workspace exists (handles live mode internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
         # Ensure container is running
-        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
+        container_manager.ensure_container_running(
+            dev_name=dev_name, 
+            workspace_dir=workspace_dir, 
+            force_rebuild=False, 
+            debug=debug, 
+            live=live, 
+            extra_env=extra_env
+        )
         
         # Open shell
         container_manager.exec_shell(dev_name, workspace_dir, debug=debug, live=live)
@@ -423,7 +430,14 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: t
         # Ensure workspace exists (handles live mode and reset internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
         # Ensure container is running
-        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
+        container_manager.ensure_container_running(
+            dev_name=dev_name, 
+            workspace_dir=workspace_dir, 
+            force_rebuild=False, 
+            debug=debug, 
+            live=live, 
+            extra_env=extra_env
+        )
         
         # Execute Claude
         console.print(f"🤖 Executing Claude in {dev_name}...")
@@ -433,7 +447,13 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: t
         console.print("")
         
         success, output, error = container_manager.exec_claude(
-            dev_name, workspace_dir, prompt, debug=debug, stream=True, live=live, extra_env=extra_env
+            dev_name=dev_name,
+            workspace_dir=workspace_dir, 
+            prompt=prompt, 
+            debug=debug, 
+            stream=False, 
+            live=live, 
+            extra_env=extra_env
         )
         
         console.print("")  # Add spacing after streamed output
@@ -488,7 +508,14 @@ def runtests(dev_name: str, command: str, reset_workspace: bool, live: bool, env
         # Ensure workspace exists (handles live mode and reset internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
         # Ensure container is running
-        container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
+        container_manager.ensure_container_running(
+            dev_name=dev_name, 
+            workspace_dir=workspace_dir, 
+            force_rebuild=False, 
+            debug=debug, 
+            live=live, 
+            extra_env=extra_env
+        )
         
         # Execute test command
         console.print(f"🧪 Running tests in {dev_name}...")
@@ -498,7 +525,13 @@ def runtests(dev_name: str, command: str, reset_workspace: bool, live: bool, env
         console.print("")
         
         success, output, error = container_manager.exec_command(
-            dev_name, workspace_dir, command, debug=debug, stream=True, live=live, extra_env=extra_env
+            dev_name=dev_name, 
+            workspace_dir=workspace_dir, 
+            command=command, 
+            debug=debug, 
+            stream=True, 
+            live=live, 
+            extra_env=extra_env
         )
         
         console.print("")  # Add spacing after streamed output

@@ -230,8 +230,9 @@ class TestDispatcher:
                 extra_env = devs_options.get_env_vars(dev_name)
                 
             if not container_manager.ensure_container_running(
-                dev_name, 
-                workspace_dir, 
+                dev_name=dev_name, 
+                workspace_dir=workspace_dir, 
+                force_rebuild=False,
                 debug=self.config.dev_mode,
                 extra_env=extra_env
             ):

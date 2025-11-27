@@ -1,6 +1,7 @@
 """DevContainer CLI wrapper utilities."""
 
 import os
+import sys
 import subprocess
 from pathlib import Path
 from typing import List, Optional

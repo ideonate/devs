@@ -42,8 +42,6 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
         devs-webhook serve --host 127.0.0.1        # Override host from config
         devs-webhook serve --source sqs            # Use SQS polling mode
     """
-    setup_logging()
-
     # Handle development mode
     if dev:
         reload = True
@@ -81,6 +79,9 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
     # Override task source if specified via CLI
     if source:
         os.environ["TASK_SOURCE"] = source
+
+    # Now setup logging after environment is configured
+    setup_logging()
 
     # Get config for display purposes (after loading env file)
     config = get_config()
