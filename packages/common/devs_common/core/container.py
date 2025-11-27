@@ -580,6 +580,9 @@ class ContainerManager:
                 
                 # Send stdin input if provided and close stdin
                 if process.stdin and stdin_input:
+                    # Ensure stdin input ends with newline for proper command termination
+                    if not stdin_input.endswith('\n'):
+                        stdin_input = stdin_input + '\n'
                     process.stdin.write(stdin_input)
                     process.stdin.close()
                 elif process.stdin:
