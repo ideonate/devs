@@ -386,10 +386,11 @@ class TestDispatcher(BaseDispatcher):
         """
         import subprocess
         
-        project_prefix = self.config.project_prefix if self.config else "dev"
-        container_name = project.get_container_name(dev_name, project_prefix)
-        workspace_name = project.get_workspace_name(dev_name)
-        container_workspace_dir = f"/workspaces/{workspace_name}"
+        # Use ContainerManager to get container info consistently
+        container_manager = ContainerManager(project, self.config)
+        container_info = container_manager._get_container_info(dev_name)
+        container_name = container_info["container_name"]
+        container_workspace_dir = container_info["container_workspace_dir"]
         
         try:
             # Execute command in the container

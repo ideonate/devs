@@ -55,6 +55,60 @@ class ContainerManager:
         self.docker = DockerClient()
         self.devcontainer = DevContainerCLI(config)
     
+    def _get_container_info(self, dev_name: str, live: bool = False) -> Dict[str, str]:
+        """Get container names and paths for a dev environment.
+        
+        Args:
+            dev_name: Development environment name
+            live: Whether container is in live mode
+            
+        Returns:
+            Dictionary with container_name, workspace_name, container_workspace_dir
+        """
+        project_prefix = self.config.project_prefix if self.config else "dev"
+        container_name = self.project.get_container_name(dev_name, project_prefix)
+        
+        # In live mode, workspace name is determined differently
+        if live:
+            # This would need workspace_dir parameter to get workspace_dir.name
+            # For now, keep it simple and let callers handle live mode logic
+            workspace_name = self.project.get_workspace_name(dev_name)
+        else:
+            workspace_name = self.project.get_workspace_name(dev_name)
+        
+        container_workspace_dir = f"/workspaces/{workspace_name}"
+        
+        return {
+            "container_name": container_name,
+            "workspace_name": workspace_name, 
+            "container_workspace_dir": container_workspace_dir
+        }
+    
+    def _get_project_labels(self, dev_name: str, live: bool = False) -> Dict[str, str]:
+        """Get standard project labels for container operations.
+        
+        Args:
+            dev_name: Development environment name
+            live: Whether container is in live mode
+            
+        Returns:
+            Dictionary of labels
+        """
+        labels = {
+            "devs.project": self.project.info.name,
+            "devs.dev": dev_name,
+        }
+        
+        # Add live mode label if applicable
+        if live:
+            labels["devs.live"] = "true"
+        
+        # Add config labels if available
+        if self.config:
+            labels.update(self.config.container_labels)
+        
+        return labels
+    
     def should_rebuild_image(self, dev_name: str) -> Tuple[bool, str]:
         """Check if devcontainer image should be rebuilt.
         
@@ -142,19 +196,9 @@ class ContainerManager:
         Raises:
             ContainerError: If container operations fail
         """
-        project_prefix = self.config.project_prefix if self.config else "dev"
-        container_name = self.project.get_container_name(dev_name, project_prefix)
-        project_labels = {
-            "devs.project": self.project.info.name,
-            "devs.dev": dev_name,
-        }
-        
-        # Add live mode label if applicable
-        if live:
-            project_labels["devs.live"] = "true"
-        
-        if self.config:
-            project_labels.update(self.config.container_labels)
+        container_info = self._get_container_info(dev_name, live)
+        container_name = container_info["container_name"]
+        project_labels = self._get_project_labels(dev_name, live)
         
         try:
             # Check if we need to rebuild
@@ -223,7 +267,7 @@ class ContainerManager:
                 config_path = get_template_dir() / "devcontainer.json"
             
             # Start devcontainer
-            container_workspace_name = self.project.get_workspace_name(dev_name)
+            container_workspace_name = container_info["workspace_name"]
             success = self.devcontainer.up(
                 workspace_folder=workspace_dir,
                 dev_name=dev_name,
@@ -294,10 +338,7 @@ class ContainerManager:
         Returns:
             True if container was stopped/removed
         """
-        project_labels = {
-            "devs.project": self.project.info.name,
-            "devs.dev": dev_name,
-        }
+        project_labels = self._get_project_labels(dev_name)
         
         try:
             console.print(f"   🔍 Looking for containers with labels: {project_labels}")
@@ -397,7 +438,8 @@ class ContainerManager:
                 is_failed_status = status in ['exited', 'dead', 'created']
                 
                 # Check if container has expected name for its dev environment
-                expected_name = self.project.get_container_name(dev_name, self.config.project_prefix if self.config else "dev")
+                expected_container_info = self._get_container_info(dev_name)
+                expected_name = expected_container_info["container_name"]
                 has_wrong_name = container_name != expected_name and dev_name != 'unknown'
                 
                 if is_failed_status or has_wrong_name:
@@ -448,6 +490,46 @@ class ContainerManager:
         
         return removed_count
     
+    def _prepare_container_exec(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> Tuple[str, str]:
+        """Prepare container for exec operations (shared by exec_shell and exec_command).
+        
+        Args:
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            debug: Show debug output for devcontainer operations
+            live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
+            
+        Returns:
+            Tuple of (container_name, container_workspace_dir)
+            
+        Raises:
+            ContainerError: If container preparation fails
+        """
+        # Get initial container info (may be updated based on existing container mode)
+        container_info = self._get_container_info(dev_name, live)
+        container_name = container_info["container_name"]
+        
+        # Check if container already exists and detect its mode
+        project_labels = self._get_project_labels(dev_name)
+        existing_containers = self.docker.find_containers_by_labels(project_labels)
+        if existing_containers:
+            container_info_existing = existing_containers[0]
+            existing_labels = container_info_existing.get('labels', {})
+            existing_is_live = existing_labels.get('devs.live') == 'true'
+            # Use the existing container's mode
+            live = existing_is_live
+        
+        # In live mode, use the host folder name; otherwise use constructed name
+        workspace_name = workspace_dir.name if live else container_info["workspace_name"]
+        container_workspace_dir = f"/workspaces/{workspace_name}"
+        
+        # Ensure container is running
+        if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
+            raise ContainerError(f"Failed to start container for {dev_name}")
+        
+        return container_name, container_workspace_dir
+    
     def exec_shell(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False) -> None:
         """Execute a shell in the container.
         
@@ -460,29 +542,11 @@ class ContainerManager:
         Raises:
             ContainerError: If shell execution fails
         """
-        project_prefix = self.config.project_prefix if self.config else "dev"
-        container_name = self.project.get_container_name(dev_name, project_prefix)
-        # In live mode, use the host folder name; otherwise use constructed name
-        workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
-        container_workspace_dir = f"/workspaces/{workspace_name}"
-        
         try:
-            # Check if container already exists and detect its mode
-            project_labels = {
-                "devs.project": self.project.info.name,
-                "devs.dev": dev_name,
-            }
-            existing_containers = self.docker.find_containers_by_labels(project_labels)
-            if existing_containers:
-                container_info = existing_containers[0]
-                existing_labels = container_info.get('labels', {})
-                existing_is_live = existing_labels.get('devs.live') == 'true'
-                # Use the existing container's mode
-                live = existing_is_live
-            
-            # Ensure container is running
-            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live):
-                raise ContainerError(f"Failed to start container for {dev_name}")
+            # Prepare container for execution
+            container_name, container_workspace_dir = self._prepare_container_exec(
+                dev_name, workspace_dir, debug=debug, live=live
+            )
             
             console.print(f"🐚 Opening shell in: {dev_name} (container: {container_name})")
             console.print(f"   Workspace: {container_workspace_dir}")
@@ -523,29 +587,11 @@ class ContainerManager:
         Raises:
             ContainerError: If command execution fails
         """
-        project_prefix = self.config.project_prefix if self.config else "dev"
-        container_name = self.project.get_container_name(dev_name, project_prefix)
-        # In live mode, use the host folder name; otherwise use constructed name
-        workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
-        container_workspace_dir = f"/workspaces/{workspace_name}"
-        
         try:
-            # Check if container already exists and detect its mode
-            project_labels = {
-                "devs.project": self.project.info.name,
-                "devs.dev": dev_name,
-            }
-            existing_containers = self.docker.find_containers_by_labels(project_labels)
-            if existing_containers:
-                container_info = existing_containers[0]
-                existing_labels = container_info.get('labels', {})
-                existing_is_live = existing_labels.get('devs.live') == 'true'
-                # Use the existing container's mode
-                live = existing_is_live
-            
-            # Ensure container is running
-            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
-                raise ContainerError(f"Failed to start container for {dev_name}")
+            # Prepare container for execution
+            container_name, container_workspace_dir = self._prepare_container_exec(
+                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env
+            )
             
             # Only print status messages if not in webhook mode (or if streaming)
             if os.environ.get('DEVS_WEBHOOK_MODE') != '1' or stream:
