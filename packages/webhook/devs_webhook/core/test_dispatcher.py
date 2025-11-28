@@ -1,45 +1,35 @@
 """Test runner dispatcher for executing CI tests in containers."""
 
-from typing import NamedTuple, Optional
+from typing import Optional
 import structlog
 from pathlib import Path
 
 from devs_common.core.project import Project
 from devs_common.core.container import ContainerManager
 from devs_common.core.workspace import WorkspaceManager
-from ..config import get_config
 from ..github.models import WebhookEvent, PushEvent, PullRequestEvent, DevsOptions
-from ..github.client import GitHubClient
+from .base_dispatcher import BaseDispatcher, TaskResult
 
 logger = structlog.get_logger()
 
 
-class TestResult(NamedTuple):
-    """Result of a test execution."""
-    success: bool
-    output: str
-    error: Optional[str] = None
-    exit_code: Optional[int] = None
-
-
-class TestDispatcher:
+class TestDispatcher(BaseDispatcher):
     """Dispatches test commands to containers and reports results via GitHub Checks API."""
+    
+    dispatcher_name = "Test"
     
     def __init__(self):
         """Initialize test dispatcher."""
-        self.config = get_config()
-        
-        self.github_client = GitHubClient(self.config)
-        
-        logger.info("Test dispatcher initialized")
+        super().__init__("test")
     
-    async def execute_tests(
+    async def execute_task(
         self,
         dev_name: str,
         repo_path: Path,
         event: WebhookEvent,
-        devs_options: Optional[DevsOptions] = None
-    ) -> TestResult:
+        devs_options: Optional[DevsOptions] = None,
+        task_description: Optional[str] = None
+    ) -> TaskResult:
         """Execute tests using container and report results via GitHub Checks API.
         
         Args:
@@ -47,6 +37,7 @@ class TestDispatcher:
             repo_path: Path to repository on host (already calculated by container_pool)
             event: Original webhook event
             devs_options: Options from DEVS.yml file
+            task_description: Task description (ignored by test dispatcher)
             
         Returns:
             Test execution result
@@ -118,7 +109,7 @@ class TestDispatcher:
             )
             
             # Build result
-            result = TestResult(
+            result = TaskResult(
                 success=success,
                 output=output,
                 error=error if not success else None,
@@ -187,7 +178,7 @@ class TestDispatcher:
             elif hasattr(event, 'is_test') and event.is_test:
                 logger.info("Skipping GitHub check run failure reporting for test event")
             
-            return TestResult(success=False, output="", error=error_msg)
+            return TaskResult(success=False, output="", error=error_msg)
     
     def _execute_tests_sync(
         self,
@@ -325,7 +316,7 @@ class TestDispatcher:
         self,
         repo_name: str,
         check_run_id: int,
-        result: TestResult,
+        result: TaskResult,
         installation_id: Optional[str] = None
     ) -> None:
         """Report test results to GitHub via Checks API.

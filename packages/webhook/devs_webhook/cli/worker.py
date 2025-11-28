@@ -217,38 +217,26 @@ def _process_task_subprocess(
         # Initialize appropriate dispatcher based on task type
         if task_type == 'tests':
             dispatcher = TestDispatcher()
-            logger.info("Executing task with Test dispatcher",
-                       task_id=task_id,
-                       dev_name=dev_name,
-                       workspace_name=workspace_name)
-            
-            # Execute tests
-            result = asyncio.run(dispatcher.execute_tests(
-                dev_name=dev_name,
-                repo_path=repo_path,
-                event=event,
-                devs_options=devs_options
-            ))
         else:
             # Default to Claude execution
             dispatcher = ClaudeDispatcher()
-            logger.info("Executing task with Claude dispatcher",
-                       task_id=task_id,
-                       dev_name=dev_name,
-                       workspace_name=workspace_name)
             
             # Ensure task_description is provided for Claude tasks
             if not task_description:
                 raise ValueError("task_description is required for Claude tasks")
-            
-            # Execute Claude task
-            result = asyncio.run(dispatcher.execute_task(
-                dev_name=dev_name,
-                repo_path=repo_path,
-                task_description=task_description,
-                event=event,
-                devs_options=devs_options
-            ))
+        
+        logger.info(f"Executing task with {dispatcher.dispatcher_name} dispatcher",
+                   task_id=task_id,
+                   dev_name=dev_name,
+                   workspace_name=workspace_name)
+        
+        result = asyncio.run(dispatcher.execute_task(
+            dev_name=dev_name,
+            repo_path=repo_path,
+            event=event,
+            devs_options=devs_options,
+            task_description=task_description
+        ))
         
         if result.success:
             logger.info("Task execution completed successfully",

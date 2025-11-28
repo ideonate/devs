@@ -451,7 +451,7 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: t
             workspace_dir=workspace_dir, 
             prompt=prompt, 
             debug=debug, 
-            stream=False, 
+            stream=True, 
             live=live, 
             extra_env=extra_env
         )

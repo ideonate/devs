@@ -17,7 +17,7 @@ from devs_common.core.workspace import WorkspaceManager
 
 from ..config import get_config
 from ..github.models import WebhookEvent, DevsOptions, IssueEvent, PullRequestEvent, CommentEvent
-from .claude_dispatcher import ClaudeDispatcher, TaskResult
+from .base_dispatcher import TaskResult
 from ..github.client import GitHubClient
 
 logger = structlog.get_logger()
@@ -39,7 +39,6 @@ class ContainerPool:
     def __init__(self):
         """Initialize container pool."""
         self.config = get_config()
-        self.claude_dispatcher = ClaudeDispatcher()
 
         # Track running containers for idle cleanup
         self.running_containers: Dict[str, Dict[str, Any]] = {}

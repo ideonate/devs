@@ -1,44 +1,34 @@
 """Claude Code CLI integration for executing tasks in containers."""
 
-from typing import NamedTuple, Optional
+from typing import Optional
 import structlog
 from pathlib import Path
 
 from devs_common.core.project import Project
 from devs_common.core.container import ContainerManager
 from devs_common.core.workspace import WorkspaceManager
-from ..config import get_config
 from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent, DevsOptions
-from ..github.client import GitHubClient
+from .base_dispatcher import BaseDispatcher, TaskResult
 
 logger = structlog.get_logger()
 
 
-class TaskResult(NamedTuple):
-    """Result of a Claude Code task execution."""
-    success: bool
-    output: str
-    error: Optional[str] = None
-
-
-class ClaudeDispatcher:
+class ClaudeDispatcher(BaseDispatcher):
     """Dispatches tasks to Claude Code CLI running in containers."""
+    
+    dispatcher_name = "Claude"
     
     def __init__(self):
         """Initialize Claude dispatcher."""
-        self.config = get_config()
-        
-        self.github_client = GitHubClient(self.config)
-        
-        logger.info("Claude dispatcher initialized")
+        super().__init__("Claude")
     
     async def execute_task(
         self,
         dev_name: str,
         repo_path: Path,
-        task_description: str,
         event: WebhookEvent,
-        devs_options: Optional[DevsOptions] = None
+        devs_options: Optional[DevsOptions] = None,
+        task_description: Optional[str] = None
     ) -> TaskResult:
         """Execute a task using Claude Code CLI in a container.
         
@@ -59,10 +49,13 @@ class ClaudeDispatcher:
                        repo_path=str(repo_path))
             
             # Execute Claude directly - prompt building, workspace setup, container startup, Claude execution
+            # Use task_description if provided, otherwise extract from event
+            task_desc = task_description or "Process webhook event"
+            
             success, output, error = self._execute_claude_sync(
                 repo_path,
                 dev_name,
-                task_description,
+                task_desc,
                 event,
                 devs_options
             )
@@ -78,7 +71,8 @@ class ClaudeDispatcher:
             result = TaskResult(
                 success=success,
                 output=output,
-                error=error if not success else None
+                error=error if not success else None,
+                exit_code=None  # Claude doesn't provide exit codes
             )
             
             if result.success:
@@ -104,7 +98,7 @@ class ClaudeDispatcher:
                         exc_info=True)
             
             await self._handle_task_failure(event, error_msg)
-            return TaskResult(success=False, output="", error=error_msg)
+            return TaskResult(success=False, output="", error=error_msg, exit_code=None)
     
     def _execute_claude_sync(
         self,
