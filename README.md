@@ -160,6 +160,30 @@ black devs tests
 mypy devs
 ```
 
+### Publishing Releases
+
+Use the provided script to bump versions and publish all packages to PyPI:
+
+```bash
+# Patch version bump (e.g., 0.1.0 -> 0.1.1)
+python scripts/bump-and-publish.py
+
+# Minor version bump (e.g., 0.1.0 -> 0.2.0)
+python scripts/bump-and-publish.py minor
+
+# Major version bump (e.g., 0.1.0 -> 1.0.0)
+python scripts/bump-and-publish.py major
+```
+
+The script will:
+- Update version numbers in all three package `pyproject.toml` files
+- Build packages in dependency order (common → cli → webhook)
+- Upload to PyPI using `twine`
+
+**Prerequisites:**
+- `build` and `twine` packages installed
+- PyPI authentication configured (API token or username/password)
+
 ## Architecture
 
 ### Container Naming
