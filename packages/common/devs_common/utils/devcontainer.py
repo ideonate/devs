@@ -70,6 +70,11 @@ def prepare_devcontainer_environment(
     
     env['DEVS_ENV_MOUNT_PATH'] = str(env_mount_path)
     
+    # Set bridge mount path
+    bridge_mount_path = Path.home() / '.devs' / 'bridge' / f"{project_name}-{dev_name}"
+    bridge_mount_path.mkdir(parents=True, exist_ok=True)
+    env['DEVS_BRIDGE_MOUNT_PATH'] = str(bridge_mount_path)
+    
     # Pass debug mode to container scripts
     if debug:
         env['DEVS_DEBUG'] = 'true'

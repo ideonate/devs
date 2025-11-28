@@ -12,6 +12,7 @@ class BaseConfig(ABC):
     def __init__(self) -> None:
         """Initialize base configuration."""
         self._workspaces_dir: Optional[Path] = None
+        self._bridge_dir: Optional[Path] = None
         self._project_prefix: Optional[str] = None
     
     @property
@@ -32,6 +33,23 @@ class BaseConfig(ABC):
         self._workspaces_dir = value
     
     @property
+    def bridge_dir(self) -> Path:
+        """Get bridge directory."""
+        if self._bridge_dir is None:
+            # Default can be overridden by subclasses
+            bridge_env = os.getenv("DEVS_BRIDGE_DIR")
+            if bridge_env:
+                self._bridge_dir = Path(bridge_env)
+            else:
+                self._bridge_dir = self.get_default_bridge_dir()
+        return self._bridge_dir
+    
+    @bridge_dir.setter
+    def bridge_dir(self, value: Path) -> None:
+        """Set bridge directory."""
+        self._bridge_dir = value
+    
+    @property
     def project_prefix(self) -> str:
         """Get project prefix."""
         if self._project_prefix is None:
@@ -46,6 +64,11 @@ class BaseConfig(ABC):
     @abstractmethod
     def get_default_workspaces_dir(self) -> Path:
         """Get default workspaces directory. Override in subclasses."""
+        pass
+    
+    @abstractmethod
+    def get_default_bridge_dir(self) -> Path:
+        """Get default bridge directory. Override in subclasses."""
         pass
     
     @abstractmethod
@@ -64,3 +87,4 @@ class BaseConfig(ABC):
     def ensure_directories(self) -> None:
         """Ensure required directories exist."""
         self.workspaces_dir.mkdir(parents=True, exist_ok=True)
+        self.bridge_dir.mkdir(parents=True, exist_ok=True)

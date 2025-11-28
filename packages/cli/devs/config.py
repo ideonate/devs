@@ -13,6 +13,7 @@ class Config(BaseConfig):
     # Default settings
     PROJECT_PREFIX = "dev"
     WORKSPACES_DIR = Path.home() / ".devs" / "workspaces"
+    BRIDGE_DIR = Path.home() / ".devs" / "bridge"
     CLAUDE_CONFIG_DIR = Path.home() / ".devs" / "claudeconfig"
     
     def __init__(self) -> None:
@@ -29,6 +30,10 @@ class Config(BaseConfig):
     def get_default_workspaces_dir(self) -> Path:
         """Get default workspaces directory for CLI package."""
         return self.WORKSPACES_DIR
+    
+    def get_default_bridge_dir(self) -> Path:
+        """Get default bridge directory for CLI package."""
+        return self.BRIDGE_DIR
     
     def get_default_project_prefix(self) -> str:
         """Get default project prefix for CLI package."""
