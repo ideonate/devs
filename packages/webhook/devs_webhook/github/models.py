@@ -367,35 +367,6 @@ Clone URL: {self.repository.clone_url}
         return hashlib.sha256(content_string.encode()).hexdigest()[:16]
 
 
-class DevsOptions(BaseModel):
-    """DEVS.yml configuration options."""
-    default_branch: str = "main"
-    prompt_extra: str = ""
-    prompt_override: Optional[str] = None
-    direct_commit: bool = False
-    single_queue: bool = False  # Restrict repo to single queue processing
-    ci_enabled: bool = False  # Enable CI mode for this repository
-    ci_test_command: str = "./runtests.sh"  # Command to run for CI tests
-    ci_branches: List[str] = ["main", "master"]  # Branches to run CI on for push events
-    env_vars: Dict[str, Dict[str, str]] = Field(default_factory=dict)  # Environment variables with defaults and per-container overrides
-    
-    def get_env_vars(self, container_name: Optional[str] = None) -> Dict[str, str]:
-        """Get environment variables for a specific container or defaults.
-        
-        Args:
-            container_name: Container name to get specific overrides for
-            
-        Returns:
-            Dictionary of environment variables with container-specific overrides applied
-        """
-        # Start with default env vars if they exist
-        env = self.env_vars.get('default', {}).copy()
-        
-        # Apply container-specific overrides if container name provided
-        if container_name and container_name in self.env_vars:
-            env.update(self.env_vars[container_name])
-        
-        return env
 
 
 # Discriminated union for automatic event type detection

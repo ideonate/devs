@@ -11,6 +11,7 @@ from devs_webhook.core.container_pool import ContainerPool, QueuedTask
 from devs_webhook.github.models import (
     WebhookEvent, GitHubRepository, GitHubUser, IssueEvent, GitHubIssue
 )
+from devs_common.devs_config import DevsOptions
 
 
 @pytest.fixture
@@ -74,8 +75,7 @@ def mock_event():
 @pytest.mark.asyncio
 async def test_single_queue_repo_assignment(mock_config, mock_event):
     """Test that single-queue repos are assigned to the same container after detection."""
-    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config), \
-         patch('devs_webhook.core.container_pool.ClaudeDispatcher'):
+    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
         pool = ContainerPool()
         
         # Create repository directory with DEVS.yml
@@ -90,9 +90,12 @@ async def test_single_queue_repo_assignment(mock_config, mock_event):
             pool.container_workers[name].cancel()
         pool.cleanup_worker.cancel()
         
+        # Simulate cached config that would be loaded after first clone
+        pool.repo_configs["test-org/test-repo"] = DevsOptions(single_queue=True)
+        
         # Simulate the registration that would happen after first clone
         # In real flow, this happens in _process_task_subprocess after _ensure_repository_cloned
-        pool.register_single_queue_repo("test-org/test-repo", "eamonn")
+        pool.single_queue_assignments["test-org/test-repo"] = "eamonn"
         
         # Queue first task - should go to the registered container
         success1 = await pool.queue_task(
@@ -104,8 +107,8 @@ async def test_single_queue_repo_assignment(mock_config, mock_event):
         assert success1
         
         # Check that repo is registered for single-queue
-        assert "test-org/test-repo" in pool.single_queue_repos
-        assigned_container = pool.single_queue_repos["test-org/test-repo"]
+        assert "test-org/test-repo" in pool.single_queue_assignments
+        assigned_container = pool.single_queue_assignments["test-org/test-repo"]
         assert assigned_container == "eamonn"
         
         # Queue second task for same repo
@@ -118,7 +121,7 @@ async def test_single_queue_repo_assignment(mock_config, mock_event):
         assert success2
         
         # Verify same container was used
-        assert pool.single_queue_repos["test-org/test-repo"] == assigned_container
+        assert pool.single_queue_assignments["test-org/test-repo"] == assigned_container
         
         # Both tasks should be in the same queue (eamonn)
         assert pool.container_queues["eamonn"].qsize() == 2
@@ -132,8 +135,7 @@ async def test_single_queue_repo_assignment(mock_config, mock_event):
 @pytest.mark.asyncio
 async def test_normal_repo_load_balancing(mock_config, mock_event):
     """Test that non-single-queue repos use normal load balancing."""
-    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config), \
-         patch('devs_webhook.core.container_pool.ClaudeDispatcher'):
+    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
         pool = ContainerPool()
         
         # Create repository directory with DEVS.yml (single_queue: false)
@@ -148,6 +150,9 @@ async def test_normal_repo_load_balancing(mock_config, mock_event):
             pool.container_workers[name].cancel()
         pool.cleanup_worker.cancel()
         
+        # Simulate cached config for normal repo
+        pool.repo_configs["test-org/test-repo"] = DevsOptions(single_queue=False)
+        
         # Pre-fill one queue to test load balancing
         await pool.container_queues["eamonn"].put(MagicMock())
         await pool.container_queues["eamonn"].put(MagicMock())
@@ -161,8 +166,8 @@ async def test_normal_repo_load_balancing(mock_config, mock_event):
         )
         assert success
         
-        # Repo should NOT be in single_queue_repos
-        assert "test-org/test-repo" not in pool.single_queue_repos
+        # Repo should NOT be in single_queue_assignments
+        assert "test-org/test-repo" not in pool.single_queue_assignments
         
         # Task should have gone to harry or darren (less busy)
         assert pool.container_queues["harry"].qsize() == 1 or \
@@ -173,8 +178,7 @@ async def test_normal_repo_load_balancing(mock_config, mock_event):
 @pytest.mark.asyncio
 async def test_mixed_repos(mock_config, mock_event):
     """Test handling of both single-queue and normal repos simultaneously."""
-    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config), \
-         patch('devs_webhook.core.container_pool.ClaudeDispatcher'):
+    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
         pool = ContainerPool()
         
         # Create two repos - one with single_queue, one without
@@ -191,8 +195,12 @@ async def test_mixed_repos(mock_config, mock_event):
             pool.container_workers[name].cancel()
         pool.cleanup_worker.cancel()
         
+        # Simulate cached configs for both repos
+        pool.repo_configs["test-org/single-repo"] = DevsOptions(single_queue=True)
+        pool.repo_configs["test-org/normal-repo"] = DevsOptions(single_queue=False)
+        
         # Simulate registration of single-queue repo (would happen after first clone)
-        pool.register_single_queue_repo("test-org/single-repo", "harry")
+        pool.single_queue_assignments["test-org/single-repo"] = "harry"
         
         # Queue tasks for single-queue repo
         await pool.queue_task("task-1", "test-org/single-repo", "Task 1", mock_event)
@@ -203,12 +211,12 @@ async def test_mixed_repos(mock_config, mock_event):
         await pool.queue_task("task-4", "test-org/normal-repo", "Task 4", mock_event)
         
         # Single-queue repo should be assigned to one container
-        assert "test-org/single-repo" in pool.single_queue_repos
-        single_container = pool.single_queue_repos["test-org/single-repo"]
+        assert "test-org/single-repo" in pool.single_queue_assignments
+        single_container = pool.single_queue_assignments["test-org/single-repo"]
         assert pool.container_queues[single_container].qsize() >= 2
         
-        # Normal repo should NOT be in single_queue_repos
-        assert "test-org/normal-repo" not in pool.single_queue_repos
+        # Normal repo should NOT be in single_queue_assignments
+        assert "test-org/normal-repo" not in pool.single_queue_assignments
         
         # Total tasks should be 4
         total_tasks = sum(q.qsize() for q in pool.container_queues.values())
@@ -216,10 +224,9 @@ async def test_mixed_repos(mock_config, mock_event):
 
 
 @pytest.mark.asyncio
-async def test_register_single_queue_repo(mock_config):
-    """Test the register_single_queue_repo method."""
-    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config), \
-         patch('devs_webhook.core.container_pool.ClaudeDispatcher'):
+async def test_single_queue_assignments_direct_manipulation(mock_config):
+    """Test direct manipulation of single_queue_assignments."""
+    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
         pool = ContainerPool()
         
         # Cancel worker tasks
@@ -228,28 +235,27 @@ async def test_register_single_queue_repo(mock_config):
         pool.cleanup_worker.cancel()
         
         # Initially no single-queue repos
-        assert len(pool.single_queue_repos) == 0
+        assert len(pool.single_queue_assignments) == 0
         
         # Register a repo
-        pool.register_single_queue_repo("test-org/repo1", "eamonn")
-        assert pool.single_queue_repos["test-org/repo1"] == "eamonn"
+        pool.single_queue_assignments["test-org/repo1"] = "eamonn"
+        assert pool.single_queue_assignments["test-org/repo1"] == "eamonn"
         
         # Register another repo
-        pool.register_single_queue_repo("test-org/repo2", "harry")
-        assert pool.single_queue_repos["test-org/repo2"] == "harry"
-        assert len(pool.single_queue_repos) == 2
+        pool.single_queue_assignments["test-org/repo2"] = "harry"
+        assert pool.single_queue_assignments["test-org/repo2"] == "harry"
+        assert len(pool.single_queue_assignments) == 2
         
-        # Try to register the same repo again - should not change
-        pool.register_single_queue_repo("test-org/repo1", "darren")
-        assert pool.single_queue_repos["test-org/repo1"] == "eamonn"  # Unchanged
-        assert len(pool.single_queue_repos) == 2
+        # Try to register the same repo again - should change (direct assignment)
+        pool.single_queue_assignments["test-org/repo1"] = "darren"
+        assert pool.single_queue_assignments["test-org/repo1"] == "darren"  # Changed
+        assert len(pool.single_queue_assignments) == 2
 
 
 @pytest.mark.asyncio
 async def test_status_includes_single_queue_repos(mock_config):
-    """Test that status endpoint includes single_queue_repos information."""
-    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config), \
-         patch('devs_webhook.core.container_pool.ClaudeDispatcher'):
+    """Test that status endpoint includes single_queue_assignments information."""
+    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
         pool = ContainerPool()
         
         # Cancel worker tasks
@@ -258,15 +264,15 @@ async def test_status_includes_single_queue_repos(mock_config):
         pool.cleanup_worker.cancel()
         
         # Manually add some single-queue repos
-        pool.single_queue_repos = {
+        pool.single_queue_assignments = {
             "test-org/repo1": "eamonn",
             "test-org/repo2": "harry"
         }
         
         status = await pool.get_status()
         
-        assert "single_queue_repos" in status
-        assert status["single_queue_repos"] == {
+        assert "single_queue_assignments" in status
+        assert status["single_queue_assignments"] == {
             "test-org/repo1": "eamonn",
             "test-org/repo2": "harry"
         }
@@ -275,8 +281,7 @@ async def test_status_includes_single_queue_repos(mock_config):
 @pytest.mark.asyncio
 async def test_remove_single_queue_when_devs_yml_changes(mock_config, mock_event):
     """Test that repos are removed from single_queue when DEVS.yml no longer has single_queue=true."""
-    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config), \
-         patch('devs_webhook.core.container_pool.ClaudeDispatcher'):
+    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
         pool = ContainerPool()
         
         # Cancel worker tasks to prevent actual processing
@@ -285,9 +290,9 @@ async def test_remove_single_queue_when_devs_yml_changes(mock_config, mock_event
         pool.cleanup_worker.cancel()
         
         # Initially register a repo as single-queue
-        pool.register_single_queue_repo("test-org/test-repo", "eamonn")
-        assert "test-org/test-repo" in pool.single_queue_repos
-        assert pool.single_queue_repos["test-org/test-repo"] == "eamonn"
+        pool.single_queue_assignments["test-org/test-repo"] = "eamonn"
+        assert "test-org/test-repo" in pool.single_queue_assignments
+        assert pool.single_queue_assignments["test-org/test-repo"] == "eamonn"
         
         # Create repository directory with DEVS.yml that has single_queue: false
         repo_path = mock_config.repo_cache_dir / "test-org-test-repo"
@@ -297,7 +302,6 @@ async def test_remove_single_queue_when_devs_yml_changes(mock_config, mock_event
         
         # Mock the _ensure_repository_cloned to return DevsOptions with single_queue=False
         with patch.object(pool, '_ensure_repository_cloned') as mock_ensure:
-            from devs_webhook.github.models import DevsOptions
             mock_ensure.return_value = DevsOptions(single_queue=False)
             
             # Mock the subprocess execution to avoid actual Docker operations
@@ -317,10 +321,10 @@ async def test_remove_single_queue_when_devs_yml_changes(mock_config, mock_event
                 
                 await pool._process_task_subprocess("eamonn", queued_task)
                 
-                # Verify the repo was removed from single_queue_repos
-                assert "test-org/test-repo" not in pool.single_queue_repos
+                # Verify the repo was removed from single_queue_assignments
+                assert "test-org/test-repo" not in pool.single_queue_assignments
         
-        # Test with repo that was not previously in single_queue_repos
+        # Test with repo that was not previously in single_queue_assignments
         # Should not cause any errors
         with patch.object(pool, '_ensure_repository_cloned') as mock_ensure:
             mock_ensure.return_value = DevsOptions(single_queue=False)
@@ -340,15 +344,14 @@ async def test_remove_single_queue_when_devs_yml_changes(mock_config, mock_event
                 
                 await pool._process_task_subprocess("harry", queued_task2)
                 
-                # Should still not be in single_queue_repos
-                assert "test-org/other-repo" not in pool.single_queue_repos
+                # Should still not be in single_queue_assignments
+                assert "test-org/other-repo" not in pool.single_queue_assignments
 
 
 @pytest.mark.asyncio
 async def test_single_queue_transitions(mock_config, mock_event):
     """Test transitions between single-queue and normal mode based on DEVS.yml changes."""
-    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config), \
-         patch('devs_webhook.core.container_pool.ClaudeDispatcher'):
+    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
         pool = ContainerPool()
         
         # Cancel worker tasks
@@ -359,11 +362,10 @@ async def test_single_queue_transitions(mock_config, mock_event):
         repo_name = "test-org/test-repo"
         
         # Step 1: Start with no single-queue registration
-        assert repo_name not in pool.single_queue_repos
+        assert repo_name not in pool.single_queue_assignments
         
         # Step 2: Process task with single_queue=true, should add to registry
         with patch.object(pool, '_ensure_repository_cloned') as mock_ensure:
-            from devs_webhook.github.models import DevsOptions
             mock_ensure.return_value = DevsOptions(single_queue=True)
             
             with patch('asyncio.create_subprocess_exec') as mock_subprocess:
@@ -382,10 +384,14 @@ async def test_single_queue_transitions(mock_config, mock_event):
                 await pool._process_task_subprocess("eamonn", queued_task)
                 
                 # Should now be registered
-                assert repo_name in pool.single_queue_repos
-                assert pool.single_queue_repos[repo_name] == "eamonn"
+                assert repo_name in pool.single_queue_assignments
+                assert pool.single_queue_assignments[repo_name] == "eamonn"
         
         # Step 3: Process task with single_queue=false, should remove from registry
+        # Clear the cached config so it will be reloaded
+        if repo_name in pool.repo_configs:
+            del pool.repo_configs[repo_name]
+            
         with patch.object(pool, '_ensure_repository_cloned') as mock_ensure:
             mock_ensure.return_value = DevsOptions(single_queue=False)
             
@@ -405,9 +411,13 @@ async def test_single_queue_transitions(mock_config, mock_event):
                 await pool._process_task_subprocess("harry", queued_task)
                 
                 # Should now be removed
-                assert repo_name not in pool.single_queue_repos
+                assert repo_name not in pool.single_queue_assignments
         
         # Step 4: Re-enable single_queue, should add back with new container
+        # Clear the cached config so it will be reloaded
+        if repo_name in pool.repo_configs:
+            del pool.repo_configs[repo_name]
+            
         with patch.object(pool, '_ensure_repository_cloned') as mock_ensure:
             mock_ensure.return_value = DevsOptions(single_queue=True)
             
@@ -427,5 +437,5 @@ async def test_single_queue_transitions(mock_config, mock_event):
                 await pool._process_task_subprocess("darren", queued_task)
                 
                 # Should be registered again with new container
-                assert repo_name in pool.single_queue_repos
-                assert pool.single_queue_repos[repo_name] == "darren"
+                assert repo_name in pool.single_queue_assignments
+                assert pool.single_queue_assignments[repo_name] == "darren"

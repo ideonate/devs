@@ -16,7 +16,8 @@ from devs_common.core.project import Project
 from ..config import get_config
 from ..core.claude_dispatcher import ClaudeDispatcher
 from ..core.test_dispatcher import TestDispatcher
-from ..github.models import AnyWebhookEvent, DevsOptions
+from ..github.models import AnyWebhookEvent
+from devs_common.devs_config import DevsOptions
 
 logger = structlog.get_logger()
 

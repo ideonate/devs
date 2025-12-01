@@ -6,7 +6,6 @@ import subprocess
 from functools import wraps
 
 import click
-import yaml
 from rich.console import Console
 from rich.table import Table
 
@@ -14,6 +13,7 @@ from .config import config
 from pathlib import Path
 from .core import Project, ContainerManager, WorkspaceManager
 from .core.integration import VSCodeIntegration, ExternalToolIntegration
+from devs_common.devs_config import DevsConfigLoader
 from .exceptions import (
     DevsError,
     ProjectNotFoundError,
@@ -46,73 +46,6 @@ def parse_env_vars(env_tuples: tuple) -> dict:
         key, value = env_str.split('=', 1)
         env_dict[key] = value
     return env_dict
-
-
-def load_devs_env_vars(dev_name: str) -> dict:
-    """Load environment variables from DEVS.yml for a specific dev environment.
-    
-    Loads from multiple sources in priority order:
-    1. ~/.devs/envs/{org-repo}/DEVS.yml (user-specific overrides)
-    2. ~/.devs/envs/default/DEVS.yml (user defaults)
-    3. {project-root}/DEVS.yml (repository configuration)
-    
-    Args:
-        dev_name: Development environment name
-        
-    Returns:
-        Dictionary of environment variables from DEVS.yml files
-    """
-    
-    result = {}
-    
-    def _load_env_vars_from_file(file_path: Path) -> dict:
-        """Load env_vars section from a DEVS.yml file."""
-        if not file_path.exists():
-            return {}
-        
-        try:
-            with open(file_path, 'r') as f:
-                data = yaml.safe_load(f)
-            
-            if not data or 'env_vars' not in data:
-                return {}
-            
-            env_vars = data['env_vars']
-            
-            # Start with defaults
-            env_result = env_vars.get('default', {}).copy()
-            
-            # Apply container-specific overrides
-            if dev_name in env_vars:
-                env_result.update(env_vars[dev_name])
-            
-            return env_result
-            
-        except Exception as e:
-            console.print(f"⚠️  Warning: Failed to parse {file_path} env_vars: {e}")
-            return {}
-    
-    # 1. Load repository DEVS.yml (lowest priority)
-    repo_devs_yml = Path.cwd() / "DEVS.yml"
-    result.update(_load_env_vars_from_file(repo_devs_yml))
-    
-    # 2. Load user default DEVS.yml
-    user_envs_dir = Path.home() / ".devs" / "envs"
-    default_devs_yml = user_envs_dir / "default" / "DEVS.yml"
-    result.update(_load_env_vars_from_file(default_devs_yml))
-    
-    # 3. Load user project-specific DEVS.yml (highest priority)
-    try:
-        from .core import Project
-        project = Project()
-        project_name = project.info.name  # This gives us the org-repo format
-        project_devs_yml = user_envs_dir / project_name / "DEVS.yml"
-        result.update(_load_env_vars_from_file(project_devs_yml))
-    except Exception:
-        # If we can't detect the project name, skip project-specific overrides
-        pass
-    
-    return result
 
 
 def merge_env_vars(devs_env: dict, cli_env: dict) -> dict:
@@ -221,7 +154,7 @@ def start(dev_names: tuple, rebuild: bool, live: bool, env: tuple, debug: bool) 
         console.print(f"   Starting: {dev_name}")
         
         # Load environment variables from DEVS.yml and merge with CLI --env flags
-        devs_env = load_devs_env_vars(dev_name)
+        devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
         cli_env = parse_env_vars(env) if env else {}
         extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
         
@@ -286,7 +219,7 @@ def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, debug: bool) 
         console.print(f"   Preparing: {dev_name}")
         
         # Load environment variables from DEVS.yml and merge with CLI --env flags
-        devs_env = load_devs_env_vars(dev_name)
+        devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
         cli_env = parse_env_vars(env) if env else {}
         extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
         
@@ -363,7 +296,7 @@ def shell(dev_name: str, live: bool, env: tuple, debug: bool) -> None:
     project = get_project()
     
     # Load environment variables from DEVS.yml and merge with CLI --env flags
-    devs_env = load_devs_env_vars(dev_name)
+    devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
     cli_env = parse_env_vars(env) if env else {}
     extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
     
@@ -416,7 +349,7 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: t
     project = get_project()
     
     # Load environment variables from DEVS.yml and merge with CLI --env flags
-    devs_env = load_devs_env_vars(dev_name)
+    devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
     cli_env = parse_env_vars(env) if env else {}
     extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
     
@@ -474,18 +407,16 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: t
 
 @cli.command()
 @click.argument('dev_name')
-@click.option('--command', default='./runtests.sh', help='Test command to run (default: ./runtests.sh)')
 @click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
 @click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
 @debug_option
-def runtests(dev_name: str, command: str, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
+def runtests(dev_name: str, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
     """Run tests in devcontainer.
     
     DEV_NAME: Development environment name
     
     Example: devs runtests sally
-    Example: devs runtests sally --command "npm test"
     Example: devs runtests sally --reset-workspace
     Example: devs runtests sally --live  # Run with current directory
     Example: devs runtests sally --env NODE_ENV=test
@@ -493,8 +424,19 @@ def runtests(dev_name: str, command: str, reset_workspace: bool, live: bool, env
     check_dependencies()
     project = get_project()
     
+    # Load full DEVS configuration
+    try:
+        project_name = project.info.name
+    except Exception:
+        project_name = None
+    
+    devs_config = DevsConfigLoader.load(project_name)
+    
+    # Get test command from config
+    command = devs_config.ci_test_command
+    
     # Load environment variables from DEVS.yml and merge with CLI --env flags
-    devs_env = load_devs_env_vars(dev_name)
+    devs_env = devs_config.get_env_vars(dev_name)
     cli_env = parse_env_vars(env) if env else {}
     extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
     

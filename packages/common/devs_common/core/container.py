@@ -196,8 +196,8 @@ class ContainerManager:
         Raises:
             ContainerError: If container operations fail
         """
-        container_info = self._get_container_info(dev_name, live)
-        container_name = container_info["container_name"]
+        workspace_info = self._get_container_info(dev_name, live)
+        container_name = workspace_info["container_name"]
         project_labels = self._get_project_labels(dev_name, live)
         
         try:
@@ -211,21 +211,21 @@ class ContainerManager:
                 
                 # Stop existing container if running
                 existing_containers = self.docker.find_containers_by_labels(project_labels)
-                for container_info in existing_containers:
+                for existing_container in existing_containers:
                     if debug:
-                        console.print(f"[dim]Stopping container: {container_info['name']}[/dim]")
-                    self.docker.stop_container(container_info['name'])
+                        console.print(f"[dim]Stopping container: {existing_container['name']}[/dim]")
+                    self.docker.stop_container(existing_container['name'])
                     if debug:
-                        console.print(f"[dim]Removing container: {container_info['name']}[/dim]")
-                    self.docker.remove_container(container_info['name'])
+                        console.print(f"[dim]Removing container: {existing_container['name']}[/dim]")
+                    self.docker.remove_container(existing_container['name'])
             
             # Check if container is already running
             if debug:
                 console.print(f"[dim]Checking for existing containers with labels: {project_labels}[/dim]")
             existing_containers = self.docker.find_containers_by_labels(project_labels)
             if existing_containers and not (rebuild_needed or force_rebuild):
-                container_info = existing_containers[0]
-                existing_labels = container_info.get('labels', {})
+                existing_container = existing_containers[0]
+                existing_labels = existing_container.get('labels', {})
                 existing_is_live = existing_labels.get('devs.live') == 'true'
                 
                 # Check if existing container matches the requested mode
@@ -238,16 +238,16 @@ class ContainerManager:
                     )
                 
                 if debug:
-                    console.print(f"[dim]Found existing container: {container_info['name']} (status: {container_info['status']})[/dim]")
-                if container_info['status'] == 'running':
+                    console.print(f"[dim]Found existing container: {existing_container['name']} (status: {existing_container['status']})[/dim]")
+                if existing_container['status'] == 'running':
                     if debug:
                         console.print(f"[dim]Container already running, skipping startup[/dim]")
                     return True
                 else:
                     # Container exists but not running, remove it
                     if debug:
-                        console.print(f"[dim]Container exists but not running, removing: {container_info['name']}[/dim]")
-                    self.docker.remove_container(container_info['name'], force=True)
+                        console.print(f"[dim]Container exists but not running, removing: {existing_container['name']}[/dim]")
+                    self.docker.remove_container(existing_container['name'], force=True)
             
             console.print(f"   🚀 Starting container for {dev_name}...")
             
@@ -267,7 +267,7 @@ class ContainerManager:
                 config_path = get_template_dir() / "devcontainer.json"
             
             # Start devcontainer
-            container_workspace_name = container_info["workspace_name"]
+            container_workspace_name = workspace_info["workspace_name"]
             success = self.devcontainer.up(
                 workspace_folder=workspace_dir,
                 dev_name=dev_name,
@@ -507,21 +507,24 @@ class ContainerManager:
             ContainerError: If container preparation fails
         """
         # Get initial container info (may be updated based on existing container mode)
-        container_info = self._get_container_info(dev_name, live)
-        container_name = container_info["container_name"]
+        workspace_info = self._get_container_info(dev_name, live)
+        container_name = workspace_info["container_name"]
         
         # Check if container already exists and detect its mode
         project_labels = self._get_project_labels(dev_name)
         existing_containers = self.docker.find_containers_by_labels(project_labels)
         if existing_containers:
-            container_info_existing = existing_containers[0]
-            existing_labels = container_info_existing.get('labels', {})
+            existing_container = existing_containers[0]
+            existing_labels = existing_container.get('labels', {})
             existing_is_live = existing_labels.get('devs.live') == 'true'
             # Use the existing container's mode
             live = existing_is_live
         
         # In live mode, use the host folder name; otherwise use constructed name
-        workspace_name = workspace_dir.name if live else container_info["workspace_name"]
+        if live:
+            workspace_name = workspace_dir.name
+        else:
+            workspace_name = workspace_info["workspace_name"]
         container_workspace_dir = f"/workspaces/{workspace_name}"
         
         # Ensure container is running

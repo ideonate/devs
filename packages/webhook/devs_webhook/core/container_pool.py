@@ -9,14 +9,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Any, NamedTuple
 from pathlib import Path
 import structlog
-import yaml
 
 from devs_common.core.project import Project
 from devs_common.core.container import ContainerManager
 from devs_common.core.workspace import WorkspaceManager
+from devs_common.devs_config import DevsConfigLoader, DevsOptions
 
 from ..config import get_config
-from ..github.models import WebhookEvent, DevsOptions, IssueEvent, PullRequestEvent, CommentEvent
+from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent
 from .base_dispatcher import TaskResult
 from ..github.client import GitHubClient
 
@@ -139,21 +139,6 @@ class ContainerPool:
         Returns:
             DevsOptions if user-specific config exists, None otherwise
         """
-        def _load_devs_yml(file_path: Path) -> dict:
-            """Load and parse a DEVS.yml file, returning empty dict if not found."""
-            if not file_path.exists():
-                return {}
-            
-            try:
-                with open(file_path, 'r') as f:
-                    data = yaml.safe_load(f)
-                    return data if data else {}
-            except Exception as e:
-                logger.warning("Failed to parse user DEVS.yml",
-                              file_path=str(file_path),
-                              error=str(e))
-                return {}
-        
         # Check for user-specific configuration files
         user_envs_dir = Path.home() / ".devs" / "envs"
         default_devs_yml = user_envs_dir / "default" / "DEVS.yml"
@@ -164,69 +149,26 @@ class ContainerPool:
         if not default_devs_yml.exists() and not project_devs_yml.exists():
             return None
         
-        # Load user configuration
-        devs_options = DevsOptions()  # Start with defaults
+        # Load configuration without repository files (user configs only)
+        # Create a fake path that doesn't exist to skip repository DEVS.yml
+        fake_repo_path = Path("/dev/null/fake_repo_path")
+        devs_options = DevsConfigLoader.load(project_name=project_name, repo_path=fake_repo_path)
         
-        # 1. Load user default DEVS.yml
-        default_data = _load_devs_yml(default_devs_yml)
+        logger.info("Loaded user-specific DEVS.yml configuration",
+                   repo=repo_name,
+                   default_file_exists=default_devs_yml.exists(),
+                   project_file_exists=project_devs_yml.exists(),
+                   default_branch=devs_options.default_branch,
+                   single_queue=devs_options.single_queue,
+                   ci_enabled=devs_options.ci_enabled,
+                   env_vars_containers=list(devs_options.env_vars.keys()) if devs_options.env_vars else [])
         
-        # 2. Load user project-specific DEVS.yml (higher priority)
-        project_data = _load_devs_yml(project_devs_yml)
-        
-        # Merge data in priority order
-        all_data = {}
-        all_data.update(default_data)
-        all_data.update(project_data)
-        
-        # Update devs_options with merged values
-        if all_data:
-            if 'default_branch' in all_data:
-                devs_options.default_branch = all_data['default_branch']
-            if 'prompt_extra' in all_data:
-                devs_options.prompt_extra = all_data['prompt_extra']
-            if 'prompt_override' in all_data:
-                devs_options.prompt_override = all_data['prompt_override']
-            if 'direct_commit' in all_data:
-                devs_options.direct_commit = all_data['direct_commit']
-            if 'single_queue' in all_data:
-                devs_options.single_queue = all_data['single_queue']
-            if 'ci_enabled' in all_data:
-                devs_options.ci_enabled = all_data['ci_enabled']
-            if 'ci_test_command' in all_data:
-                devs_options.ci_test_command = all_data['ci_test_command']
-            if 'ci_branches' in all_data:
-                devs_options.ci_branches = all_data['ci_branches']
-            
-            # Merge env_vars from both sources
-            merged_env_vars = {}
-            for source_data in [default_data, project_data]:
-                if 'env_vars' in source_data and source_data['env_vars']:
-                    for container_name, env_dict in source_data['env_vars'].items():
-                        if container_name not in merged_env_vars:
-                            merged_env_vars[container_name] = {}
-                        merged_env_vars[container_name].update(env_dict)
-            
-            if merged_env_vars:
-                devs_options.env_vars = merged_env_vars
-            
-            logger.info("Loaded user-specific DEVS.yml configuration",
-                       repo=repo_name,
-                       default_file_exists=default_devs_yml.exists(),
-                       project_file_exists=project_devs_yml.exists(),
-                       default_branch=devs_options.default_branch,
-                       single_queue=devs_options.single_queue,
-                       ci_enabled=devs_options.ci_enabled,
-                       env_vars_containers=list(devs_options.env_vars.keys()) if devs_options.env_vars else [])
-            
-            return devs_options
-        
-        # No meaningful configuration found
-        return None
+        return devs_options
     
     def _read_devs_options(self, repo_path: Path, repo_name: str) -> DevsOptions:
         """Read and parse DEVS.yml options from multiple sources.
         
-        Loads from multiple sources in priority order:
+        Uses the shared DevsConfigLoader to load from:
         1. ~/.devs/envs/{org-repo}/DEVS.yml (user-specific overrides)
         2. ~/.devs/envs/default/DEVS.yml (user defaults)  
         3. {repo_path}/DEVS.yml (repository configuration)
@@ -238,87 +180,29 @@ class ContainerPool:
         Returns:
             DevsOptions with values from DEVS.yml files or defaults
         """
-        devs_options = DevsOptions()  # Start with defaults
-        
-        def _load_devs_yml(file_path: Path) -> dict:
-            """Load and parse a DEVS.yml file, returning empty dict if not found."""
-            if not file_path.exists():
-                return {}
-            
-            try:
-                with open(file_path, 'r') as f:
-                    data = yaml.safe_load(f)
-                    return data if data else {}
-            except Exception as e:
-                logger.warning("Failed to parse DEVS.yml",
-                              file_path=str(file_path),
-                              error=str(e))
-                return {}
-        
-        # 1. Load repository DEVS.yml (lowest priority)
-        repo_devs_yml = repo_path / "DEVS.yml"
-        repo_data = _load_devs_yml(repo_devs_yml)
-        
-        # 2. Load user default DEVS.yml 
-        user_envs_dir = Path.home() / ".devs" / "envs"
-        default_devs_yml = user_envs_dir / "default" / "DEVS.yml"
-        default_data = _load_devs_yml(default_devs_yml)
-        
-        # 3. Load user project-specific DEVS.yml (highest priority)
         project_name = repo_name.replace('/', '-')  # Convert org/repo to org-repo
+        devs_options = DevsConfigLoader.load(project_name=project_name, repo_path=repo_path)
+        
+        # Check which files exist for logging
+        user_envs_dir = Path.home() / ".devs" / "envs"
+        repo_devs_yml = repo_path / "DEVS.yml"
+        default_devs_yml = user_envs_dir / "default" / "DEVS.yml"
         project_devs_yml = user_envs_dir / project_name / "DEVS.yml"
-        project_data = _load_devs_yml(project_devs_yml)
         
-        # Merge data in priority order (later updates override earlier ones)
-        all_data = {}
-        for source_data in [repo_data, default_data, project_data]:
-            all_data.update(source_data)
-        
-        # Update devs_options with merged values
-        if all_data:
-            if 'default_branch' in all_data:
-                devs_options.default_branch = all_data['default_branch']
-            if 'prompt_extra' in all_data:
-                devs_options.prompt_extra = all_data['prompt_extra']
-            if 'prompt_override' in all_data:
-                devs_options.prompt_override = all_data['prompt_override']
-            if 'direct_commit' in all_data:
-                devs_options.direct_commit = all_data['direct_commit']
-            if 'single_queue' in all_data:
-                devs_options.single_queue = all_data['single_queue']
-            if 'ci_enabled' in all_data:
-                devs_options.ci_enabled = all_data['ci_enabled']
-            if 'ci_test_command' in all_data:
-                devs_options.ci_test_command = all_data['ci_test_command']
-            if 'ci_branches' in all_data:
-                devs_options.ci_branches = all_data['ci_branches']
-            
-            # Merge env_vars from all sources (repository < default < project)
-            merged_env_vars = {}
-            for source_data in [repo_data, default_data, project_data]:
-                if 'env_vars' in source_data and source_data['env_vars']:
-                    for container_name, env_dict in source_data['env_vars'].items():
-                        if container_name not in merged_env_vars:
-                            merged_env_vars[container_name] = {}
-                        merged_env_vars[container_name].update(env_dict)
-            
-            if merged_env_vars:
-                devs_options.env_vars = merged_env_vars
-            
-            logger.info("Loaded DEVS.yml configuration from multiple sources",
-                       repo=repo_name,
-                       repo_file_exists=repo_devs_yml.exists(),
-                       default_file_exists=default_devs_yml.exists(),
-                       project_file_exists=project_devs_yml.exists(),
-                       default_branch=devs_options.default_branch,
-                       has_prompt_extra=bool(devs_options.prompt_extra),
-                       has_prompt_override=bool(devs_options.prompt_override),
-                       direct_commit=devs_options.direct_commit,
-                       single_queue=devs_options.single_queue,
-                       ci_enabled=devs_options.ci_enabled,
-                       ci_test_command=devs_options.ci_test_command,
-                       ci_branches=devs_options.ci_branches,
-                       env_vars_containers=list(devs_options.env_vars.keys()) if devs_options.env_vars else [])
+        logger.info("Loaded DEVS.yml configuration from multiple sources",
+                   repo=repo_name,
+                   repo_file_exists=repo_devs_yml.exists(),
+                   default_file_exists=default_devs_yml.exists(),
+                   project_file_exists=project_devs_yml.exists(),
+                   default_branch=devs_options.default_branch,
+                   has_prompt_extra=bool(devs_options.prompt_extra),
+                   has_prompt_override=bool(devs_options.prompt_override),
+                   direct_commit=devs_options.direct_commit,
+                   single_queue=devs_options.single_queue,
+                   ci_enabled=devs_options.ci_enabled,
+                   ci_test_command=devs_options.ci_test_command,
+                   ci_branches=devs_options.ci_branches,
+                   env_vars_containers=list(devs_options.env_vars.keys()) if devs_options.env_vars else [])
         
         return devs_options
     

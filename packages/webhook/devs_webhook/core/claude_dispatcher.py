@@ -7,7 +7,8 @@ from pathlib import Path
 from devs_common.core.project import Project
 from devs_common.core.container import ContainerManager
 from devs_common.core.workspace import WorkspaceManager
-from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent, DevsOptions
+from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent
+from devs_common.devs_config import DevsOptions
 from .base_dispatcher import BaseDispatcher, TaskResult
 
 logger = structlog.get_logger()

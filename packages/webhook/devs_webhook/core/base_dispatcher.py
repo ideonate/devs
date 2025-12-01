@@ -5,8 +5,9 @@ import structlog
 from pathlib import Path
 
 from ..config import get_config
-from ..github.models import WebhookEvent, DevsOptions
+from ..github.models import WebhookEvent
 from ..github.client import GitHubClient
+from devs_common.devs_config import DevsOptions
 
 logger = structlog.get_logger()
 

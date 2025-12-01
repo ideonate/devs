@@ -6,7 +6,8 @@ from typing import Any, Dict
 from pathlib import Path
 from datetime import datetime
 
-from ..github.models import WebhookEvent, DevsOptions, IssueEvent, PullRequestEvent, CommentEvent
+from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent
+from devs_common.devs_config import DevsOptions
 
 
 class WebhookEventEncoder(json.JSONEncoder):
