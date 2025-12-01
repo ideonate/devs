@@ -308,7 +308,7 @@ Available options:
 - **`ci_test_command`**: Command to run for CI tests
   - Shell command executed in container for CI test runs
   - Should exit with code 0 for success, non-zero for failure
-  - Default: `runtests.sh`
+  - Default: `./runtests.sh`
 
 - **`ci_branches`**: Branches to run CI on for push events
   - List of branch names to trigger CI for push events

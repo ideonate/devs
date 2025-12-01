@@ -474,7 +474,7 @@ def claude(dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: t
 
 @cli.command()
 @click.argument('dev_name')
-@click.option('--command', default='runtests.sh', help='Test command to run (default: runtests.sh)')
+@click.option('--command', default='./runtests.sh', help='Test command to run (default: ./runtests.sh)')
 @click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
 @click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')

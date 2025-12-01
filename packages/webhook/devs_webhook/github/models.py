@@ -375,7 +375,7 @@ class DevsOptions(BaseModel):
     direct_commit: bool = False
     single_queue: bool = False  # Restrict repo to single queue processing
     ci_enabled: bool = False  # Enable CI mode for this repository
-    ci_test_command: str = "runtests.sh"  # Command to run for CI tests
+    ci_test_command: str = "./runtests.sh"  # Command to run for CI tests
     ci_branches: List[str] = ["main", "master"]  # Branches to run CI on for push events
     env_vars: Dict[str, Dict[str, str]] = Field(default_factory=dict)  # Environment variables with defaults and per-container overrides
     

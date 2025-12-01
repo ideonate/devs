@@ -252,7 +252,7 @@ class TestDispatcher(BaseDispatcher):
                     return False, checkout_stdout, f"Failed to checkout commit {commit_sha}: {checkout_stderr}", checkout_code
             
             # 5. Determine test command
-            test_command = "runtests.sh"  # Default
+            test_command = "./runtests.sh"  # Default
             if devs_options and devs_options.ci_test_command:
                 test_command = devs_options.ci_test_command
             
