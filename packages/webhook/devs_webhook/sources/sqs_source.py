@@ -7,6 +7,7 @@ webhook events and forwards them to the task processor.
 import asyncio
 import json
 import uuid
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import structlog
 
@@ -16,6 +17,13 @@ from ..config import get_config
 from ..utils.github import verify_github_signature
 
 logger = structlog.get_logger()
+
+
+@dataclass
+class BurstResult:
+    """Result of a burst mode SQS run."""
+    messages_processed: int
+    errors: int = 0
 
 
 class SQSTaskSource(TaskSource):
@@ -36,17 +44,22 @@ class SQSTaskSource(TaskSource):
     }
     """
 
-    def __init__(self, task_processor: Optional[TaskProcessor] = None):
+    def __init__(self, task_processor: Optional[TaskProcessor] = None, burst_mode: bool = False):
         """Initialize SQS task source.
 
         Args:
             task_processor: Optional task processor instance. If not provided,
                           a new one will be created.
+            burst_mode: If True, process all available messages and exit instead
+                       of polling indefinitely.
         """
         self.task_processor = task_processor or TaskProcessor()
         self.config = get_config()
         self._running = False
         self._poll_task: Optional[asyncio.Task] = None
+        self._burst_mode = burst_mode
+        self._messages_processed = 0
+        self._errors = 0
 
         # Import boto3 lazily to avoid requiring it for webhook-only deployments
         try:
@@ -66,19 +79,31 @@ class SQSTaskSource(TaskSource):
             "SQS task source initialized",
             queue_url=self.config.aws_sqs_queue_url,
             region=self.config.aws_region,
+            burst_mode=self._burst_mode,
         )
 
-    async def start(self) -> None:
+    async def start(self) -> Optional[BurstResult]:
         """Start polling SQS for webhook events.
 
         This method blocks until the source is stopped.
+
+        Returns:
+            BurstResult if in burst mode, None otherwise.
         """
-        logger.info("Starting SQS task source")
+        logger.info("Starting SQS task source", burst_mode=self._burst_mode)
         self._running = True
+        self._messages_processed = 0
+        self._errors = 0
 
         try:
-            while self._running:
-                await self._poll_and_process_messages()
+            if self._burst_mode:
+                # Burst mode: process all available messages then exit
+                return await self._run_burst_mode()
+            else:
+                # Normal mode: poll indefinitely
+                while self._running:
+                    await self._poll_and_process_messages()
+                return None
         except asyncio.CancelledError:
             logger.info("SQS polling cancelled")
             raise
@@ -87,6 +112,77 @@ class SQSTaskSource(TaskSource):
             raise
         finally:
             self._running = False
+
+    async def _run_burst_mode(self) -> BurstResult:
+        """Run in burst mode: process all available messages then exit.
+
+        Returns:
+            BurstResult with count of messages processed.
+        """
+        logger.info("Running in burst mode - will drain queue and exit")
+
+        # Track if we found any messages on the first poll
+        first_poll = True
+
+        while self._running:
+            # Poll for messages (with short wait time in burst mode)
+            messages = await self._poll_messages_burst()
+
+            if not messages:
+                if first_poll:
+                    # Queue was empty from the start
+                    logger.info("Queue empty on first poll - no messages to process")
+                else:
+                    # We've drained the queue
+                    logger.info(
+                        "Queue drained",
+                        messages_processed=self._messages_processed,
+                        errors=self._errors,
+                    )
+                break
+
+            first_poll = False
+
+            # Process each message
+            for message in messages:
+                try:
+                    await self._process_message(message)
+                    self._messages_processed += 1
+                except Exception as e:
+                    self._errors += 1
+                    logger.error(
+                        "Error processing message in burst mode",
+                        error=str(e),
+                        exc_info=True,
+                    )
+
+        return BurstResult(
+            messages_processed=self._messages_processed,
+            errors=self._errors,
+        )
+
+    async def _poll_messages_burst(self) -> list:
+        """Poll for messages in burst mode (short wait, multiple messages).
+
+        Returns:
+            List of SQS messages.
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.sqs_client.receive_message(
+                    QueueUrl=self.config.aws_sqs_queue_url,
+                    MaxNumberOfMessages=10,  # Get up to 10 messages at once in burst mode
+                    WaitTimeSeconds=1,  # Short wait in burst mode
+                    AttributeNames=['All'],
+                    MessageAttributeNames=['All']
+                )
+            )
+            return response.get('Messages', [])
+        except Exception as e:
+            logger.error("Error polling SQS in burst mode", error=str(e), exc_info=True)
+            return []
 
     async def stop(self) -> None:
         """Stop polling SQS."""

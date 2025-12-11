@@ -99,6 +99,25 @@ export AWS_SQS_QUEUE_URL="https://sqs.us-east-1.amazonaws.com/..."
 devs-webhook serve --source sqs
 ```
 
+#### Burst Mode
+
+For batch processing or scheduled jobs, use `--burst` to process all available messages and exit:
+
+```bash
+# Process all messages in queue then exit
+devs-webhook serve --source sqs --burst
+```
+
+Exit codes:
+- **0**: Successfully processed one or more messages
+- **42**: Queue was empty (no messages to process)
+- **Other**: Error occurred
+
+This is useful for:
+- Scheduled cron jobs that drain the queue periodically
+- Lambda-triggered batch processing
+- Testing and debugging SQS integration
+
 **Security**: Both modes validate GitHub webhook signatures for defense-in-depth security.
 
 For detailed configuration and deployment guides, see:

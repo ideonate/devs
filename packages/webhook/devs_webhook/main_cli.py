@@ -29,18 +29,25 @@ cli.add_command(worker)
 @click.option('--env-file', type=click.Path(exists=True, path_type=Path), help='Path to .env file to load')
 @click.option('--dev', is_flag=True, help='Development mode (auto-loads .env, enables reload, console logs)')
 @click.option('--source', type=click.Choice(['webhook', 'sqs'], case_sensitive=False), help='Task source override')
-def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source: str):
+@click.option('--burst', is_flag=True, help='Burst mode: process all available SQS messages then exit (SQS mode only)')
+def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source: str, burst: bool):
     """Start the webhook handler server.
 
     The server can run in two modes:
     - webhook: Receives GitHub webhooks via FastAPI HTTP endpoint (default)
     - sqs: Polls AWS SQS queue for webhook events
 
+    SQS mode supports --burst flag to process all available messages then exit:
+    - Exit code 0: Processed one or more messages successfully
+    - Exit code 42: Queue was empty (no messages to process)
+    - Other codes: Error occurred
+
     Examples:
         devs-webhook serve --dev                    # Development mode with .env loading
         devs-webhook serve --env-file /path/.env    # Load specific .env file
         devs-webhook serve --host 127.0.0.1        # Override host from config
         devs-webhook serve --source sqs            # Use SQS polling mode
+        devs-webhook serve --source sqs --burst    # Process all SQS messages then exit
     """
     # Handle development mode
     if dev:
@@ -91,6 +98,11 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
     click.echo(f"Watching for @{config.github_mentioned_user} mentions")
     click.echo(f"Container pool: {', '.join(config.get_container_pool_list())}")
 
+    # Validate burst mode is only used with SQS
+    if burst and config.task_source != "sqs":
+        click.echo("❌ --burst flag is only valid with SQS mode (--source sqs)")
+        exit(1)
+
     # Start the appropriate task source
     if config.task_source == "webhook":
         # Override config with CLI options
@@ -114,21 +126,32 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
         click.echo(f"AWS region: {config.aws_region}")
         if config.aws_sqs_dlq_url:
             click.echo(f"DLQ configured: {config.aws_sqs_dlq_url}")
+        if burst:
+            click.echo("Burst mode: will process all messages then exit")
 
         # Import and run SQS source
         import asyncio
         from .sources.sqs_source import SQSTaskSource
 
         async def run_sqs():
-            sqs_source = SQSTaskSource()
+            sqs_source = SQSTaskSource(burst_mode=burst)
             try:
-                await sqs_source.start()
+                return await sqs_source.start()
             except KeyboardInterrupt:
                 click.echo("\n🛑 Shutting down SQS polling...")
                 await sqs_source.stop()
+                return None
 
         try:
-            asyncio.run(run_sqs())
+            result = asyncio.run(run_sqs())
+            # Handle burst mode exit codes
+            if burst and result is not None:
+                if result.messages_processed == 0:
+                    click.echo("Queue was empty, no messages processed")
+                    exit(42)
+                else:
+                    click.echo(f"Burst complete: processed {result.messages_processed} message(s)")
+                    exit(0)
         except KeyboardInterrupt:
             click.echo("🛑 Server stopped")
 

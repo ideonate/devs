@@ -236,7 +236,11 @@ class WebhookConfig(BaseSettings, BaseConfig):
     def get_default_workspaces_dir(self) -> Path:
         """Get default workspaces directory for webhook package."""
         return Path.home() / ".devs" / "workspaces"
-    
+
+    def get_default_bridge_dir(self) -> Path:
+        """Get default bridge directory for webhook package."""
+        return Path.home() / ".devs" / "bridge"
+
     def get_default_project_prefix(self) -> str:
         """Get default project prefix for webhook package."""
         return "dev"

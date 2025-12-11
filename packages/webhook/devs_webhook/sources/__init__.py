@@ -2,6 +2,6 @@
 
 from .base import TaskSource
 from .webhook_source import WebhookTaskSource
-from .sqs_source import SQSTaskSource
+from .sqs_source import SQSTaskSource, BurstResult
 
-__all__ = ["TaskSource", "WebhookTaskSource", "SQSTaskSource"]
+__all__ = ["TaskSource", "WebhookTaskSource", "SQSTaskSource", "BurstResult"]
