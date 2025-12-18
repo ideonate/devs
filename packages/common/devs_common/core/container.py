@@ -1,12 +1,39 @@
 """Container management and lifecycle operations."""
 
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import subprocess
 
 from ..config import BaseConfig
+
+
+def _parse_docker_timestamp(timestamp: str) -> datetime:
+    """Parse Docker timestamp which may have nanosecond precision.
+
+    Docker on Linux can return timestamps with 9 decimal places (nanoseconds),
+    but Python's fromisoformat() only handles up to 6 (microseconds).
+
+    Args:
+        timestamp: ISO format timestamp string from Docker
+
+    Returns:
+        datetime object
+    """
+    # Replace Z with +00:00 for timezone handling
+    timestamp = timestamp.replace('Z', '+00:00')
+
+    # Truncate nanoseconds to microseconds if present
+    # Match pattern: digits after decimal point before timezone
+    match = re.match(r'(.+\.\d{6})\d*([+-]\d{2}:\d{2})$', timestamp)
+    if match:
+        timestamp = match.group(1) + match.group(2)
+
+    return datetime.fromisoformat(timestamp)
+
+
 from ..exceptions import ContainerError, DockerError
 from ..utils.docker_client import DockerClient
 from ..utils.devcontainer import DevContainerCLI
@@ -397,7 +424,7 @@ class ContainerManager:
                     project_name=self.project.info.name,
                     status=container_data['status'],
                     container_id=container_data['id'],
-                    created=datetime.fromisoformat(container_data['created'].replace('Z', '+00:00')),
+                    created=_parse_docker_timestamp(container_data['created']),
                     labels=container_data['labels']
                 )
                 
@@ -449,7 +476,7 @@ class ContainerManager:
                         project_name=project_name,
                         status=container_data['status'],
                         container_id=container_data['id'],
-                        created=datetime.fromisoformat(container_data['created'].replace('Z', '+00:00')),
+                        created=_parse_docker_timestamp(container_data['created']),
                         labels=container_data['labels']
                     )
                     

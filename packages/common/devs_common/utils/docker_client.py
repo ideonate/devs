@@ -2,12 +2,37 @@
 
 from datetime import datetime
 import logging
+import re
 from typing import Dict, List, Optional, Any
 
 import docker
 from docker.errors import DockerException, NotFound, APIError
 
 from ..exceptions import DockerError
+
+
+def _parse_docker_timestamp(timestamp: str) -> datetime:
+    """Parse Docker timestamp which may have nanosecond precision.
+
+    Docker on Linux can return timestamps with 9 decimal places (nanoseconds),
+    but Python's fromisoformat() only handles up to 6 (microseconds).
+
+    Args:
+        timestamp: ISO format timestamp string from Docker
+
+    Returns:
+        datetime object
+    """
+    # Replace Z with +00:00 for timezone handling
+    timestamp = timestamp.replace('Z', '+00:00')
+
+    # Truncate nanoseconds to microseconds if present
+    # Match pattern: digits after decimal point before timezone
+    match = re.match(r'(.+\.\d{6})\d*([+-]\d{2}:\d{2})$', timestamp)
+    if match:
+        timestamp = match.group(1) + match.group(2)
+
+    return datetime.fromisoformat(timestamp)
 
 
 class DockerClient:
@@ -191,8 +216,8 @@ class DockerClient:
         try:
             image = self.client.images.get(image_name)
             created_str = image.attrs['Created']
-            # Parse Docker's ISO format
-            return datetime.fromisoformat(created_str.replace('Z', '+00:00'))
+            # Parse Docker's ISO format (may have nanosecond precision on Linux)
+            return _parse_docker_timestamp(created_str)
         except NotFound:
             return None
         except (DockerException, ValueError) as e:
