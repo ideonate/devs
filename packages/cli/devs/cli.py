@@ -510,6 +510,188 @@ def _handle_claude_auth(api_key: str, debug: bool) -> None:
 
 
 @cli.command()
+@click.argument('dev_name', required=False)
+@click.argument('prompt', required=False)
+@click.option('--auth', is_flag=True, help='Set up Codex authentication for devcontainers')
+@click.option('--api-key', help='OpenAI API key to authenticate with (use with --auth)')
+@click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
+@click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
+@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
+@debug_option
+def codex(dev_name: str, prompt: str, auth: bool, api_key: str, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
+    """Execute OpenAI Codex CLI in devcontainer or set up authentication.
+
+    DEV_NAME: Development environment name
+    PROMPT: Prompt to send to Codex
+
+    Example: devs codex sally "Summarize this codebase"
+    Example: devs codex sally "Fix the tests" --reset-workspace
+    Example: devs codex sally "Fix the tests" --live  # Run with current directory
+    Example: devs codex sally "Start the server" --env QUART_PORT=5001
+    Example: devs codex --auth                        # Interactive authentication
+    Example: devs codex --auth --api-key <YOUR_KEY>   # API key authentication
+    """
+    # Handle authentication mode
+    if auth:
+        _handle_codex_auth(api_key=api_key, debug=debug)
+        return
+
+    # Validate required arguments for execution mode
+    if not dev_name or not prompt:
+        raise click.UsageError("DEV_NAME and PROMPT are required unless using --auth")
+
+    check_dependencies()
+    project = get_project()
+
+    # Load environment variables from DEVS.yml and merge with CLI --env flags
+    devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
+    cli_env = parse_env_vars(env) if env else {}
+    extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
+
+    if extra_env:
+        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
+
+    container_manager = ContainerManager(project, config)
+    workspace_manager = WorkspaceManager(project, config)
+
+    try:
+        # Ensure workspace exists (handles live mode and reset internally)
+        workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
+        # Ensure container is running
+        container_manager.ensure_container_running(
+            dev_name=dev_name,
+            workspace_dir=workspace_dir,
+            force_rebuild=False,
+            debug=debug,
+            live=live,
+            extra_env=extra_env
+        )
+
+        # Execute Codex
+        console.print(f"🤖 Executing Codex in {dev_name}...")
+        if reset_workspace and not live:
+            console.print("🗑️  Workspace contents reset")
+        console.print(f"📝 Prompt: {prompt}")
+        console.print("")
+
+        success, output, error = container_manager.exec_codex(
+            dev_name=dev_name,
+            workspace_dir=workspace_dir,
+            prompt=prompt,
+            debug=debug,
+            stream=True,
+            live=live,
+            extra_env=extra_env
+        )
+
+        console.print("")  # Add spacing after streamed output
+        if success:
+            console.print("✅ Codex execution completed")
+        else:
+            console.print("❌ Codex execution failed")
+            if error:
+                console.print("")
+                console.print("🚫 Error:")
+                console.print(error)
+            sys.exit(1)
+
+    except (ContainerError, WorkspaceError) as e:
+        console.print(f"❌ Error executing Codex in {dev_name}: {e}")
+        sys.exit(1)
+
+
+def _handle_codex_auth(api_key: str, debug: bool) -> None:
+    """Handle Codex authentication setup.
+
+    This configures Codex authentication that will be shared across
+    all devcontainers for this project. The authentication is stored
+    on the host and bind-mounted into containers.
+    """
+    try:
+        # Ensure Codex config directory exists
+        config.ensure_directories()
+
+        console.print("🔐 Setting up Codex authentication...")
+        console.print(f"   Configuration will be saved to: {config.codex_config_dir}")
+
+        if api_key:
+            # Set API key directly using Codex CLI
+            console.print("   Using provided API key...")
+
+            # Set CODEX_CONFIG_HOME to our config directory and run auth with API key
+            env = os.environ.copy()
+            env['CODEX_CONFIG_HOME'] = str(config.codex_config_dir)
+
+            cmd = ['codex', 'auth', '--api-key', api_key]
+
+            if debug:
+                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+                console.print(f"[dim]CODEX_CONFIG_HOME: {config.codex_config_dir}[/dim]")
+
+            result = subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True
+            )
+
+            if result.returncode != 0:
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                raise Exception(f"Codex authentication failed: {error_msg}")
+
+        else:
+            # Interactive authentication
+            console.print("   Starting interactive authentication...")
+            console.print("   Follow the prompts to authenticate with Codex")
+            console.print("")
+
+            # Set CODEX_CONFIG_HOME to our config directory
+            env = os.environ.copy()
+            env['CODEX_CONFIG_HOME'] = str(config.codex_config_dir)
+
+            cmd = ['codex', 'auth']
+
+            if debug:
+                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+                console.print(f"[dim]CODEX_CONFIG_HOME: {config.codex_config_dir}[/dim]")
+
+            # Run interactively
+            result = subprocess.run(
+                cmd,
+                env=env,
+                check=False
+            )
+
+            if result.returncode != 0:
+                raise Exception("Codex authentication was cancelled or failed")
+
+        console.print("")
+        console.print("✅ Codex authentication configured successfully!")
+        console.print(f"   Configuration saved to: {config.codex_config_dir}")
+        console.print("   This authentication will be shared across all devcontainers")
+        console.print("")
+        console.print("💡 You can now use Codex in any devcontainer:")
+        console.print("   devs codex <dev-name> 'Your prompt here'")
+
+    except FileNotFoundError:
+        console.print("❌ Codex CLI not found on host machine")
+        console.print("")
+        console.print("Please install Codex CLI first:")
+        console.print("   npm install -g @openai/codex")
+        console.print("")
+        console.print("Note: Codex needs to be installed on the host machine")
+        console.print("      for authentication. It's already available in containers.")
+        sys.exit(1)
+
+    except Exception as e:
+        console.print(f"❌ Failed to configure Codex authentication: {e}")
+        if debug:
+            import traceback
+            console.print(traceback.format_exc())
+        sys.exit(1)
+
+
+@cli.command()
 @click.argument('dev_name')
 @click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')

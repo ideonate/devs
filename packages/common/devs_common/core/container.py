@@ -752,3 +752,33 @@ class ContainerManager:
             live=live,
             extra_env=extra_env
         )
+
+    def exec_codex(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str]:
+        """Execute OpenAI Codex CLI in the container.
+
+        Args:
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            prompt: Prompt to send to Codex
+            debug: Show debug output for devcontainer operations
+            stream: Stream output to console in real-time
+            live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
+
+        Returns:
+            Tuple of (success, stdout, stderr)
+
+        Raises:
+            ContainerError: If Codex execution fails
+        """
+        # Simply delegate to exec_command with the Codex command and prompt as stdin
+        return self.exec_command(
+            dev_name=dev_name,
+            workspace_dir=workspace_dir,
+            command="codex --full-auto",
+            stdin_input=prompt,
+            debug=debug,
+            stream=stream,
+            live=live,
+            extra_env=extra_env
+        )

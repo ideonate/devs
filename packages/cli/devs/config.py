@@ -15,17 +15,24 @@ class Config(BaseConfig):
     WORKSPACES_DIR = Path.home() / ".devs" / "workspaces"
     BRIDGE_DIR = Path.home() / ".devs" / "bridge"
     CLAUDE_CONFIG_DIR = Path.home() / ".devs" / "claudeconfig"
-    
+    CODEX_CONFIG_DIR = Path.home() / ".devs" / "codexconfig"
+
     def __init__(self) -> None:
         """Initialize configuration with environment variable overrides."""
         super().__init__()
-        
+
         # CLI-specific configuration
         claude_config_env = os.getenv("DEVS_CLAUDE_CONFIG_DIR")
         if claude_config_env:
             self.claude_config_dir = Path(claude_config_env)
         else:
             self.claude_config_dir = self.CLAUDE_CONFIG_DIR
+
+        codex_config_env = os.getenv("DEVS_CODEX_CONFIG_DIR")
+        if codex_config_env:
+            self.codex_config_dir = Path(codex_config_env)
+        else:
+            self.codex_config_dir = self.CODEX_CONFIG_DIR
     
     def get_default_workspaces_dir(self) -> Path:
         """Get default workspaces directory for CLI package."""
@@ -43,6 +50,7 @@ class Config(BaseConfig):
         """Ensure required directories exist."""
         super().ensure_directories()
         self.claude_config_dir.mkdir(parents=True, exist_ok=True)
+        self.codex_config_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Global config instance

@@ -87,7 +87,7 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 ENV DEVCONTAINER=true
 
 # Create workspace and config directories and set permissions
-RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/.vscode-server/extensions && \
+RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/codexconfig /home/node/.vscode-server/extensions && \
   echo '[]' > /home/node/.vscode-server/extensions/extensions.json && \
   chown -R node:node /workspaces /home/node /home/node/.vscode-server && \
   chmod 755 /workspaces
@@ -119,14 +119,16 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
   -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
   -x
 
-# Install Claude CLI
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude CLI and OpenAI Codex CLI
+RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
-# Set up environment variables and aliases for Claude
+# Set up environment variables and aliases for Claude and Codex
 USER root
 RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
+  echo "export CODEX_CONFIG_HOME=\"/home/node/codexconfig\"" >> "$shell_rc" && \
   echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
+  echo "alias codex=\"/usr/local/share/npm-global/bin/codex --full-auto\"" >> "$shell_rc" && \
   echo "" >> "$shell_rc" && \
   echo "# Auto-activate Python venv if it exists" >> "$shell_rc" && \
   echo "if [ -f /home/node/.devs-venv/workspace-venv/bin/activate ]; then" >> "$shell_rc" && \

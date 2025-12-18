@@ -76,6 +76,7 @@
   "mounts": [
     "source=claude-code-bashhistory,target=/commandhistory,type=volume",
     "source=${localEnv:HOME}/.devs/claudeconfig,target=/home/node/claudeconfig,type=bind",
+    "source=${localEnv:HOME}/.devs/codexconfig,target=/home/node/codexconfig,type=bind",
     "source=${localEnv:DEVS_ENV_MOUNT_PATH},target=/home/node/.devs-env,type=bind",
     "source=${localEnv:DEVS_BRIDGE_MOUNT_PATH},target=/home/node/bridge,type=bind",
     // Remove the extensions mount to get fresh state each time
