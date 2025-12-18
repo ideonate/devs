@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "devs-cli"
-version = "0.1.2"
+version = "0.1.4"
 description = "DevContainer Management Tool - Manage multiple named devcontainers for any project"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -65,7 +65,7 @@ line-length = 88
 target-version = ['py38']
 
 [tool.mypy]
-python_version = "0.1.2"
+python_version = "3.8"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

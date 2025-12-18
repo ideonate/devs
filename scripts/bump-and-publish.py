@@ -56,13 +56,28 @@ def get_current_version(pyproject_path: Path) -> str:
     return match.group(1)
 
 def update_version_in_file(pyproject_path: Path, new_version: str) -> None:
-    """Update version in pyproject.toml file."""
+    """Update version in pyproject.toml file - only in [project] section."""
     content = pyproject_path.read_text()
-    updated_content = re.sub(
-        r'version = "[^"]+"', 
-        f'version = "{new_version}"', 
-        content
-    )
+    lines = content.split('\n')
+    
+    in_project_section = False
+    updated_lines = []
+    
+    for line in lines:
+        # Check if we're entering the [project] section
+        if line.strip() == '[project]':
+            in_project_section = True
+        # Check if we're leaving the [project] section (entering another section)
+        elif line.strip().startswith('[') and line.strip().endswith(']'):
+            in_project_section = False
+        
+        # Update version line only if we're in the [project] section
+        if in_project_section and line.strip().startswith('version = "'):
+            updated_lines.append(f'version = "{new_version}"')
+        else:
+            updated_lines.append(line)
+    
+    updated_content = '\n'.join(updated_lines)
     pyproject_path.write_text(updated_content)
 
 def run_command(cmd: list, cwd: Path = None) -> None:
