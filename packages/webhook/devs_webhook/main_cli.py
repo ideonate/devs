@@ -30,7 +30,9 @@ cli.add_command(worker)
 @click.option('--dev', is_flag=True, help='Development mode (auto-loads .env, enables reload, console logs)')
 @click.option('--source', type=click.Choice(['webhook', 'sqs'], case_sensitive=False), help='Task source override')
 @click.option('--burst', is_flag=True, help='Burst mode: process all available SQS messages then exit (SQS mode only)')
-def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source: str, burst: bool):
+@click.option('--no-wait', is_flag=True, help='In burst mode, exit immediately after draining SQS queue without waiting for tasks to complete')
+@click.option('--timeout', type=int, default=None, help='Timeout in seconds for waiting on task completion in burst mode (default: wait indefinitely)')
+def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source: str, burst: bool, no_wait: bool, timeout: int):
     """Start the webhook handler server.
 
     The server can run in two modes:
@@ -40,14 +42,21 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
     SQS mode supports --burst flag to process all available messages then exit:
     - Exit code 0: Processed one or more messages successfully
     - Exit code 42: Queue was empty (no messages to process)
+    - Exit code 43: Timeout waiting for tasks to complete
     - Other codes: Error occurred
+
+    By default, burst mode waits for all container tasks (Docker jobs) to complete
+    before exiting. Use --no-wait to exit immediately after draining the SQS queue,
+    or --timeout to set a maximum wait time.
 
     Examples:
         devs-webhook serve --dev                    # Development mode with .env loading
         devs-webhook serve --env-file /path/.env    # Load specific .env file
         devs-webhook serve --host 127.0.0.1        # Override host from config
         devs-webhook serve --source sqs            # Use SQS polling mode
-        devs-webhook serve --source sqs --burst    # Process all SQS messages then exit
+        devs-webhook serve --source sqs --burst    # Process all SQS messages, wait for completion
+        devs-webhook serve --source sqs --burst --no-wait  # Drain SQS and exit immediately
+        devs-webhook serve --source sqs --burst --timeout 3600  # Wait up to 1 hour for tasks
     """
     # Handle development mode
     if dev:
@@ -128,13 +137,24 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
             click.echo(f"DLQ configured: {config.aws_sqs_dlq_url}")
         if burst:
             click.echo("Burst mode: will process all messages then exit")
+            if no_wait:
+                click.echo("  --no-wait: will NOT wait for container tasks to complete")
+            else:
+                if timeout:
+                    click.echo(f"  Will wait up to {timeout}s for container tasks to complete")
+                else:
+                    click.echo("  Will wait for all container tasks to complete before exit")
 
         # Import and run SQS source
         import asyncio
         from .sources.sqs_source import SQSTaskSource
 
         async def run_sqs():
-            sqs_source = SQSTaskSource(burst_mode=burst)
+            sqs_source = SQSTaskSource(
+                burst_mode=burst,
+                wait_for_tasks=not no_wait,
+                task_timeout=float(timeout) if timeout else None,
+            )
             try:
                 return await sqs_source.start()
             except KeyboardInterrupt:
@@ -149,6 +169,22 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
                 if result.messages_processed == 0:
                     click.echo("Queue was empty, no messages processed")
                     exit(42)
+                elif no_wait:
+                    # Not waiting for tasks - just report messages processed
+                    click.echo(f"Burst complete: queued {result.messages_processed} message(s)")
+                    click.echo("  (not waiting for container tasks to complete)")
+                    exit(0)
+                elif result.tasks_completed == result.messages_processed:
+                    # All tasks completed successfully
+                    click.echo(f"Burst complete: processed {result.messages_processed} message(s), "
+                              f"all {result.tasks_completed} task(s) completed")
+                    exit(0)
+                elif result.tasks_completed < result.messages_processed:
+                    # Timeout - some tasks didn't complete
+                    remaining = result.messages_processed - result.tasks_completed
+                    click.echo(f"Burst timeout: processed {result.messages_processed} message(s), "
+                              f"but {remaining} task(s) still running")
+                    exit(43)
                 else:
                     click.echo(f"Burst complete: processed {result.messages_processed} message(s)")
                     exit(0)

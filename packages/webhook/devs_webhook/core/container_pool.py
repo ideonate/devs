@@ -929,6 +929,55 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                 "cached_repo_configs": list(self.repo_configs.keys()),
             }
 
+    def get_total_queued_tasks(self) -> int:
+        """Get the total number of tasks queued across all containers.
+
+        Returns:
+            Total number of tasks waiting in all queues
+        """
+        return sum(queue.qsize() for queue in self.container_queues.values())
+
+    async def wait_for_all_tasks_complete(self, timeout: Optional[float] = None) -> bool:
+        """Wait for all queued tasks to be processed.
+
+        This waits for all container queues to be fully drained, meaning
+        all tasks have been picked up by workers AND task_done() has been
+        called for each (i.e., processing is complete, not just started).
+
+        Args:
+            timeout: Optional timeout in seconds. If None, waits indefinitely.
+
+        Returns:
+            True if all tasks completed, False if timeout occurred.
+        """
+        logger.info("Waiting for all container queues to drain",
+                   queues={name: q.qsize() for name, q in self.container_queues.items()})
+
+        async def wait_all_queues():
+            # Wait for each queue to be fully processed
+            # asyncio.Queue.join() waits until all items have had task_done() called
+            wait_tasks = [
+                queue.join()
+                for queue in self.container_queues.values()
+            ]
+            await asyncio.gather(*wait_tasks)
+
+        try:
+            if timeout is not None:
+                await asyncio.wait_for(wait_all_queues(), timeout=timeout)
+            else:
+                await wait_all_queues()
+
+            logger.info("All container queues drained successfully")
+            return True
+
+        except asyncio.TimeoutError:
+            remaining = {name: q.qsize() for name, q in self.container_queues.items()}
+            logger.warning("Timeout waiting for queues to drain",
+                          remaining_tasks=remaining,
+                          timeout_seconds=timeout)
+            return False
+
     async def _idle_cleanup_worker(self) -> None:
         """Periodically clean up idle containers."""
         while True:

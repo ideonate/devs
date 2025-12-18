@@ -23,6 +23,7 @@ logger = structlog.get_logger()
 class BurstResult:
     """Result of a burst mode SQS run."""
     messages_processed: int
+    tasks_completed: int = 0
     errors: int = 0
 
 
@@ -44,7 +45,13 @@ class SQSTaskSource(TaskSource):
     }
     """
 
-    def __init__(self, task_processor: Optional[TaskProcessor] = None, burst_mode: bool = False):
+    def __init__(
+        self,
+        task_processor: Optional[TaskProcessor] = None,
+        burst_mode: bool = False,
+        wait_for_tasks: bool = True,
+        task_timeout: Optional[float] = None,
+    ):
         """Initialize SQS task source.
 
         Args:
@@ -52,13 +59,21 @@ class SQSTaskSource(TaskSource):
                           a new one will be created.
             burst_mode: If True, process all available messages and exit instead
                        of polling indefinitely.
+            wait_for_tasks: If True (default), burst mode will wait for all
+                          queued tasks to complete before exiting. If False,
+                          exits as soon as SQS queue is drained.
+            task_timeout: Optional timeout in seconds for waiting on task completion
+                         in burst mode. If None, waits indefinitely.
         """
         self.task_processor = task_processor or TaskProcessor()
         self.config = get_config()
         self._running = False
         self._poll_task: Optional[asyncio.Task] = None
         self._burst_mode = burst_mode
+        self._wait_for_tasks = wait_for_tasks
+        self._task_timeout = task_timeout
         self._messages_processed = 0
+        self._tasks_completed = 0
         self._errors = 0
 
         # Import boto3 lazily to avoid requiring it for webhook-only deployments
@@ -80,6 +95,8 @@ class SQSTaskSource(TaskSource):
             queue_url=self.config.aws_sqs_queue_url,
             region=self.config.aws_region,
             burst_mode=self._burst_mode,
+            wait_for_tasks=self._wait_for_tasks,
+            task_timeout=self._task_timeout,
         )
 
     async def start(self) -> Optional[BurstResult]:
@@ -116,10 +133,16 @@ class SQSTaskSource(TaskSource):
     async def _run_burst_mode(self) -> BurstResult:
         """Run in burst mode: process all available messages then exit.
 
+        If wait_for_tasks is True (default), this will wait for all queued
+        tasks to complete before returning. This ensures that Docker jobs
+        (e.g., Claude executions) have finished, not just been queued.
+
         Returns:
-            BurstResult with count of messages processed.
+            BurstResult with count of messages processed and tasks completed.
         """
-        logger.info("Running in burst mode - will drain queue and exit")
+        logger.info("Running in burst mode - will drain queue and exit",
+                   wait_for_tasks=self._wait_for_tasks,
+                   task_timeout=self._task_timeout)
 
         # Track if we found any messages on the first poll
         first_poll = True
@@ -135,7 +158,7 @@ class SQSTaskSource(TaskSource):
                 else:
                     # We've drained the queue
                     logger.info(
-                        "Queue drained",
+                        "SQS queue drained",
                         messages_processed=self._messages_processed,
                         errors=self._errors,
                     )
@@ -156,8 +179,37 @@ class SQSTaskSource(TaskSource):
                         exc_info=True,
                     )
 
+        # Now wait for all queued tasks to complete (if enabled)
+        if self._wait_for_tasks and self._messages_processed > 0:
+            container_pool = self.task_processor.container_pool
+            queued_count = container_pool.get_total_queued_tasks()
+
+            logger.info("SQS queue drained, waiting for container tasks to complete",
+                       queued_tasks=queued_count,
+                       timeout=self._task_timeout)
+
+            all_completed = await container_pool.wait_for_all_tasks_complete(
+                timeout=self._task_timeout
+            )
+
+            if all_completed:
+                self._tasks_completed = self._messages_processed
+                logger.info("All container tasks completed successfully",
+                           tasks_completed=self._tasks_completed)
+            else:
+                # Timeout occurred - some tasks may still be running
+                remaining = container_pool.get_total_queued_tasks()
+                self._tasks_completed = self._messages_processed - remaining
+                logger.warning("Timeout waiting for container tasks",
+                              tasks_completed=self._tasks_completed,
+                              tasks_remaining=remaining)
+        else:
+            # Not waiting for tasks, or no messages processed
+            self._tasks_completed = 0
+
         return BurstResult(
             messages_processed=self._messages_processed,
+            tasks_completed=self._tasks_completed,
             errors=self._errors,
         )
 
