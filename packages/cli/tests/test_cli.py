@@ -204,3 +204,85 @@ class TestCLI:
 
         assert result.exit_code != 0
         assert "DEV_NAME and PROMPT are required unless using --auth" in result.output
+
+    def test_codex_command_help(self):
+        """Test codex command help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ['codex', '--help'])
+
+        assert result.exit_code == 0
+        assert "Execute OpenAI Codex CLI in devcontainer or set up authentication" in result.output
+        assert "--auth" in result.output
+        assert "--api-key" in result.output
+
+    @patch('devs.cli.subprocess.run')
+    @patch('devs.cli.config')
+    def test_codex_auth_with_api_key(self, mock_config, mock_subprocess):
+        """Test codex --auth command with API key."""
+        # Setup mocks
+        mock_config.codex_config_dir = '/tmp/test-codex-config'
+        mock_config.ensure_directories = Mock()
+        mock_subprocess.return_value.returncode = 0
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ['codex', '--auth', '--api-key', 'test-key-123'])
+
+        assert result.exit_code == 0
+        assert "Setting up Codex authentication" in result.output
+        assert "Codex authentication configured successfully" in result.output
+
+        # Verify subprocess was called with correct arguments
+        mock_subprocess.assert_called_once()
+        call_args = mock_subprocess.call_args
+        assert 'codex' in call_args[0][0]
+        assert 'auth' in call_args[0][0]
+        assert '--api-key' in call_args[0][0]
+        assert 'test-key-123' in call_args[0][0]
+
+    @patch('devs.cli.subprocess.run')
+    @patch('devs.cli.config')
+    def test_codex_auth_interactive(self, mock_config, mock_subprocess):
+        """Test codex --auth command in interactive mode."""
+        # Setup mocks
+        mock_config.codex_config_dir = '/tmp/test-codex-config'
+        mock_config.ensure_directories = Mock()
+        mock_subprocess.return_value.returncode = 0
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ['codex', '--auth'])
+
+        assert result.exit_code == 0
+        assert "Setting up Codex authentication" in result.output
+        assert "Starting interactive authentication" in result.output
+        assert "Codex authentication configured successfully" in result.output
+
+        # Verify subprocess was called for interactive auth
+        mock_subprocess.assert_called_once()
+        call_args = mock_subprocess.call_args
+        assert 'codex' in call_args[0][0]
+        assert 'auth' in call_args[0][0]
+        assert '--api-key' not in call_args[0][0]
+
+    @patch('devs.cli.subprocess.run')
+    @patch('devs.cli.config')
+    def test_codex_auth_command_not_found(self, mock_config, mock_subprocess):
+        """Test codex --auth when codex CLI is not installed."""
+        # Setup mocks
+        mock_config.codex_config_dir = '/tmp/test-codex-config'
+        mock_config.ensure_directories = Mock()
+        mock_subprocess.side_effect = FileNotFoundError()
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ['codex', '--auth'])
+
+        assert result.exit_code == 1
+        assert "Codex CLI not found" in result.output
+        assert "npm install -g @openai/codex" in result.output
+
+    def test_codex_missing_args(self):
+        """Test codex command without required args (not using --auth)."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ['codex'])
+
+        assert result.exit_code != 0
+        assert "DEV_NAME and PROMPT are required unless using --auth" in result.output

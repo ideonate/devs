@@ -165,6 +165,19 @@ The `--live` flag mounts the current directory directly into the container witho
 
 **Live Mode**: Add `--live` flag to `start` or `vscode` commands to mount the current directory directly without creating a workspace copy.
 
+### AI Assistant Commands
+
+Both Claude (Anthropic) and Codex (OpenAI) are supported with similar interfaces:
+
+- `devs claude <name> "<prompt>"` - Execute Claude CLI in devcontainer
+- `devs codex <name> "<prompt>"` - Execute OpenAI Codex CLI in devcontainer
+- `devs claude --auth` - Set up Claude authentication (interactive)
+- `devs codex --auth` - Set up Codex authentication (interactive)
+- `devs claude --auth --api-key <KEY>` - Set up Claude with API key
+- `devs codex --auth --api-key <KEY>` - Set up Codex with API key
+
+Both commands support `--reset-workspace`, `--live`, and `--env` options.
+
 ### Example Workflow
 
 ```bash
@@ -239,6 +252,7 @@ flake8 devs tests      # Linting
 - `DEVS_WORKSPACES_DIR`: Custom workspace directory (default: `~/.devs/workspaces`)
 - `DEVS_PROJECT_PREFIX`: Container name prefix (default: `dev`)
 - `DEVS_CLAUDE_CONFIG_DIR`: Claude config directory (default: `~/.devs/claudeconfig`)
+- `DEVS_CODEX_CONFIG_DIR`: Codex config directory (default: `~/.devs/codexconfig`)
 
 #### GitHub Integration
 
