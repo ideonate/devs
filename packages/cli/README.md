@@ -40,9 +40,9 @@ devs start frontend --env DEBUG=true --env API_URL=http://localhost:3000
 devs claude frontend "Fix the tests" --env NODE_ENV=test
 
 # Set up Claude authentication (once per host)
-devs claude-auth
+devs claude --auth
 # Or with API key
-devs claude-auth --api-key <YOUR_API_KEY>
+devs claude --auth --api-key <YOUR_API_KEY>
 
 # Clean up when done
 devs stop frontend backend
