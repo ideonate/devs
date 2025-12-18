@@ -1,5 +1,6 @@
 """Test runner dispatcher for executing CI tests in containers."""
 
+import uuid
 from typing import Optional
 import structlog
 from pathlib import Path
@@ -10,6 +11,7 @@ from devs_common.core.workspace import WorkspaceManager
 from ..github.models import WebhookEvent, PushEvent, PullRequestEvent
 from devs_common.devs_config import DevsOptions
 from .base_dispatcher import BaseDispatcher, TaskResult
+from ..utils.container_logs import create_container_log_writer
 
 logger = structlog.get_logger()
 
@@ -29,27 +31,34 @@ class TestDispatcher(BaseDispatcher):
         repo_path: Path,
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None,
-        task_description: Optional[str] = None
+        task_description: Optional[str] = None,
+        task_id: Optional[str] = None
     ) -> TaskResult:
         """Execute tests using container and report results via GitHub Checks API.
-        
+
         Args:
             dev_name: Name of dev container (e.g., eamonn)
             repo_path: Path to repository on host (already calculated by container_pool)
             event: Original webhook event
             devs_options: Options from DEVS.yml file
             task_description: Task description (ignored by test dispatcher)
-            
+            task_id: Optional task identifier for logging
+
         Returns:
             Test execution result
         """
+        # Generate task_id if not provided
+        if not task_id:
+            task_id = str(uuid.uuid4())[:8]
+
         check_run_id = None
-        
+
         try:
             logger.info("Starting test execution",
                        container=dev_name,
                        repo=event.repository.full_name,
-                       repo_path=str(repo_path))
+                       repo_path=str(repo_path),
+                       task_id=task_id)
             
             # Determine the commit SHA to test
             commit_sha = self._get_commit_sha(event)
@@ -106,7 +115,8 @@ class TestDispatcher(BaseDispatcher):
                 repo_path,
                 dev_name,
                 event,
-                devs_options
+                devs_options,
+                task_id=task_id
             )
             
             # Build result
@@ -186,19 +196,30 @@ class TestDispatcher(BaseDispatcher):
         repo_path: Path,
         dev_name: str,
         event: WebhookEvent,
-        devs_options: Optional[DevsOptions] = None
+        devs_options: Optional[DevsOptions] = None,
+        task_id: Optional[str] = None
     ) -> tuple[bool, str, str, int]:
         """Execute tests synchronously in container.
-        
+
         Args:
             repo_path: Path to repository
             dev_name: Development environment name
             event: Webhook event
             devs_options: Options from DEVS.yml
-            
+            task_id: Optional task identifier for logging
+
         Returns:
             Tuple of (success, stdout, stderr, exit_code)
         """
+        # Create container log writer if enabled
+        container_log = create_container_log_writer(
+            config=self.config,
+            container_name=dev_name,
+            task_id=task_id or str(uuid.uuid4())[:8],
+            repo_name=event.repository.full_name,
+            task_type="tests"
+        )
+
         try:
             # 1. Create project, workspace manager, and container manager
             project = Project(repo_path)
@@ -256,11 +277,15 @@ class TestDispatcher(BaseDispatcher):
             test_command = "./runtests.sh"  # Default
             if devs_options and devs_options.ci_test_command:
                 test_command = devs_options.ci_test_command
-            
+
             logger.info("Executing test command",
                        container=dev_name,
                        test_command=test_command)
-            
+
+            # Start container logging if enabled
+            if container_log:
+                container_log.start(test_command=test_command, workspace_dir=str(workspace_dir))
+
             # 6. Execute tests
             success, stdout, stderr, exit_code = self._exec_command_in_container(
                 project=project,
@@ -269,22 +294,36 @@ class TestDispatcher(BaseDispatcher):
                 command=test_command,
                 debug=self.config.dev_mode
             )
-            
+
+            # Write container output to log file if enabled
+            if container_log:
+                container_log.write_output(stdout, stderr)
+                container_log.end(
+                    success=success,
+                    exit_code=exit_code,
+                    error=stderr if not success else None
+                )
+
             logger.info("Test command completed",
                        container=dev_name,
                        success=success,
                        exit_code=exit_code,
                        output_length=len(stdout) if stdout else 0,
                        error_length=len(stderr) if stderr else 0)
-            
+
             return success, stdout, stderr, exit_code
-            
+
         except Exception as e:
             error_msg = f"Test execution failed: {str(e)}"
             logger.error("Test execution error",
                         container=dev_name,
                         error=error_msg,
                         exc_info=True)
+
+            # Log the error to container log if enabled
+            if container_log:
+                container_log.end(success=False, exit_code=1, error=error_msg)
+
             return False, "", error_msg, 1
     
     def _get_commit_sha(self, event: WebhookEvent) -> Optional[str]:

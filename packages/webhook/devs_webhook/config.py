@@ -89,6 +89,16 @@ class WebhookConfig(BaseSettings, BaseConfig):
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="json", description="Logging format (json|console)")
 
+    # Container output logging (CloudWatch-friendly)
+    container_logs_dir: Path = Field(
+        default_factory=lambda: Path("/var/log/devs-webhook/containers"),
+        description="Directory for container output logs (CloudWatch agent compatible)"
+    )
+    container_logs_enabled: bool = Field(
+        default=False,
+        description="Enable writing container output to log files"
+    )
+
     # Task source configuration
     task_source: str = Field(
         default="webhook",
@@ -166,6 +176,9 @@ class WebhookConfig(BaseSettings, BaseConfig):
         self.repo_cache_dir.mkdir(parents=True, exist_ok=True)
         # Claude config directory for container mounts
         self.claude_config_dir.mkdir(parents=True, exist_ok=True)
+        # Container logs directory (if enabled)
+        if self.container_logs_enabled:
+            self.container_logs_dir.mkdir(parents=True, exist_ok=True)
     
     def validate_required_settings(self) -> None:
         """Validate that required settings are present."""

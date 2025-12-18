@@ -1,5 +1,6 @@
 """Claude Code CLI integration for executing tasks in containers."""
 
+import uuid
 from typing import Optional
 import structlog
 from pathlib import Path
@@ -10,6 +11,7 @@ from devs_common.core.workspace import WorkspaceManager
 from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent
 from devs_common.devs_config import DevsOptions
 from .base_dispatcher import BaseDispatcher, TaskResult
+from ..utils.container_logs import create_container_log_writer
 
 logger = structlog.get_logger()
 
@@ -29,36 +31,44 @@ class ClaudeDispatcher(BaseDispatcher):
         repo_path: Path,
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None,
-        task_description: Optional[str] = None
+        task_description: Optional[str] = None,
+        task_id: Optional[str] = None
     ) -> TaskResult:
         """Execute a task using Claude Code CLI in a container.
-        
+
         Args:
             dev_name: Name of dev container (e.g., eamonn)
             repo_path: Path to repository on host (already calculated by container_pool)
             task_description: Task description for Claude
             event: Original webhook event
             devs_options: Options from DEVS.yml file
-            
+            task_id: Optional task identifier for logging
+
         Returns:
             Task execution result
         """
+        # Generate task_id if not provided
+        if not task_id:
+            task_id = str(uuid.uuid4())[:8]
+
         try:
             logger.info("Starting Claude Code CLI task",
                        container=dev_name,
                        repo=event.repository.full_name,
-                       repo_path=str(repo_path))
-            
+                       repo_path=str(repo_path),
+                       task_id=task_id)
+
             # Execute Claude directly - prompt building, workspace setup, container startup, Claude execution
             # Use task_description if provided, otherwise extract from event
             task_desc = task_description or "Process webhook event"
-            
+
             success, output, error = self._execute_claude_sync(
                 repo_path,
                 dev_name,
                 task_desc,
                 event,
-                devs_options
+                devs_options,
+                task_id=task_id
             )
             
             # Build result - ensure we have meaningful error messages
@@ -107,26 +117,37 @@ class ClaudeDispatcher(BaseDispatcher):
         dev_name: str,
         task_description: str,
         event: WebhookEvent,
-        devs_options: Optional[DevsOptions] = None
+        devs_options: Optional[DevsOptions] = None,
+        task_id: Optional[str] = None
     ) -> tuple[bool, str, str]:
         """Execute complete Claude workflow synchronously.
-        
+
         This mirrors the CLI approach exactly:
         1. Create project, workspace manager, and container manager
         2. Create/reset workspace (force=True for webhook)
         3. Build prompt
         4. Execute Claude (which handles container startup)
-        
+
         Args:
             repo_path: Path to repository
             dev_name: Development environment name
             task_description: Task description for Claude
             event: Webhook event
             devs_options: Options from DEVS.yml
-            
+            task_id: Optional task identifier for logging
+
         Returns:
             Tuple of (success, stdout, stderr)
         """
+        # Create container log writer if enabled
+        container_log = create_container_log_writer(
+            config=self.config,
+            container_name=dev_name,
+            task_id=task_id or str(uuid.uuid4())[:8],
+            repo_name=event.repository.full_name,
+            task_type="claude"
+        )
+
         try:
             # 1. Create project, workspace manager, and container manager like CLI
             project = Project(repo_path)
@@ -240,11 +261,15 @@ Always remember to PUSH your work to origin!
             # 4. Execute Claude (like CLI pattern) with environment variables from DEVS.yml
             logger.info("Executing Claude via ContainerManager (like CLI)",
                        container=dev_name)
-            
+
             extra_env = None
             if devs_options:
                 extra_env = devs_options.get_env_vars(dev_name)
-            
+
+            # Start container logging if enabled
+            if container_log:
+                container_log.start(prompt=prompt, workspace_dir=str(workspace_dir))
+
             success, stdout, stderr = container_manager.exec_claude(
                 dev_name=dev_name,
                 workspace_dir=workspace_dir,
@@ -253,7 +278,15 @@ Always remember to PUSH your work to origin!
                 stream=False,  # Don't stream in webhook mode
                 extra_env=extra_env
             )
-            
+
+            # Write container output to log file if enabled
+            if container_log:
+                container_log.write_output(stdout, stderr)
+                container_log.end(
+                    success=success,
+                    error=stderr if not success else None
+                )
+
             # Log the actual output for debugging
             if not success:
                 logger.error("Claude execution failed",
@@ -261,20 +294,25 @@ Always remember to PUSH your work to origin!
                            stdout=stdout[:1000] if stdout else "",
                            stderr=stderr[:1000] if stderr else "",
                            success=success)
-            
+
             # If failed and no stderr, check stdout for error messages
             # (Claude sometimes outputs errors to stdout)
             if not success and not stderr:
                 stderr = stdout
-            
+
             return success, stdout, stderr
-            
+
         except Exception as e:
             error_msg = f"Claude execution failed: {str(e)}"
             logger.error("Claude execution error",
                         container=dev_name,
                         error=error_msg,
                         exc_info=True)
+
+            # Log the error to container log if enabled
+            if container_log:
+                container_log.end(success=False, error=error_msg)
+
             return False, "", error_msg
     
     

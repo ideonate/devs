@@ -32,7 +32,9 @@ cli.add_command(worker)
 @click.option('--burst', is_flag=True, help='Burst mode: process all available SQS messages then exit (SQS mode only)')
 @click.option('--no-wait', is_flag=True, help='In burst mode, exit immediately after draining SQS queue without waiting for tasks to complete')
 @click.option('--timeout', type=int, default=None, help='Timeout in seconds for waiting on task completion in burst mode (default: wait indefinitely)')
-def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source: str, burst: bool, no_wait: bool, timeout: int):
+@click.option('--container-logs', is_flag=True, help='Enable container output logging to files (CloudWatch compatible)')
+@click.option('--container-logs-dir', type=click.Path(path_type=Path), default=None, help='Directory for container log files (default: /var/log/devs-webhook/containers)')
+def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source: str, burst: bool, no_wait: bool, timeout: int, container_logs: bool, container_logs_dir: Path):
     """Start the webhook handler server.
 
     The server can run in two modes:
@@ -96,6 +98,12 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
     if source:
         os.environ["TASK_SOURCE"] = source
 
+    # Configure container logs if specified via CLI
+    if container_logs:
+        os.environ["CONTAINER_LOGS_ENABLED"] = "true"
+    if container_logs_dir:
+        os.environ["CONTAINER_LOGS_DIR"] = str(container_logs_dir)
+
     # Now setup logging after environment is configured
     setup_logging()
 
@@ -106,6 +114,8 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
     click.echo(f"Task source: {config.task_source}")
     click.echo(f"Watching for @{config.github_mentioned_user} mentions")
     click.echo(f"Container pool: {', '.join(config.get_container_pool_list())}")
+    if config.container_logs_enabled:
+        click.echo(f"Container logs: {config.container_logs_dir}")
 
     # Validate burst mode is only used with SQS
     if burst and config.task_source != "sqs":
