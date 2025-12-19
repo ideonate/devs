@@ -249,7 +249,10 @@ class DevContainerCLI:
             if debug:
                 console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
                 console.print(f"[dim]Environment variables: DEVCONTAINER_NAME={env.get('DEVCONTAINER_NAME')}, GIT_REMOTE_URL={env.get('GIT_REMOTE_URL')}, GH_TOKEN={'***' if env.get('GH_TOKEN') else 'not set'}, DEVS_DEBUG={env.get('DEVS_DEBUG', 'not set')}[/dim]")
-            
+                
+                if extra_env:
+                    console.print(f"[dim]🔧 Extra variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}[/dim]")
+
             if debug:
                 # In debug mode, stream output in real-time
                 result = subprocess.run(
