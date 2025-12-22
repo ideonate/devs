@@ -257,7 +257,7 @@ class TestDispatcher(BaseDispatcher):
                 logger.info("Checking out commit for tests",
                            container=dev_name,
                            commit_sha=commit_sha)
-                
+
                 checkout_success, checkout_stdout, checkout_stderr, checkout_code = self._exec_command_in_container(
                     project=project,
                     dev_name=dev_name,
@@ -265,7 +265,7 @@ class TestDispatcher(BaseDispatcher):
                     command=f"git checkout {commit_sha}",
                     debug=self.config.dev_mode
                 )
-                
+
                 if not checkout_success:
                     logger.error("Failed to checkout commit",
                                container=dev_name,

@@ -224,7 +224,7 @@ class ContainerPool:
         if repo_path.exists():
             # Repository already exists, try to pull latest changes
             try:
-                logger.info("Repository exists, attempting to pull latest changes",
+                logger.info("Repository exists, fetching latest changes",
                            repo=repo_name,
                            repo_path=str(repo_path))
                 
@@ -236,26 +236,26 @@ class ContainerPool:
                     process = await asyncio.create_subprocess_exec(*set_remote_cmd)
                     await process.wait()
                 
-                # Pull latest changes
-                pull_cmd = ["git", "-C", str(repo_path), "pull", "origin"]
+                # Fetch all branches to ensure we have all commits
+                fetch_cmd = ["git", "-C", str(repo_path), "fetch", "--all"]
                 process = await asyncio.create_subprocess_exec(
-                    *pull_cmd,
+                    *fetch_cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
                 stdout, stderr = await process.communicate()
-                
+
                 if process.returncode != 0:
                     error_msg = stderr.decode('utf-8', errors='replace') if stderr else "Unknown error"
-                    logger.warning("Failed to pull repository, will try fresh clone",
+                    logger.warning("Failed to fetch repository, will try fresh clone",
                                   repo=repo_name,
                                   error=error_msg)
-                    
+
                     # Remove the directory and fall through to fresh clone
                     import shutil
                     shutil.rmtree(repo_path)
                 else:
-                    logger.info("Repository pull successful",
+                    logger.info("Repository fetch successful",
                                repo=repo_name)
                     return  # Success, repository is up to date
                     
@@ -283,7 +283,7 @@ class ContainerPool:
             else:
                 clone_url = f"https://github.com/{repo_name}.git"
             
-            clone_cmd = ["git", "clone", "--depth", "1", clone_url, str(repo_path)]
+            clone_cmd = ["git", "clone", clone_url, str(repo_path)]
             process = await asyncio.create_subprocess_exec(
                 *clone_cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -707,7 +707,7 @@ class ContainerPool:
         if repo_path.exists():
             # Repository already exists, try to pull latest changes
             try:
-                logger.info("Repository exists, attempting to pull latest changes",
+                logger.info("Repository exists, fetching latest changes",
                            repo=repo_name,
                            repo_path=str(repo_path))
                 
@@ -718,23 +718,23 @@ class ContainerPool:
                     set_remote_cmd = ["git", "-C", str(repo_path), "remote", "set-url", "origin", remote_url]
                     await asyncio.create_subprocess_exec(*set_remote_cmd)
                 
-                # Try to pull - using main as default, but this might fail
-                cmd = ["git", "-C", str(repo_path), "pull"]
+                # Fetch all branches to ensure we have all commits
+                cmd = ["git", "-C", str(repo_path), "fetch", "--all"]
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
                 stdout, stderr = await process.communicate()
-                
+
                 if process.returncode == 0:
-                    logger.info("Git pull succeeded",
+                    logger.info("Git fetch succeeded",
                                repo=repo_name,
                                stdout=stdout.decode()[:200] if stdout else "")
                     logger.info("Repository updated", repo=repo_name, path=str(repo_path))
                 else:
-                    # Pull failed - remove and re-clone
-                    logger.warning("Git pull failed, removing and re-cloning",
+                    # Fetch failed - remove and re-clone
+                    logger.warning("Git fetch failed, removing and re-cloning",
                                   repo=repo_name,
                                   return_code=process.returncode,
                                   stderr=stderr.decode()[:200] if stderr else "")
