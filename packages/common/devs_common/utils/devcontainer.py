@@ -9,6 +9,7 @@ from typing import List, Optional
 from ..exceptions import DevsError, DependencyError
 from ..config import BaseConfig
 from .console import get_console
+from .config_hash import get_env_mount_path
 
 # Initialize console based on environment
 console = get_console()
@@ -54,20 +55,19 @@ def prepare_devcontainer_environment(
         'WORKSPACE_FOLDER_NAME': workspace_folder_name,
     })
     
-    # Set environment mount path
-    env_mount_path = Path.home() / '.devs' / 'envs' / project_name
-    if not env_mount_path.exists():
-        env_mount_path = Path.home() / '.devs' / 'envs' / 'default'
-        # Create default directory and .env file if needed
-        env_mount_path.mkdir(parents=True, exist_ok=True)
-        env_file = env_mount_path / '.env'
-        if not env_file.exists():
-            # Create default .env file with GH_TOKEN if available
-            env_content = ""
-            if 'GH_TOKEN' in os.environ:
-                env_content = f"GH_TOKEN={os.environ['GH_TOKEN']}\n"
-            env_file.write_text(env_content)
-    
+    # Set environment mount path (uses project-specific if exists, else default)
+    env_mount_path = get_env_mount_path(project_name)
+
+    # Ensure the directory exists and has a basic .env file
+    env_mount_path.mkdir(parents=True, exist_ok=True)
+    env_file = env_mount_path / '.env'
+    if not env_file.exists():
+        # Create default .env file with GH_TOKEN if available
+        env_content = ""
+        if 'GH_TOKEN' in os.environ:
+            env_content = f"GH_TOKEN={os.environ['GH_TOKEN']}\n"
+        env_file.write_text(env_content)
+
     env['DEVS_ENV_MOUNT_PATH'] = str(env_mount_path)
     
     # Set bridge mount path
@@ -176,7 +176,8 @@ class DevContainerCLI:
         debug: bool = False,
         config_path: Optional[Path] = None,
         live: bool = False,
-        extra_env: Optional[dict] = None
+        extra_env: Optional[dict] = None,
+        config_hash: Optional[str] = None
     ) -> bool:
         """Start a devcontainer.
         
@@ -192,7 +193,8 @@ class DevContainerCLI:
             config_path: Optional path to external devcontainer config directory
             live: Whether to use live mode (mount current directory)
             extra_env: Additional environment variables to pass to container
-            
+            config_hash: Optional hash of config files for detecting changes
+
         Returns:
             True if successful
             
@@ -223,7 +225,11 @@ class DevContainerCLI:
             # Add live mode label if applicable
             if live:
                 cmd.extend(['--id-label', 'devs.live=true'])
-            
+
+            # Add config hash label for detecting config changes
+            if config_hash:
+                cmd.extend(['--id-label', f'devs.config-hash={config_hash}'])
+
             # Add extra container labels from config if provided
             if self.config and hasattr(self.config, 'container_labels'):
                 for k, v in self.config.container_labels.items():

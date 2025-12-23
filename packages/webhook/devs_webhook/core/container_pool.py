@@ -14,6 +14,7 @@ from devs_common.core.project import Project
 from devs_common.core.container import ContainerManager
 from devs_common.core.workspace import WorkspaceManager
 from devs_common.devs_config import DevsConfigLoader, DevsOptions
+from devs_common.utils.config_hash import compute_env_config_hash
 
 from ..config import get_config
 from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent
@@ -53,7 +54,8 @@ class ContainerPool:
         self.container_workers: Dict[str, asyncio.Task] = {}
         
         # Cache DEVS.yml configuration for repositories
-        self.repo_configs: Dict[str, DevsOptions] = {}  # repo_name -> DevsOptions
+        # Stores tuple of (DevsOptions, config_hash) for invalidation
+        self.repo_configs: Dict[str, tuple[DevsOptions, str]] = {}  # repo_name -> (DevsOptions, hash)
         
         # Track which container is assigned to single-queue repos
         self.single_queue_assignments: Dict[str, str] = {}  # repo_name -> container_name
@@ -69,15 +71,36 @@ class ContainerPool:
     
     
     def get_repo_config(self, repo_name: str) -> Optional[DevsOptions]:
-        """Get cached repository configuration.
-        
+        """Get cached repository configuration, checking for config changes.
+
+        Computes current config hash and compares with cached hash.
+        If hash differs, invalidates cache and returns None to trigger reload.
+
         Args:
             repo_name: Repository name (owner/repo)
-            
+
         Returns:
-            DevsOptions if cached, None if not yet loaded
+            DevsOptions if cached and still valid, None if not cached or stale
         """
-        return self.repo_configs.get(repo_name)
+        cached = self.repo_configs.get(repo_name)
+        if cached is None:
+            return None
+
+        devs_options, cached_hash = cached
+
+        # Check if config files have changed
+        project_name = repo_name.replace('/', '-')
+        current_hash = compute_env_config_hash(project_name)
+
+        if current_hash != cached_hash:
+            logger.info("Config hash changed, invalidating cache",
+                       repo=repo_name,
+                       old_hash=cached_hash[:8] + "...",
+                       new_hash=current_hash[:8] + "...")
+            del self.repo_configs[repo_name]
+            return None
+
+        return devs_options
     
     async def ensure_repo_config(self, repo_name: str) -> DevsOptions:
         """Ensure repository configuration is loaded and cached.
@@ -90,18 +113,22 @@ class ContainerPool:
         Returns:
             DevsOptions from cache or newly loaded from DEVS.yml
         """
-        # Check if already cached
-        if repo_name in self.repo_configs:
-            return self.repo_configs[repo_name]
-        
+        # Check if already cached (and still valid)
+        cached = self.get_repo_config(repo_name)
+        if cached is not None:
+            return cached
+
         # Try to load from user-specific configuration first (no cloning needed)
         devs_options = self._try_load_user_config(repo_name)
         
         if devs_options is not None:
-            # Found user configuration, cache it
+            # Found user configuration, cache it with hash
+            project_name = repo_name.replace('/', '-')
+            config_hash = compute_env_config_hash(project_name)
             logger.info("Repository config loaded from user-specific DEVS.yml (no cloning needed)",
-                       repo=repo_name)
-            self.repo_configs[repo_name] = devs_options
+                       repo=repo_name,
+                       config_hash=config_hash[:8] + "...")
+            self.repo_configs[repo_name] = (devs_options, config_hash)
         else:
             # No user config found, need to clone and read repository DEVS.yml
             logger.info("No user-specific config found, cloning repository to read DEVS.yml",
@@ -112,9 +139,11 @@ class ContainerPool:
             
             # Clone repository and read config
             devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
-            
-            # Cache the config
-            self.repo_configs[repo_name] = devs_options
+
+            # Cache the config with hash
+            project_name = repo_name.replace('/', '-')
+            config_hash = compute_env_config_hash(project_name)
+            self.repo_configs[repo_name] = (devs_options, config_hash)
         
         # Update single-queue assignment tracking if needed
         if devs_options.single_queue and repo_name not in self.single_queue_assignments:
@@ -257,6 +286,10 @@ class ContainerPool:
                 else:
                     logger.info("Repository fetch successful",
                                repo=repo_name)
+
+                    # Checkout the default branch to ensure devcontainer files are from the right branch
+                    await self._checkout_default_branch(repo_name, repo_path)
+
                     return  # Success, repository is up to date
                     
             except Exception as e:
@@ -294,19 +327,22 @@ class ContainerPool:
             if process.returncode == 0:
                 logger.info("Repository cloned successfully",
                            repo=repo_name)
+
+                # Checkout the default branch to ensure devcontainer files are from the right branch
+                await self._checkout_default_branch(repo_name, repo_path)
             else:
                 error_msg = stderr.decode('utf-8', errors='replace') if stderr else stdout.decode('utf-8', errors='replace')
                 logger.error("Git clone failed",
                             repo=repo_name,
                             error=error_msg)
                 raise Exception(f"Git clone failed: {error_msg}")
-                
+
         except Exception as e:
             logger.error("Repository cloning failed",
                         repo=repo_name,
                         error=str(e))
             raise
-    
+
     async def queue_task(
         self,
         task_id: str,
@@ -480,10 +516,12 @@ class ContainerPool:
                            repo_name=repo_name)
                 
                 devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
-                
-                # Cache the repository configuration for future use
-                self.repo_configs[repo_name] = devs_options
-                
+
+                # Cache the repository configuration for future use with hash
+                project_name = repo_name.replace('/', '-')
+                config_hash = compute_env_config_hash(project_name)
+                self.repo_configs[repo_name] = (devs_options, config_hash)
+
                 # Handle single-queue container assignment
                 if devs_options and devs_options.single_queue:
                     if repo_name not in self.single_queue_assignments:
@@ -682,6 +720,67 @@ class ContainerPool:
             
             # Task execution failed, but we've logged it - don't re-raise
     
+    async def _checkout_default_branch(self, repo_name: str, repo_path: Path) -> None:
+        """Checkout the default branch to ensure devcontainer files are from the right branch.
+
+        Uses the default_branch from user-specific DEVS.yml config if available,
+        otherwise tries "dev", then "main".
+
+        Args:
+            repo_name: Repository name (owner/repo)
+            repo_path: Path to the cloned repository
+        """
+        # Try to get default_branch from user config (no need to read repo config yet)
+        user_config = self._try_load_user_config(repo_name)
+        if user_config and user_config.default_branch:
+            default_branch = user_config.default_branch
+        else:
+            default_branch = "dev"  # Try dev first, fall back to main
+
+        logger.info("Checking out default branch for devcontainer",
+                   repo=repo_name,
+                   branch=default_branch)
+
+        # Try to checkout the branch
+        checkout_cmd = ["git", "-C", str(repo_path), "checkout", default_branch]
+        process = await asyncio.create_subprocess_exec(
+            *checkout_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            logger.info("Checked out default branch",
+                       repo=repo_name,
+                       branch=default_branch)
+        elif default_branch == "dev":
+            # dev branch doesn't exist, try main
+            logger.info("Branch 'dev' not found, trying 'main'",
+                       repo=repo_name)
+            checkout_cmd = ["git", "-C", str(repo_path), "checkout", "main"]
+            process = await asyncio.create_subprocess_exec(
+                *checkout_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode == 0:
+                logger.info("Checked out main branch",
+                           repo=repo_name)
+            else:
+                # Both failed, stay on current branch (probably master or main after clone)
+                logger.warning("Could not checkout dev or main branch, staying on current branch",
+                              repo=repo_name,
+                              stderr=stderr.decode()[:200] if stderr else "")
+        else:
+            # Specified branch doesn't exist
+            logger.warning("Could not checkout branch, staying on current branch",
+                          repo=repo_name,
+                          branch=default_branch,
+                          stderr=stderr.decode()[:200] if stderr else "")
+
     async def _ensure_repository_cloned(
         self,
         repo_name: str,
@@ -731,6 +830,10 @@ class ContainerPool:
                     logger.info("Git fetch succeeded",
                                repo=repo_name,
                                stdout=stdout.decode()[:200] if stdout else "")
+
+                    # Checkout the default branch to ensure devcontainer files are from the right branch
+                    await self._checkout_default_branch(repo_name, repo_path)
+
                     logger.info("Repository updated", repo=repo_name, path=str(repo_path))
                 else:
                     # Fetch failed - remove and re-clone
@@ -809,6 +912,9 @@ class ContainerPool:
                     logger.info("Repository cloned successfully",
                                repo=repo_name,
                                path=str(repo_path))
+
+                    # Checkout the default branch to ensure devcontainer files are from the right branch
+                    await self._checkout_default_branch(repo_name, repo_path)
                 else:
                     error_msg = stderr.decode('utf-8', errors='replace')
                     logger.error("Failed to clone repository",

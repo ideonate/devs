@@ -13,6 +13,16 @@ from devs_webhook.github.models import (
 )
 from devs_common.devs_config import DevsOptions
 
+# Fixed test hash for mocking
+TEST_CONFIG_HASH = "test-hash-123"
+
+
+@pytest.fixture
+def mock_config_hash():
+    """Mock the config hash computation to return a consistent value."""
+    with patch('devs_webhook.core.container_pool.compute_env_config_hash', return_value=TEST_CONFIG_HASH):
+        yield
+
 
 @pytest.fixture
 def mock_config():
@@ -73,7 +83,7 @@ def mock_event():
 
 
 @pytest.mark.asyncio
-async def test_single_queue_repo_assignment(mock_config, mock_event):
+async def test_single_queue_repo_assignment(mock_config, mock_event, mock_config_hash):
     """Test that single-queue repos are assigned to the same container after detection."""
     with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
         pool = ContainerPool()
@@ -91,7 +101,8 @@ async def test_single_queue_repo_assignment(mock_config, mock_event):
         pool.cleanup_worker.cancel()
         
         # Simulate cached config that would be loaded after first clone
-        pool.repo_configs["test-org/test-repo"] = DevsOptions(single_queue=True)
+        # Cache format is (DevsOptions, config_hash)
+        pool.repo_configs["test-org/test-repo"] = (DevsOptions(single_queue=True), "test-hash-123")
         
         # Simulate the registration that would happen after first clone
         # In real flow, this happens in _process_task_subprocess after _ensure_repository_cloned
@@ -151,7 +162,8 @@ async def test_normal_repo_load_balancing(mock_config, mock_event):
         pool.cleanup_worker.cancel()
         
         # Simulate cached config for normal repo
-        pool.repo_configs["test-org/test-repo"] = DevsOptions(single_queue=False)
+        # Cache format is (DevsOptions, config_hash)
+        pool.repo_configs["test-org/test-repo"] = (DevsOptions(single_queue=False), "test-hash-123")
         
         # Pre-fill one queue to test load balancing
         await pool.container_queues["eamonn"].put(MagicMock())
@@ -176,7 +188,7 @@ async def test_normal_repo_load_balancing(mock_config, mock_event):
 
 
 @pytest.mark.asyncio
-async def test_mixed_repos(mock_config, mock_event):
+async def test_mixed_repos(mock_config, mock_event, mock_config_hash):
     """Test handling of both single-queue and normal repos simultaneously."""
     with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
         pool = ContainerPool()
@@ -196,8 +208,9 @@ async def test_mixed_repos(mock_config, mock_event):
         pool.cleanup_worker.cancel()
         
         # Simulate cached configs for both repos
-        pool.repo_configs["test-org/single-repo"] = DevsOptions(single_queue=True)
-        pool.repo_configs["test-org/normal-repo"] = DevsOptions(single_queue=False)
+        # Cache format is (DevsOptions, config_hash)
+        pool.repo_configs["test-org/single-repo"] = (DevsOptions(single_queue=True), "test-hash-123")
+        pool.repo_configs["test-org/normal-repo"] = (DevsOptions(single_queue=False), "test-hash-456")
         
         # Simulate registration of single-queue repo (would happen after first clone)
         pool.single_queue_assignments["test-org/single-repo"] = "harry"

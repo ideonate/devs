@@ -39,6 +39,7 @@ from ..utils.docker_client import DockerClient
 from ..utils.devcontainer import DevContainerCLI
 from ..utils.devcontainer_template import get_template_dir
 from ..utils.console import get_console
+from ..utils.config_hash import compute_env_config_hash
 from .project import Project
 
 # Initialize console based on environment
@@ -246,15 +247,30 @@ class ContainerManager:
                         console.print(f"[dim]Removing container: {existing_container['name']}[/dim]")
                     self.docker.remove_container(existing_container['name'])
             
+            # Compute current config hash for comparison
+            current_config_hash = compute_env_config_hash(self.project.info.name)
+            if debug:
+                console.print(f"[dim]Current config hash: {current_config_hash}[/dim]")
+
             # Check if container is already running
             if debug:
                 console.print(f"[dim]Checking for existing containers with labels: {project_labels}[/dim]")
             existing_containers = self.docker.find_containers_by_labels(project_labels)
+            config_hash_changed = False
+
             if existing_containers and not (rebuild_needed or force_rebuild):
                 existing_container = existing_containers[0]
                 existing_labels = existing_container.get('labels', {})
                 existing_is_live = existing_labels.get('devs.live') == 'true'
-                
+                existing_config_hash = existing_labels.get('devs.config-hash', '')
+
+                # Check if config hash has changed
+                if existing_config_hash and existing_config_hash != current_config_hash:
+                    config_hash_changed = True
+                    console.print(f"   🔄 Config changed (hash: {existing_config_hash[:8]}... → {current_config_hash[:8]}...), restarting container...")
+                    if debug:
+                        console.print(f"[dim]Old hash: {existing_config_hash}, New hash: {current_config_hash}[/dim]")
+
                 # Check if existing container matches the requested mode
                 if existing_is_live != live:
                     mode_str = "live" if live else "workspace copy"
@@ -263,13 +279,20 @@ class ContainerManager:
                         f"Container {dev_name} already exists in {existing_mode_str} mode, "
                         f"but {mode_str} mode was requested. Stop the container first with: devs stop {dev_name}"
                     )
-                
+
                 if debug:
                     console.print(f"[dim]Found existing container: {existing_container['name']} (status: {existing_container['status']})[/dim]")
-                if existing_container['status'] == 'running':
+
+                if existing_container['status'] == 'running' and not config_hash_changed:
                     if debug:
-                        console.print(f"[dim]Container already running, skipping startup[/dim]")
+                        console.print(f"[dim]Container already running with matching config, skipping startup[/dim]")
                     return True
+                elif config_hash_changed:
+                    # Config changed, need to restart container
+                    if debug:
+                        console.print(f"[dim]Config hash changed, stopping container: {existing_container['name']}[/dim]")
+                    self.docker.stop_container(existing_container['name'])
+                    self.docker.remove_container(existing_container['name'], force=True)
                 else:
                     # Container exists but not running, remove it
                     if debug:
@@ -306,7 +329,8 @@ class ContainerManager:
                 debug=debug,
                 config_path=config_path,
                 live=live,
-                extra_env=extra_env
+                extra_env=extra_env,
+                config_hash=current_config_hash
             )
             
             if not success:
