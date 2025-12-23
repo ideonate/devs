@@ -1,27 +1,39 @@
 """Console output utilities for devs packages."""
 
 import os
+import sys
 from typing import Union
 from rich.console import Console
 
 
-class SilentConsole:
-    """A no-op console that suppresses all output."""
-    
+class StderrConsole:
+    """A console that writes plain text to stderr for webhook mode.
+
+    In webhook mode, stdout is reserved for JSON protocol communication.
+    This console writes to stderr instead, which is captured and logged
+    via structlog to CloudWatch.
+    """
+
     def print(self, *args, **kwargs):
-        """Suppress all print calls."""
-        pass
+        """Print to stderr, stripping Rich markup."""
+        # Convert args to string, stripping any Rich markup
+        message = " ".join(str(arg) for arg in args)
+        # Remove common Rich markup patterns
+        import re
+        message = re.sub(r'\[/?[^\]]+\]', '', message)
+        print(message, file=sys.stderr)
 
 
-def get_console() -> Union[Console, SilentConsole]:
+def get_console() -> Union[Console, StderrConsole]:
     """Get the appropriate console based on the environment.
-    
+
     Returns:
-        Console: A Rich Console instance or SilentConsole if in webhook mode
+        Console: A Rich Console instance for CLI mode
+        StderrConsole: A stderr-writing console for webhook mode
     """
     if os.environ.get('DEVS_WEBHOOK_MODE') == '1':
-        # In webhook mode, suppress all console output to avoid corrupting JSON
-        return SilentConsole()
+        # In webhook mode, write to stderr (captured by structlog)
+        return StderrConsole()
     else:
-        # Normal mode - return standard Rich console
+        # Normal CLI mode - return standard Rich console
         return Console()

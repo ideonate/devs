@@ -278,14 +278,29 @@ class DevContainerCLI:
                     text=True,
                     check=False
                 )
-            
-            if debug and result.returncode == 0:
-                console.print("[dim]DevContainer up completed successfully[/dim]")
-            
-            if result.returncode != 0:
+
+            if result.returncode == 0:
+                if debug:
+                    console.print("[dim]DevContainer up completed successfully[/dim]")
+                else:
+                    # Log successful output for troubleshooting
+                    console.print(f"   ✅ DevContainer up completed successfully")
+                    if result.stdout:
+                        # Show post-create script output (last 30 lines)
+                        lines = result.stdout.strip().split('\n')
+                        if len(lines) > 30:
+                            console.print(f"   [dim]... ({len(lines) - 30} lines truncated)[/dim]")
+                            lines = lines[-30:]
+                        for line in lines:
+                            console.print(f"   [dim]{line}[/dim]")
+            else:
                 error_msg = f"DevContainer up failed (exit code {result.returncode})"
                 if result.stderr:
                     error_msg += f": {result.stderr}"
+                if result.stdout:
+                    console.print(f"   [yellow]DevContainer stdout:[/yellow]")
+                    for line in result.stdout.strip().split('\n')[-50:]:
+                        console.print(f"   {line}")
                 raise DevsError(error_msg)
             
             return True
