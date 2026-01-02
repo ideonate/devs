@@ -79,6 +79,12 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default_factory=lambda: Path.home() / ".devs" / "claudeconfig",
         description="Directory for Claude Code configuration (shared with CLI)"
     )
+
+    # Codex settings (shared with CLI for interoperability)
+    codex_config_dir: Path = Field(
+        default_factory=lambda: Path.home() / ".devs" / "codexconfig",
+        description="Directory for Codex configuration (shared with CLI)"
+    )
     
     # Server settings
     webhook_host: str = Field(default="0.0.0.0", description="Host to bind webhook server")
@@ -176,6 +182,8 @@ class WebhookConfig(BaseSettings, BaseConfig):
         self.repo_cache_dir.mkdir(parents=True, exist_ok=True)
         # Claude config directory for container mounts
         self.claude_config_dir.mkdir(parents=True, exist_ok=True)
+        # Codex config directory for container mounts
+        self.codex_config_dir.mkdir(parents=True, exist_ok=True)
         # Container logs directory (if enabled)
         if self.container_logs_enabled:
             self.container_logs_dir.mkdir(parents=True, exist_ok=True)
