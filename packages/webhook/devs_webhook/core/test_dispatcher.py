@@ -442,12 +442,12 @@ class TestDispatcher(BaseDispatcher):
         
         try:
             # Execute command in the container
-            # Use same pattern as exec_claude: cd to workspace directory then run command
-            full_cmd = f"source ~/.zshrc >/dev/stderr 2>&1 && cd {container_workspace_dir} && {command}"
+            # Use same pattern as devs shell: bash execs into interactive zsh
+            shell_cmd = f"cd {container_workspace_dir} && exec /bin/zsh -ic '{command}'"
             cmd = [
                 'docker', 'exec', '-i',  # -i for stdin, no TTY
                 container_name,
-                '/bin/zsh', '-l', '-c', full_cmd  # Use zsh login shell for full environment setup
+                '/bin/bash', '-c', shell_cmd
             ]
             
             if debug:
