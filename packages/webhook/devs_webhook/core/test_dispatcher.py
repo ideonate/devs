@@ -447,7 +447,7 @@ class TestDispatcher(BaseDispatcher):
             cmd = [
                 'docker', 'exec', '-i',  # -i for stdin, no TTY
                 container_name,
-                '/bin/zsh', '-c', full_cmd  # Use zsh with explicit sourcing
+                '/bin/zsh', '-l', '-c', full_cmd  # Use zsh login shell for full environment setup
             ]
             
             if debug:
