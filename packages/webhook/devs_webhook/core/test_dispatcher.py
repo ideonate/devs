@@ -380,8 +380,16 @@ class TestDispatcher(BaseDispatcher):
                            repo=repo_name,
                            check_run_id=check_run_id)
             else:
-                # Truncate output for GitHub (limit to ~65k chars to stay under API limits)
-                error_text = result.error or result.output or "Test execution failed"
+                # Combine stdout and stderr for complete output in GitHub Checks
+                # (previously only showed stderr if present, losing all stdout)
+                combined_parts = []
+                if result.output:
+                    combined_parts.append(result.output)
+                if result.error:
+                    combined_parts.append(result.error)
+                error_text = "\n".join(combined_parts) if combined_parts else "Test execution failed"
+
+                # Truncate for GitHub API limits (~65k chars)
                 if len(error_text) > 65000:
                     error_text = error_text[:65000] + "\n\n[Output truncated]"
                 
