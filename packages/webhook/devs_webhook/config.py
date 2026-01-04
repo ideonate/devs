@@ -44,7 +44,11 @@ class WebhookConfig(BaseSettings, BaseConfig):
     )
     authorized_trigger_users: str = Field(
         default="",
-        description="Comma-separated list of GitHub usernames authorized to trigger webhook processing"
+        description="Comma-separated list of GitHub usernames authorized to trigger Claude dispatch"
+    )
+    authorized_ci_trigger_users: str = Field(
+        default="",
+        description="Comma-separated list of GitHub usernames authorized to trigger CI/test dispatch (can include the bot itself)"
     )
     
     # Basic auth settings for admin endpoints
@@ -162,10 +166,16 @@ class WebhookConfig(BaseSettings, BaseConfig):
         return [user.strip().lower() for user in self.allowed_users.split(',') if user.strip()]
     
     def get_authorized_trigger_users_list(self) -> List[str]:
-        """Get authorized trigger users as a list."""
+        """Get authorized trigger users as a list (for Claude dispatch)."""
         if not self.authorized_trigger_users:
             return []
         return [user.strip().lower() for user in self.authorized_trigger_users.split(',') if user.strip()]
+
+    def get_authorized_ci_trigger_users_list(self) -> List[str]:
+        """Get authorized CI trigger users as a list (for test dispatch)."""
+        if not self.authorized_ci_trigger_users:
+            return []
+        return [user.strip().lower() for user in self.authorized_ci_trigger_users.split(',') if user.strip()]
     
     def get_container_pool_list(self) -> List[str]:
         """Get container pool as a list."""
@@ -237,20 +247,42 @@ class WebhookConfig(BaseSettings, BaseConfig):
         return repo_owner.lower() in allowed_orgs or repo_owner.lower() in allowed_users
     
     def is_user_authorized_to_trigger(self, username: str) -> bool:
-        """Check if a user is authorized to trigger webhook processing.
-        
+        """Check if a user is authorized to trigger Claude dispatch.
+
         Args:
             username: GitHub username that triggered the event
-            
+
         Returns:
             True if user is authorized, False otherwise
         """
         authorized_users = self.get_authorized_trigger_users_list()
-        
+
         # If no authorized users are configured, allow all (backward compatibility)
         if not authorized_users:
             return True
-        
+
+        # Check if the user is in the authorized list
+        return username.lower() in authorized_users
+
+    def is_user_authorized_for_ci(self, username: str) -> bool:
+        """Check if a user is authorized to trigger CI/test dispatch.
+
+        This is separate from Claude dispatch authorization because:
+        - The bot itself should be able to trigger CI on its own PRs
+        - CI triggers don't cause infinite loops like Claude dispatch might
+
+        Args:
+            username: GitHub username that triggered the event
+
+        Returns:
+            True if user is authorized, False otherwise
+        """
+        authorized_users = self.get_authorized_ci_trigger_users_list()
+
+        # If no CI authorized users are configured, allow all (backward compatibility)
+        if not authorized_users:
+            return True
+
         # Check if the user is in the authorized list
         return username.lower() in authorized_users
     

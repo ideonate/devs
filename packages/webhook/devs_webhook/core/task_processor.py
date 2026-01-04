@@ -124,15 +124,8 @@ class TaskProcessor:
                            delivery_id=delivery_id)
                 return
 
-            # Check if the user who triggered the event is authorized
+            # Get trigger user for authorization checks (done per-dispatch-type below)
             trigger_user = event.sender.login
-            if not self.config.is_user_authorized_to_trigger(trigger_user):
-                logger.warning("User not authorized to trigger webhook processing",
-                              user=trigger_user,
-                              repo=event.repository.full_name,
-                              delivery_id=delivery_id,
-                              event_type=type(event).__name__)
-                return
 
             # Check if repository is allowed
             repo_owner = event.repository.owner.login
@@ -194,53 +187,67 @@ class TaskProcessor:
 
             tasks_queued = []
 
-            # Queue CI task if applicable
+            # Queue CI task if applicable (with separate CI authorization check)
             if process_for_ci:
-                ci_task_id = f"{delivery_id}-ci"
-                ci_success = await self.container_pool.queue_task(
-                    task_id=ci_task_id,
-                    repo_name=event.repository.full_name,
-                    task_description="",  # Not used for CI tasks
-                    event=event,
-                    task_type='tests'
-                )
-
-                if ci_success:
-                    tasks_queued.append("CI tests")
-                    logger.info("CI task queued successfully",
-                               delivery_id=ci_task_id,
-                               repo=event.repository.full_name)
+                if not self.config.is_user_authorized_for_ci(trigger_user):
+                    logger.warning("User not authorized to trigger CI dispatch",
+                                  user=trigger_user,
+                                  repo=event.repository.full_name,
+                                  delivery_id=delivery_id,
+                                  event_type=type(event).__name__)
                 else:
-                    logger.error("Failed to queue CI task",
-                                delivery_id=ci_task_id,
-                                repo=event.repository.full_name)
+                    ci_task_id = f"{delivery_id}-ci"
+                    ci_success = await self.container_pool.queue_task(
+                        task_id=ci_task_id,
+                        repo_name=event.repository.full_name,
+                        task_description="",  # Not used for CI tasks
+                        event=event,
+                        task_type='tests'
+                    )
 
-            # Queue mention-based task if applicable
+                    if ci_success:
+                        tasks_queued.append("CI tests")
+                        logger.info("CI task queued successfully",
+                                   delivery_id=ci_task_id,
+                                   repo=event.repository.full_name)
+                    else:
+                        logger.error("Failed to queue CI task",
+                                    delivery_id=ci_task_id,
+                                    repo=event.repository.full_name)
+
+            # Queue mention-based task if applicable (with Claude authorization check)
             if process_for_mentions:
-                # Get context from the event for Claude
-                task_description = event.get_context_for_claude()
-
-                mention_task_id = f"{delivery_id}-claude" if process_for_ci else delivery_id
-                mention_success = await self.container_pool.queue_task(
-                    task_id=mention_task_id,
-                    repo_name=event.repository.full_name,
-                    task_description=task_description,
-                    event=event,
-                    task_type='claude'
-                )
-
-                if mention_success:
-                    tasks_queued.append("Claude processing")
-                    logger.info("Claude task queued successfully",
-                               delivery_id=mention_task_id,
-                               repo=event.repository.full_name)
-
-                    # Try to add "eyes" reaction to indicate we're looking into it
-                    await self._add_eyes_reaction(event, event.repository.full_name)
+                if not self.config.is_user_authorized_to_trigger(trigger_user):
+                    logger.warning("User not authorized to trigger Claude dispatch",
+                                  user=trigger_user,
+                                  repo=event.repository.full_name,
+                                  delivery_id=delivery_id,
+                                  event_type=type(event).__name__)
                 else:
-                    logger.error("Failed to queue Claude task",
-                                delivery_id=mention_task_id,
-                                repo=event.repository.full_name)
+                    # Get context from the event for Claude
+                    task_description = event.get_context_for_claude()
+
+                    mention_task_id = f"{delivery_id}-claude" if process_for_ci else delivery_id
+                    mention_success = await self.container_pool.queue_task(
+                        task_id=mention_task_id,
+                        repo_name=event.repository.full_name,
+                        task_description=task_description,
+                        event=event,
+                        task_type='claude'
+                    )
+
+                    if mention_success:
+                        tasks_queued.append("Claude processing")
+                        logger.info("Claude task queued successfully",
+                                   delivery_id=mention_task_id,
+                                   repo=event.repository.full_name)
+
+                        # Try to add "eyes" reaction to indicate we're looking into it
+                        await self._add_eyes_reaction(event, event.repository.full_name)
+                    else:
+                        logger.error("Failed to queue Claude task",
+                                    delivery_id=mention_task_id,
+                                    repo=event.repository.full_name)
 
             if tasks_queued:
                 logger.info("Tasks queued successfully",
@@ -274,6 +281,7 @@ class TaskProcessor:
             "containers": container_status,
             "mentioned_user": self.config.github_mentioned_user,
             "authorized_trigger_users": self.config.get_authorized_trigger_users_list(),
+            "authorized_ci_trigger_users": self.config.get_authorized_ci_trigger_users_list(),
             "deduplication_cache": get_cache_stats(),
         }
 

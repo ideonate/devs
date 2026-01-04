@@ -9,8 +9,8 @@ import json
 
 
 class TestAuthorizedUsers:
-    """Test cases for authorized trigger users feature."""
-    
+    """Test cases for authorized trigger users feature (Claude dispatch)."""
+
     def test_config_parses_authorized_users(self):
         """Test that config correctly parses authorized trigger users."""
         with patch.dict('os.environ', {
@@ -19,7 +19,7 @@ class TestAuthorizedUsers:
             config = WebhookConfig()
             users = config.get_authorized_trigger_users_list()
             assert users == ['alice', 'bob', 'charlie']
-    
+
     def test_config_handles_empty_authorized_users(self):
         """Test that empty authorized users list allows all."""
         with patch.dict('os.environ', {
@@ -30,7 +30,7 @@ class TestAuthorizedUsers:
             assert users == []
             # Should allow any user when list is empty
             assert config.is_user_authorized_to_trigger('anyone') == True
-    
+
     def test_config_handles_whitespace_in_users(self):
         """Test that whitespace is properly handled in user list."""
         with patch.dict('os.environ', {
@@ -39,48 +39,129 @@ class TestAuthorizedUsers:
             config = WebhookConfig()
             users = config.get_authorized_trigger_users_list()
             assert users == ['alice', 'bob', 'charlie']
-    
+
     def test_is_user_authorized_with_configured_users(self):
         """Test authorization check with configured users."""
         with patch.dict('os.environ', {
             'AUTHORIZED_TRIGGER_USERS': 'alice,bob'
         }):
             config = WebhookConfig()
-            
+
             # Authorized users
             assert config.is_user_authorized_to_trigger('alice') == True
             assert config.is_user_authorized_to_trigger('Bob') == True  # Case insensitive
             assert config.is_user_authorized_to_trigger('ALICE') == True
-            
+
             # Unauthorized users
             assert config.is_user_authorized_to_trigger('charlie') == False
             assert config.is_user_authorized_to_trigger('unknown') == False
-    
+
     def test_is_user_authorized_empty_allows_all(self):
         """Test that empty authorized list allows all users."""
         with patch.dict('os.environ', {
             'AUTHORIZED_TRIGGER_USERS': ''
         }):
             config = WebhookConfig()
-            
+
             # All users should be allowed
             assert config.is_user_authorized_to_trigger('anyone') == True
             assert config.is_user_authorized_to_trigger('random') == True
             assert config.is_user_authorized_to_trigger('user123') == True
-    
+
+
+class TestAuthorizedCIUsers:
+    """Test cases for authorized CI trigger users feature (test dispatch)."""
+
+    def test_config_parses_authorized_ci_users(self):
+        """Test that config correctly parses authorized CI trigger users."""
+        with patch.dict('os.environ', {
+            'AUTHORIZED_CI_TRIGGER_USERS': 'alice,bob,botuser'
+        }):
+            config = WebhookConfig()
+            users = config.get_authorized_ci_trigger_users_list()
+            assert users == ['alice', 'bob', 'botuser']
+
+    def test_config_handles_empty_authorized_ci_users(self):
+        """Test that empty authorized CI users list allows all."""
+        with patch.dict('os.environ', {
+            'AUTHORIZED_CI_TRIGGER_USERS': ''
+        }):
+            config = WebhookConfig()
+            users = config.get_authorized_ci_trigger_users_list()
+            assert users == []
+            # Should allow any user when list is empty
+            assert config.is_user_authorized_for_ci('anyone') == True
+
+    def test_config_handles_whitespace_in_ci_users(self):
+        """Test that whitespace is properly handled in CI user list."""
+        with patch.dict('os.environ', {
+            'AUTHORIZED_CI_TRIGGER_USERS': ' alice , bob , botuser '
+        }):
+            config = WebhookConfig()
+            users = config.get_authorized_ci_trigger_users_list()
+            assert users == ['alice', 'bob', 'botuser']
+
+    def test_is_user_authorized_for_ci_with_configured_users(self):
+        """Test CI authorization check with configured users."""
+        with patch.dict('os.environ', {
+            'AUTHORIZED_CI_TRIGGER_USERS': 'alice,bob,botuser'
+        }):
+            config = WebhookConfig()
+
+            # Authorized users (including bot)
+            assert config.is_user_authorized_for_ci('alice') == True
+            assert config.is_user_authorized_for_ci('Bob') == True  # Case insensitive
+            assert config.is_user_authorized_for_ci('botuser') == True  # Bot can trigger CI
+
+            # Unauthorized users
+            assert config.is_user_authorized_for_ci('charlie') == False
+            assert config.is_user_authorized_for_ci('unknown') == False
+
+    def test_is_user_authorized_for_ci_empty_allows_all(self):
+        """Test that empty authorized CI list allows all users."""
+        with patch.dict('os.environ', {
+            'AUTHORIZED_CI_TRIGGER_USERS': ''
+        }):
+            config = WebhookConfig()
+
+            # All users should be allowed
+            assert config.is_user_authorized_for_ci('anyone') == True
+            assert config.is_user_authorized_for_ci('botuser') == True
+
+    def test_separate_lists_for_claude_and_ci(self):
+        """Test that Claude and CI have separate authorization lists."""
+        with patch.dict('os.environ', {
+            'AUTHORIZED_TRIGGER_USERS': 'alice,bob',  # Humans only
+            'AUTHORIZED_CI_TRIGGER_USERS': 'alice,bob,botuser'  # Humans + bot
+        }):
+            config = WebhookConfig()
+
+            # Bot is authorized for CI but not for Claude dispatch
+            assert config.is_user_authorized_to_trigger('botuser') == False
+            assert config.is_user_authorized_for_ci('botuser') == True
+
+            # Humans are authorized for both
+            assert config.is_user_authorized_to_trigger('alice') == True
+            assert config.is_user_authorized_for_ci('alice') == True
+
+
+class TestWebhookHandlerAuthorization:
+    """Integration tests for webhook handler authorization."""
+
     @pytest.mark.asyncio
     async def test_webhook_handler_blocks_unauthorized_user(self):
-        """Test that webhook handler blocks unauthorized users."""
+        """Test that webhook handler blocks unauthorized users for Claude dispatch."""
         # Clear the config cache to ensure we get fresh config
         from devs_webhook.config import get_config
         get_config.cache_clear()
-        
+
         with patch.dict('os.environ', {
             'GITHUB_WEBHOOK_SECRET': 'test-secret',
             'GITHUB_TOKEN': 'test-token',
             'GITHUB_MENTIONED_USER': 'botuser',
             'AUTHORIZED_TRIGGER_USERS': 'alice,bob',
-            'ALLOWED_ORGS': 'testorg'
+            'ALLOWED_ORGS': 'testorg',
+            'DEV_MODE': 'true'
         }):
             handler = WebhookHandler()
             
@@ -138,17 +219,18 @@ class TestAuthorizedUsers:
     
     @pytest.mark.asyncio
     async def test_webhook_handler_allows_authorized_user(self):
-        """Test that webhook handler allows authorized users."""
+        """Test that webhook handler allows authorized users for Claude dispatch."""
         # Clear the config cache to ensure we get fresh config
         from devs_webhook.config import get_config
         get_config.cache_clear()
-        
+
         with patch.dict('os.environ', {
             'GITHUB_WEBHOOK_SECRET': 'test-secret',
             'GITHUB_TOKEN': 'test-token',
             'GITHUB_MENTIONED_USER': 'botuser',
             'AUTHORIZED_TRIGGER_USERS': 'alice,bob',
-            'ALLOWED_ORGS': 'testorg'
+            'ALLOWED_ORGS': 'testorg',
+            'DEV_MODE': 'true'
         }):
             handler = WebhookHandler()
             
@@ -210,19 +292,23 @@ class TestAuthorizedUsers:
         # Clear the config cache to ensure we get fresh config
         from devs_webhook.config import get_config
         get_config.cache_clear()
-        
+
         with patch.dict('os.environ', {
             'GITHUB_WEBHOOK_SECRET': 'test-secret',
             'GITHUB_TOKEN': 'test-token',
             'GITHUB_MENTIONED_USER': 'botuser',
-            'AUTHORIZED_TRIGGER_USERS': 'alice,bob,charlie'
+            'AUTHORIZED_TRIGGER_USERS': 'alice,bob,charlie',
+            'AUTHORIZED_CI_TRIGGER_USERS': 'alice,bob,charlie,botuser',
+            'DEV_MODE': 'true'
         }):
             handler = WebhookHandler()
-            
+
             # Mock container pool status with an async mock
             handler.container_pool.get_status = AsyncMock(return_value={})
-            
+
             status = await handler.get_status()
-            
+
             assert 'authorized_trigger_users' in status
             assert status['authorized_trigger_users'] == ['alice', 'bob', 'charlie']
+            assert 'authorized_ci_trigger_users' in status
+            assert status['authorized_ci_trigger_users'] == ['alice', 'bob', 'charlie', 'botuser']
