@@ -109,6 +109,16 @@ class WebhookConfig(BaseSettings, BaseConfig):
         description="Enable writing container output to log files"
     )
 
+    # Worker process logging (captures full worker subprocess logs)
+    worker_logs_dir: Path = Field(
+        default_factory=lambda: Path("/var/log/devs-webhook/workers"),
+        description="Directory for worker subprocess logs"
+    )
+    worker_logs_enabled: bool = Field(
+        default=True,
+        description="Enable writing worker subprocess logs to files (recommended)"
+    )
+
     # Task source configuration
     task_source: str = Field(
         default="webhook",
@@ -212,7 +222,10 @@ class WebhookConfig(BaseSettings, BaseConfig):
         # Container logs directory (if enabled)
         if self.container_logs_enabled:
             self.container_logs_dir.mkdir(parents=True, exist_ok=True)
-    
+        # Worker logs directory (if enabled)
+        if self.worker_logs_enabled:
+            self.worker_logs_dir.mkdir(parents=True, exist_ok=True)
+
     def validate_required_settings(self) -> None:
         """Validate that required settings are present."""
         missing = []

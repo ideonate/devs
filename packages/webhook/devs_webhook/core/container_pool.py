@@ -575,12 +575,22 @@ class ContainerPool:
                 "--task-type", queued_task.task_type,
                 "--timeout", str(3600)  # 60 minute timeout
             ]
-            
+
+            # Add worker logs directory if enabled
+            if self.config.worker_logs_enabled:
+                cmd.extend(["--worker-logs-dir", str(self.config.worker_logs_dir)])
+
+            # Determine log file path for logging
+            worker_log_file = None
+            if self.config.worker_logs_enabled:
+                worker_log_file = str(self.config.worker_logs_dir / f"{queued_task.task_id}.log")
+
             logger.info("Launching worker subprocess",
                        task_id=queued_task.task_id,
                        container=dev_name,
                        command_length=len(' '.join(cmd)),
-                       stdin_payload_size=len(stdin_json))
+                       stdin_payload_size=len(stdin_json),
+                       worker_log_file=worker_log_file)
 
             # Launch subprocess with timeout
             # Set environment to suppress console output

@@ -29,7 +29,8 @@ logger = structlog.get_logger()
 @click.option('--repo-path', required=True, help='Path to repository on host')
 @click.option('--task-type', default='claude', help='Task type: claude or tests (default: claude)')
 @click.option('--timeout', default=3600, help='Task timeout in seconds (default: 3600)')
-def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, task_type: str, timeout: int):
+@click.option('--worker-logs-dir', default=None, help='Directory for worker log files (enables file logging)')
+def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, task_type: str, timeout: int, worker_logs_dir: Optional[str]):
     """Process a single webhook task in an isolated subprocess.
     
     This command runs the complete task processing logic in a separate process to provide
@@ -47,15 +48,30 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, task_typ
     """
     # Set environment variable to redirect console output to stderr
     os.environ['DEVS_WEBHOOK_MODE'] = '1'
-    
-    # Configure structured logging for subprocess to output to stderr
+
+    # Configure structured logging for subprocess
     import logging
+
+    # Build list of handlers - always include stderr
+    handlers = [logging.StreamHandler(sys.stderr)]
+
+    # Add file handler if worker_logs_dir is provided
+    log_file_path = None
+    if worker_logs_dir:
+        log_dir = Path(worker_logs_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file_path = log_dir / f"{task_id}.log"
+        file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(logging.Formatter('%(message)s'))
+        handlers.append(file_handler)
+
     logging.basicConfig(
-        stream=sys.stderr,
+        handlers=handlers,
         level=logging.INFO,
         format='%(message)s'
     )
-    
+
     structlog.configure(
         processors=[
             structlog.stdlib.filter_by_level,
@@ -79,7 +95,8 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, task_typ
                 repo_name=repo_name,
                 repo_path=repo_path,
                 timeout=timeout,
-                pid=os.getpid())
+                pid=os.getpid(),
+                log_file=str(log_file_path) if log_file_path else None)
     
     try:
         # Read payload from stdin
