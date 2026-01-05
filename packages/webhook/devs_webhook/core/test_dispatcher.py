@@ -479,8 +479,8 @@ class TestDispatcher(BaseDispatcher):
         
         try:
             # Execute command in the container
-            # Use same pattern as devs shell: bash execs into interactive zsh
-            shell_cmd = f"cd {container_workspace_dir} && exec /bin/zsh -ic '{command}'"
+            # Use login shell (-l) for proper PATH/env, but not interactive (-i) to avoid ZLE errors
+            shell_cmd = f"cd {container_workspace_dir} && exec /bin/zsh -lc '{command}'"
             cmd = [
                 'docker', 'exec', '-i',  # -i for stdin, no TTY
                 container_name,
