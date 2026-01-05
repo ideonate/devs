@@ -68,16 +68,13 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/common/dist/
-          password: ${{ secrets.PYPI_API_TOKEN }}
 
       - name: Publish devs-cli to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/cli/dist/
-          password: ${{ secrets.PYPI_API_TOKEN }}
 
       - name: Publish devs-webhook to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/webhook/dist/
-          password: ${{ secrets.PYPI_API_TOKEN }}
