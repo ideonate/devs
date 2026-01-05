@@ -12,6 +12,7 @@ from ..github.models import WebhookEvent, PushEvent, PullRequestEvent
 from devs_common.devs_config import DevsOptions
 from .base_dispatcher import BaseDispatcher, TaskResult
 from ..utils.container_logs import create_container_log_writer
+from ..utils.s3_artifacts import create_s3_uploader_from_config
 
 logger = structlog.get_logger()
 
@@ -311,6 +312,18 @@ class TestDispatcher(BaseDispatcher):
                        output_length=len(stdout) if stdout else 0,
                        error_length=len(stderr) if stderr else 0)
 
+            # 7. Upload artifacts to S3 if configured
+            s3_url = self._upload_bridge_artifacts(
+                project=project,
+                dev_name=dev_name,
+                repo_name=event.repository.full_name,
+                task_id=task_id or str(uuid.uuid4())[:8]
+            )
+            if s3_url:
+                logger.info("Test artifacts uploaded to S3",
+                           container=dev_name,
+                           s3_url=s3_url)
+
             return success, stdout, stderr, exit_code
 
         except Exception as e:
@@ -487,3 +500,43 @@ class TestDispatcher(BaseDispatcher):
                         error=error_msg,
                         exc_info=True)
             return False, "", error_msg, 1
+
+    def _upload_bridge_artifacts(
+        self,
+        project: Project,
+        dev_name: str,
+        repo_name: str,
+        task_id: str
+    ) -> Optional[str]:
+        """Upload bridge directory contents to S3 as a tar.gz archive.
+
+        Args:
+            project: Project instance
+            dev_name: Development environment name
+            repo_name: Repository name (owner/repo format)
+            task_id: Unique task identifier
+
+        Returns:
+            S3 URL of uploaded artifact, or None if upload skipped/failed
+        """
+        # Check if S3 artifact upload is configured
+        s3_uploader = create_s3_uploader_from_config(self.config)
+        if not s3_uploader:
+            logger.debug("S3 artifact upload not configured, skipping")
+            return None
+
+        # Get bridge directory path for this project/dev combination
+        bridge_dir = self.config.bridge_dir / f"{project.info.name}-{dev_name}"
+
+        logger.info("Attempting to upload bridge artifacts",
+                   bridge_dir=str(bridge_dir),
+                   repo_name=repo_name,
+                   task_id=task_id)
+
+        return s3_uploader.upload_directory_as_tar(
+            directory=bridge_dir,
+            repo_name=repo_name,
+            task_id=task_id,
+            dev_name=dev_name,
+            task_type="tests"
+        )
