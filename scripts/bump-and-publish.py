@@ -96,10 +96,12 @@ def run_command(cmd: list, cwd: Path = None) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Bump versions and publish packages")
-    parser.add_argument("bump_type", nargs="?", default="patch", 
+    parser.add_argument("bump_type", nargs="?", default="patch",
                        choices=["patch", "minor", "major"],
                        help="Version bump type (default: patch)")
-    
+    parser.add_argument("--bump-only", action="store_true",
+                       help="Only bump versions, don't build or publish")
+
     args = parser.parse_args()
     
     project_root = Path(__file__).parent.parent
@@ -133,7 +135,18 @@ def main():
     for info in package_info:
         update_version_in_file(info["pyproject"], info["new"])
         print(f"Updated {info['pyproject']}")
-    
+
+    # If bump-only mode, stop here
+    if args.bump_only:
+        print("\n" + "=" * 50)
+        print("Version bump complete (--bump-only mode)")
+        print("=" * 50)
+        print("\nVersion summary:")
+        for info in package_info:
+            pkg_name = info["dir"].name
+            print(f"  {pkg_name}: {info['current']} -> {info['new']}")
+        return
+
     # Step 3: Build and upload packages in dependency order (common first)
     upload_order = ["packages/common", "packages/cli", "packages/webhook"]
     
