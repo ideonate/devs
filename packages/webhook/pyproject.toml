@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "devs-webhook"
-version = "1.0.1"
+version = "1.0.2"
 description = "GitHub webhook handler for automated devcontainer operations with Claude Code"
 readme = "README.md"
 requires-python = ">=3.8"
