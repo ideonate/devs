@@ -1,0 +1,80 @@
+name: Bump Version and Publish to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  bump-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Bump versions
+        id: bump
+        run: |
+          python scripts/bump-and-publish.py ${{ inputs.bump_type }} --bump-only
+
+          # Get the new version for the commit message
+          NEW_VERSION=$(grep -m1 'version = ' packages/common/pyproject.toml | cut -d'"' -f2)
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/*/pyproject.toml
+          git commit -m "${{ steps.bump.outputs.new_version }}"
+          git push
+
+      - name: Build packages
+        run: |
+          for pkg in packages/common packages/cli packages/webhook; do
+            echo "Building $pkg..."
+            cd $pkg
+            rm -rf dist/
+            python -m build
+            cd ../..
+          done
+
+      - name: Publish devs-common to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/common/dist/
+
+      - name: Publish devs-cli to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/cli/dist/
+
+      - name: Publish devs-webhook to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/webhook/dist/
