@@ -395,6 +395,31 @@ The webhook handler automatically detects and uses these settings when processin
 | `WEBHOOK_HOST`              | `0.0.0.0`                    | Server host                              |
 | `WEBHOOK_PORT`              | `8000`                       | Server port                              |
 
+### S3 Artifact Upload (Optional)
+
+Upload test artifacts (bridge directory contents) to S3 after CI runs. Useful for sharing test results, logs, or generated files.
+
+| Variable                    | Default           | Description                              |
+| --------------------------- | ----------------- | ---------------------------------------- |
+| `AWS_S3_ARTIFACT_BUCKET`    | (empty)           | S3 bucket name (enables feature when set)|
+| `AWS_S3_ARTIFACT_PREFIX`    | `devs-artifacts`  | S3 key prefix for artifacts              |
+| `AWS_S3_ARTIFACT_BASE_URL`  | (empty)           | Public URL base (e.g., CloudFront URL)   |
+| `AWS_REGION`                | `us-east-1`       | AWS region for S3 operations             |
+
+**How it works:**
+- Test scripts write files to the bridge mount folder (available as `$BRIDGE_DIR` in containers)
+- After test execution, the bridge directory is tarred and uploaded to S3
+- S3 paths include a secret token for secure sharing: `{prefix}/{repo}/{type}/{secret}/{timestamp}.tar.gz`
+- If `AWS_S3_ARTIFACT_BASE_URL` is set, a public URL is included in GitHub Check results
+
+**Example configuration:**
+```bash
+export AWS_S3_ARTIFACT_BUCKET=my-artifacts-bucket
+export AWS_S3_ARTIFACT_BASE_URL=https://d1234567890.cloudfront.net
+```
+
+**Note:** Requires `boto3` (`pip install boto3`) and appropriate AWS credentials.
+
 ### GitHub App Authentication (Optional)
 
 For enhanced GitHub Checks API support, you can optionally configure GitHub App authentication. This provides better permissions and rate limits for API operations, especially when using the Checks API to report test results.
