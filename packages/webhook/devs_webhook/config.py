@@ -142,6 +142,11 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default="devs-artifacts",
         description="S3 key prefix for uploaded artifacts"
     )
+    aws_s3_artifact_base_url: str = Field(
+        default="",
+        description="Base URL for public artifact access (e.g., CloudFront distribution URL). "
+                    "If set, artifact URLs will be shareable via this URL."
+    )
 
     @model_validator(mode='after')
     def adjust_dev_mode_defaults(self):

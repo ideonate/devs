@@ -19,12 +19,14 @@ logger = structlog.get_logger()
 
 class TestDispatcher(BaseDispatcher):
     """Dispatches test commands to containers and reports results via GitHub Checks API."""
-    
+
     dispatcher_name = "Test"
-    
+
     def __init__(self):
         """Initialize test dispatcher."""
         super().__init__("test")
+        # Track last artifact URL for passing to Checks API
+        self._last_artifact_url: Optional[str] = None
     
     async def execute_task(
         self,
@@ -53,6 +55,8 @@ class TestDispatcher(BaseDispatcher):
             task_id = str(uuid.uuid4())[:8]
 
         check_run_id = None
+        # Reset artifact URL for this task
+        self._last_artifact_url = None
 
         try:
             logger.info("Starting test execution",
@@ -138,12 +142,13 @@ class TestDispatcher(BaseDispatcher):
                 except (AttributeError, TypeError, ValueError) as e:
                     logger.warning("Could not extract installation ID", error=str(e))
                     installation_id = None
-                
+
                 await self._report_test_results(
                     event.repository.full_name,
                     check_run_id,
                     result,
-                    installation_id
+                    installation_id,
+                    details_url=self._last_artifact_url
                 )
             elif hasattr(event, 'is_test') and event.is_test:
                 logger.info("Skipping GitHub check run result reporting for test event")
@@ -313,7 +318,7 @@ class TestDispatcher(BaseDispatcher):
                        error_length=len(stderr) if stderr else 0)
 
             # 7. Upload artifacts to S3 if configured
-            s3_url = self._upload_bridge_artifacts(
+            s3_url, artifact_url = self._upload_bridge_artifacts(
                 project=project,
                 dev_name=dev_name,
                 repo_name=event.repository.full_name,
@@ -322,7 +327,12 @@ class TestDispatcher(BaseDispatcher):
             if s3_url:
                 logger.info("Test artifacts uploaded to S3",
                            container=dev_name,
-                           s3_url=s3_url)
+                           s3_url=s3_url,
+                           artifact_url=artifact_url)
+
+            # Return artifact_url as part of success tuple for use in Checks API
+            # We'll store it as instance variable for access in execute_task
+            self._last_artifact_url = artifact_url
 
             return success, stdout, stderr, exit_code
 
@@ -370,28 +380,36 @@ class TestDispatcher(BaseDispatcher):
         repo_name: str,
         check_run_id: int,
         result: TaskResult,
-        installation_id: Optional[str] = None
+        installation_id: Optional[str] = None,
+        details_url: Optional[str] = None
     ) -> None:
         """Report test results to GitHub via Checks API.
-        
+
         Args:
             repo_name: Repository name (owner/repo)
             check_run_id: GitHub check run ID
             result: Test execution result
             installation_id: GitHub App installation ID if known from webhook event
+            details_url: URL to test artifacts/details (shown as "View more details" link)
         """
         try:
             if result.success:
+                summary = f"All tests completed successfully (exit code: {result.exit_code})"
+                if details_url:
+                    summary += f"\n\n[View test artifacts]({details_url})"
+
                 await self.github_client.complete_check_run_success(
                     repo=repo_name,
                     check_run_id=check_run_id,
                     title="Tests passed",
-                    summary=f"All tests completed successfully (exit code: {result.exit_code})",
+                    summary=summary,
+                    details_url=details_url,
                     installation_id=installation_id
                 )
                 logger.info("Reported test success to GitHub",
                            repo=repo_name,
-                           check_run_id=check_run_id)
+                           check_run_id=check_run_id,
+                           details_url=details_url)
             else:
                 # Combine stdout and stderr for complete output in GitHub Checks
                 # (previously only showed stderr if present, losing all stdout)
@@ -405,20 +423,26 @@ class TestDispatcher(BaseDispatcher):
                 # Truncate for GitHub API limits (~65k chars)
                 if len(error_text) > 65000:
                     error_text = error_text[:65000] + "\n\n[Output truncated]"
-                
+
+                summary = f"Tests failed with exit code: {result.exit_code}"
+                if details_url:
+                    summary += f"\n\n[View test artifacts]({details_url})"
+
                 await self.github_client.complete_check_run_failure(
                     repo=repo_name,
                     check_run_id=check_run_id,
                     title="Tests failed",
-                    summary=f"Tests failed with exit code: {result.exit_code}",
+                    summary=summary,
                     text=error_text,
+                    details_url=details_url,
                     installation_id=installation_id
                 )
                 logger.info("Reported test failure to GitHub",
                            repo=repo_name,
                            check_run_id=check_run_id,
-                           exit_code=result.exit_code)
-                
+                           exit_code=result.exit_code,
+                           details_url=details_url)
+
         except Exception as e:
             logger.error("Failed to report test results to GitHub",
                         repo=repo_name,
@@ -507,7 +531,7 @@ class TestDispatcher(BaseDispatcher):
         dev_name: str,
         repo_name: str,
         task_id: str
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], Optional[str]]:
         """Upload bridge directory contents to S3 as a tar.gz archive.
 
         Args:
@@ -517,13 +541,16 @@ class TestDispatcher(BaseDispatcher):
             task_id: Unique task identifier
 
         Returns:
-            S3 URL of uploaded artifact, or None if upload skipped/failed
+            Tuple of (s3_url, public_url):
+                - s3_url: S3 URL of uploaded artifact (s3://bucket/key)
+                - public_url: Public HTTP URL if configured, for sharing via Checks API
+            Both are None if upload skipped/failed.
         """
         # Check if S3 artifact upload is configured
         s3_uploader = create_s3_uploader_from_config(self.config)
         if not s3_uploader:
             logger.debug("S3 artifact upload not configured, skipping")
-            return None
+            return None, None
 
         # Get bridge directory path for this project/dev combination
         bridge_dir = self.config.bridge_dir / f"{project.info.name}-{dev_name}"
