@@ -132,7 +132,22 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default=20,
         description="SQS long polling wait time in seconds (1-20)"
     )
-    
+
+    # AWS S3 configuration for test artifact uploads (optional)
+    aws_s3_artifact_bucket: str = Field(
+        default="",
+        description="AWS S3 bucket name for uploading test artifacts (optional)"
+    )
+    aws_s3_artifact_prefix: str = Field(
+        default="devs-artifacts",
+        description="S3 key prefix for uploaded artifacts"
+    )
+    aws_s3_artifact_base_url: str = Field(
+        default="",
+        description="Base URL for public artifact access (e.g., CloudFront distribution URL). "
+                    "If set, artifact URLs will be shareable via this URL."
+    )
+
     @model_validator(mode='after')
     def adjust_dev_mode_defaults(self):
         """Adjust defaults based on dev_mode."""
@@ -297,7 +312,15 @@ class WebhookConfig(BaseSettings, BaseConfig):
     def get_default_project_prefix(self) -> str:
         """Get default project prefix for webhook package."""
         return "dev"
-    
+
+    def has_s3_artifact_upload(self) -> bool:
+        """Check if S3 artifact upload is configured.
+
+        Returns:
+            True if S3 bucket is configured for artifact uploads
+        """
+        return bool(self.aws_s3_artifact_bucket)
+
     def has_github_app_auth(self) -> bool:
         """Check if GitHub App authentication is configured.
         
