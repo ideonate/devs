@@ -12,6 +12,7 @@ import secrets
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import JSONResponse
+from typing import Optional
 from pydantic import BaseModel
 import structlog
 import uuid
@@ -38,6 +39,7 @@ class TestRunTestsRequest(BaseModel):
     repo: str  # Repository name (org/repo format)
     branch: str = "main"  # Branch to test
     commit_sha: str = "HEAD"  # Commit SHA to test
+    pr_number: Optional[int] = None  # PR number (creates PR event instead of push event)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -336,16 +338,25 @@ async def test_runtests(
     config: WebhookConfig = Depends(require_dev_mode),
     username: str = Depends(verify_admin_credentials)
 ):
-    """Test endpoint to simulate GitHub push events for CI/runtests testing.
+    """Test endpoint to simulate GitHub push or PR events for CI/runtests testing.
 
     Only available in development mode. Skips GitHub Checks API calls.
 
-    Example:
+    Example (push event):
         POST /testruntests
         {
             "repo": "myorg/myproject",
             "branch": "main",
             "commit_sha": "abc123"
+        }
+
+    Example (PR event):
+        POST /testruntests
+        {
+            "repo": "myorg/myproject",
+            "branch": "feature-branch",
+            "commit_sha": "abc123",
+            "pr_number": 42
         }
     """
     # Generate a unique delivery ID for this test
@@ -356,11 +367,11 @@ async def test_runtests(
         repo=request.repo,
         branch=request.branch,
         commit_sha=request.commit_sha,
+        pr_number=request.pr_number,
         delivery_id=delivery_id
     )
 
-    # Create a mock push event
-    from .github.models import GitHubRepository, GitHubUser, TestPushEvent
+    from .github.models import GitHubRepository, GitHubUser, GitHubPullRequest, TestPushEvent, TestPullRequestEvent
 
     # Mock repository
     mock_repo = GitHubRepository(
@@ -379,37 +390,74 @@ async def test_runtests(
         default_branch="main"
     )
 
-    # Mock push event
-    mock_event = TestPushEvent(
-        action="pushed",
-        repository=mock_repo,
-        sender=GitHubUser(
-            login="test-user",
-            id=999999,
-            avatar_url="https://github.com/test.png",
-            html_url="https://github.com/test-user"
-        ),
-        ref=f"refs/heads/{request.branch}",
-        before="0000000000000000000000000000000000000000",
-        # Use branch name when HEAD is specified - git checkout works with branch names
-        after=request.commit_sha if request.commit_sha != "HEAD" else request.branch,
-        created=False,
-        deleted=False,
-        forced=False,
-        compare=f"https://github.com/{request.repo}/compare/main...{request.branch}",
-        commits=[],
-        head_commit={
-            "id": request.commit_sha if request.commit_sha != "HEAD" else request.branch,
-            "message": "Test commit for CI",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "url": f"https://github.com/{request.repo}/commit/{request.commit_sha}",
-            "author": {"name": "Test User", "email": "test@example.com"},
-            "committer": {"name": "Test User", "email": "test@example.com"},
-            "added": [],
-            "removed": [],
-            "modified": []
-        }
+    mock_user = GitHubUser(
+        login="test-user",
+        id=999999,
+        avatar_url="https://github.com/test.png",
+        html_url="https://github.com/test-user"
     )
+
+    # Create PR event if pr_number is provided, otherwise push event
+    if request.pr_number is not None:
+        # Mock PR event - this will trigger the PR branch fetch logic
+        mock_pr = GitHubPullRequest(
+            id=999999,
+            number=request.pr_number,
+            title=f"Test PR #{request.pr_number}",
+            body="Test PR for CI testing",
+            state="open",
+            user=mock_user,
+            html_url=f"https://github.com/{request.repo}/pull/{request.pr_number}",
+            head={
+                "ref": request.branch,
+                "sha": request.commit_sha if request.commit_sha != "HEAD" else "test-sha",
+                "label": f"{request.repo.split('/')[0]}:{request.branch}",
+                "user": {"login": request.repo.split("/")[0]},
+                "repo": {"full_name": request.repo}
+            },
+            base={
+                "ref": "main",
+                "sha": "base-sha",
+                "label": f"{request.repo.split('/')[0]}:main"
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
+        )
+        mock_event = TestPullRequestEvent(
+            action="synchronize",
+            repository=mock_repo,
+            sender=mock_user,
+            pull_request=mock_pr
+        )
+        event_type = "PR"
+    else:
+        # Mock push event
+        mock_event = TestPushEvent(
+            action="pushed",
+            repository=mock_repo,
+            sender=mock_user,
+            ref=f"refs/heads/{request.branch}",
+            before="0000000000000000000000000000000000000000",
+            # Use branch name when HEAD is specified - git checkout works with branch names
+            after=request.commit_sha if request.commit_sha != "HEAD" else request.branch,
+            created=False,
+            deleted=False,
+            forced=False,
+            compare=f"https://github.com/{request.repo}/compare/main...{request.branch}",
+            commits=[],
+            head_commit={
+                "id": request.commit_sha if request.commit_sha != "HEAD" else request.branch,
+                "message": "Test commit for CI",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "url": f"https://github.com/{request.repo}/commit/{request.commit_sha}",
+                "author": {"name": "Test User", "email": "test@example.com"},
+                "committer": {"name": "Test User", "email": "test@example.com"},
+                "added": [],
+                "removed": [],
+                "modified": []
+            }
+        )
+        event_type = "push"
 
     # Queue the task directly in the container pool as a CI task
     success = await get_webhook_handler().container_pool.queue_task(
@@ -424,18 +472,24 @@ async def test_runtests(
         logger.info("Test CI task queued successfully",
                    delivery_id=delivery_id,
                    repo=request.repo,
-                   branch=request.branch)
+                   branch=request.branch,
+                   event_type=event_type)
+
+        response_content = {
+            "status": "test_ci_accepted",
+            "delivery_id": delivery_id,
+            "repo": request.repo,
+            "branch": request.branch,
+            "commit_sha": request.commit_sha,
+            "event_type": event_type,
+            "message": f"Test CI task ({event_type} event) queued for processing (GitHub Checks API calls will be skipped)"
+        }
+        if request.pr_number is not None:
+            response_content["pr_number"] = request.pr_number
 
         return JSONResponse(
             status_code=202,
-            content={
-                "status": "test_ci_accepted",
-                "delivery_id": delivery_id,
-                "repo": request.repo,
-                "branch": request.branch,
-                "commit_sha": request.commit_sha,
-                "message": "Test CI task queued for processing (GitHub Checks API calls will be skipped)"
-            }
+            content=response_content
         )
     else:
         logger.error("Failed to queue test CI task",

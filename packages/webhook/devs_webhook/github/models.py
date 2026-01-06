@@ -380,6 +380,19 @@ class TestPushEvent(PushEvent):
         return f"""Test push event for CI testing."""
 
 
+class TestPullRequestEvent(PullRequestEvent):
+    """Test event for PR/CI, used for local testing of PR runtests functionality."""
+
+    is_test: bool = True  # Mark as test event to skip GitHub Checks API calls
+
+    class Config:
+        arbitrary_types_allowed = True
+        extra = "allow"
+
+    def get_context_for_claude(self) -> str:
+        return f"""Test pull request event for CI testing."""
+
+
 # Discriminated union for automatic event type detection
 def get_webhook_event_discriminator(v: Any) -> str:
     """Discriminator function to determine webhook event type."""

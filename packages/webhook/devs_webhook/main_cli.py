@@ -589,20 +589,22 @@ def cleanup(cleanup_all: bool, max_age_hours: int, idle_minutes: int, dry_run: b
 @click.option('--repo', required=True, help='Repository name (org/repo format)')
 @click.option('--branch', default='main', help='Branch to test (default: main)')
 @click.option('--commit', default='HEAD', help='Commit SHA to test (default: HEAD)')
+@click.option('--pr', default=None, type=int, help='PR number (creates PR event instead of push event)')
 @click.option('--host', default='127.0.0.1', help='Webhook server host (default: 127.0.0.1)')
 @click.option('--port', default=8000, type=int, help='Webhook server port (default: 8000)')
 @click.option('--username', default=None, help='Admin username for authentication')
 @click.option('--password', default=None, help='Admin password for authentication')
-def test_runtests(repo: str, branch: str, commit: str, host: str, port: int, username: str, password: str):
+def test_runtests(repo: str, branch: str, commit: str, pr: int, host: str, port: int, username: str, password: str):
     """Send a test CI/runtests event to the webhook handler.
 
-    This sends a test push event to the /testruntests endpoint, which is only
+    This sends a test push or PR event to the /testruntests endpoint, which is only
     available in development mode. GitHub Checks API calls are skipped.
 
     Examples:
         devs-webhook test-runtests --repo myorg/myproject
         devs-webhook test-runtests --repo myorg/myproject --branch feature-branch
         devs-webhook test-runtests --repo myorg/myproject --commit abc123
+        devs-webhook test-runtests --repo myorg/myproject --pr 42 --branch feature --commit abc123
     """
     # Use CLI options or environment variables
     actual_host = host or os.environ.get('WEBHOOK_HOST', '127.0.0.1')
@@ -616,12 +618,17 @@ def test_runtests(repo: str, branch: str, commit: str, host: str, port: int, use
         "branch": branch,
         "commit_sha": commit
     }
+    if pr is not None:
+        payload["pr_number"] = pr
 
+    event_type = "PR" if pr else "push"
     try:
-        click.echo(f"🧪 Sending test CI event to {url}")
+        click.echo(f"🧪 Sending test CI event ({event_type}) to {url}")
         click.echo(f"📦 Repository: {repo}")
         click.echo(f"🌿 Branch: {branch}")
         click.echo(f"📝 Commit: {commit}")
+        if pr:
+            click.echo(f"🔀 PR: #{pr}")
 
         # Always include authentication (server requires it, even in dev mode)
         auth = BasicAuth(admin_username, admin_password)

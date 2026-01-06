@@ -268,6 +268,72 @@ class TestDispatcher(BaseDispatcher):
             # 4. Checkout appropriate commit if this is a PR or push
             commit_sha = self._get_commit_sha(event)
             if commit_sha:
+                # For PRs, we need to fetch the PR branch first since the commit
+                # may not be available locally (especially for fork PRs)
+                if isinstance(event, PullRequestEvent):
+                    pr_number = event.pull_request.number
+                    head_ref = event.pull_request.head.get("ref")
+
+                    logger.info("Fetching PR branch before checkout",
+                               container=dev_name,
+                               pr_number=pr_number,
+                               head_ref=head_ref,
+                               commit_sha=commit_sha)
+
+                    # Fetch the PR head using GitHub's special refs
+                    # This works for both same-repo and fork PRs
+                    fetch_success, fetch_stdout, fetch_stderr, fetch_code = container_manager.exec_command(
+                        dev_name=dev_name,
+                        workspace_dir=workspace_dir,
+                        command=f"git fetch origin pull/{pr_number}/head",
+                        debug=self.config.dev_mode,
+                        stream=False,
+                        extra_env=extra_env
+                    )
+
+                    if not fetch_success:
+                        logger.error("Failed to fetch PR branch",
+                                   container=dev_name,
+                                   pr_number=pr_number,
+                                   stderr=fetch_stderr)
+                        return False, fetch_stdout, f"Failed to fetch PR #{pr_number}: {fetch_stderr}", fetch_code
+
+                    logger.info("Successfully fetched PR branch",
+                               container=dev_name,
+                               pr_number=pr_number)
+
+                elif isinstance(event, PushEvent):
+                    # For push events, fetch the branch to ensure commit is available
+                    branch_ref = event.ref
+                    # Extract branch name from refs/heads/branch-name
+                    branch_name = branch_ref.replace("refs/heads/", "") if branch_ref.startswith("refs/heads/") else branch_ref
+
+                    logger.info("Fetching branch before checkout",
+                               container=dev_name,
+                               branch_ref=branch_ref,
+                               branch_name=branch_name,
+                               commit_sha=commit_sha)
+
+                    fetch_success, fetch_stdout, fetch_stderr, fetch_code = container_manager.exec_command(
+                        dev_name=dev_name,
+                        workspace_dir=workspace_dir,
+                        command=f"git fetch origin {branch_name}",
+                        debug=self.config.dev_mode,
+                        stream=False,
+                        extra_env=extra_env
+                    )
+
+                    if not fetch_success:
+                        logger.error("Failed to fetch branch",
+                                   container=dev_name,
+                                   branch_name=branch_name,
+                                   stderr=fetch_stderr)
+                        return False, fetch_stdout, f"Failed to fetch branch {branch_name}: {fetch_stderr}", fetch_code
+
+                    logger.info("Successfully fetched branch",
+                               container=dev_name,
+                               branch_name=branch_name)
+
                 logger.info("Checking out commit for tests",
                            container=dev_name,
                            commit_sha=commit_sha)
