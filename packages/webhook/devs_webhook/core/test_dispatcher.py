@@ -264,12 +264,13 @@ class TestDispatcher(BaseDispatcher):
                            container=dev_name,
                            commit_sha=commit_sha)
 
-                checkout_success, checkout_stdout, checkout_stderr, checkout_code = self._exec_command_in_container(
-                    project=project,
+                checkout_success, checkout_stdout, checkout_stderr, checkout_code = container_manager.exec_command(
                     dev_name=dev_name,
                     workspace_dir=workspace_dir,
                     command=f"git checkout {commit_sha}",
-                    debug=self.config.dev_mode
+                    debug=self.config.dev_mode,
+                    stream=False,
+                    extra_env=extra_env
                 )
 
                 if not checkout_success:
@@ -293,12 +294,13 @@ class TestDispatcher(BaseDispatcher):
                 container_log.start(test_command=test_command, workspace_dir=str(workspace_dir))
 
             # 6. Execute tests
-            success, stdout, stderr, exit_code = self._exec_command_in_container(
-                project=project,
+            success, stdout, stderr, exit_code = container_manager.exec_command(
                 dev_name=dev_name,
                 workspace_dir=workspace_dir,
                 command=test_command,
-                debug=self.config.dev_mode
+                debug=self.config.dev_mode,
+                stream=False,
+                extra_env=extra_env
             )
 
             # Write container output to log file if enabled
@@ -449,82 +451,6 @@ class TestDispatcher(BaseDispatcher):
                         check_run_id=check_run_id,
                         error=str(e))
     
-    def _exec_command_in_container(
-        self,
-        project: Project,
-        dev_name: str,
-        workspace_dir: Path,
-        command: str,
-        debug: bool = False
-    ) -> tuple[bool, str, str, int]:
-        """Execute a command in the container.
-        
-        Args:
-            project: Project instance
-            dev_name: Development environment name
-            workspace_dir: Workspace directory path
-            command: Command to execute
-            debug: Show debug output
-            
-        Returns:
-            Tuple of (success, stdout, stderr, exit_code)
-        """
-        import subprocess
-        
-        # Use ContainerManager to get container info consistently
-        container_manager = ContainerManager(project, self.config)
-        container_info = container_manager._get_container_info(dev_name)
-        container_name = container_info["container_name"]
-        container_workspace_dir = container_info["container_workspace_dir"]
-        
-        try:
-            # Execute command in the container
-            # Use login shell (-l) for proper PATH/env, but not interactive (-i) to avoid ZLE errors
-            shell_cmd = f"cd {container_workspace_dir} && exec /bin/zsh -lc '{command}'"
-            cmd = [
-                'docker', 'exec', '-i',  # -i for stdin, no TTY
-                container_name,
-                '/bin/bash', '-c', shell_cmd
-            ]
-            
-            if debug:
-                logger.info("Executing command in container",
-                           container=container_name,
-                           command=command,
-                           full_command=' '.join(cmd))
-            
-            # Execute command without streaming (for CI we want to collect all output)
-            process = subprocess.run(
-                cmd, 
-                capture_output=True,
-                text=True
-            )
-            
-            stdout = process.stdout if process.stdout else ""
-            stderr = process.stderr if process.stderr else ""
-            success = process.returncode == 0
-            exit_code = process.returncode
-            
-            if debug:
-                logger.info("Command execution completed",
-                           container=container_name,
-                           command=command,
-                           exit_code=exit_code,
-                           success=success,
-                           stdout_length=len(stdout),
-                           stderr_length=len(stderr))
-            
-            return success, stdout, stderr, exit_code
-            
-        except Exception as e:
-            error_msg = f"Command execution failed: {str(e)}"
-            logger.error("Error executing command in container",
-                        container=container_name,
-                        command=command,
-                        error=error_msg,
-                        exc_info=True)
-            return False, "", error_msg, 1
-
     def _upload_bridge_artifacts(
         self,
         project: Project,

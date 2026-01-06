@@ -624,9 +624,9 @@ class ContainerManager:
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to exec shell in {dev_name}: {e}")
     
-    def exec_command(self, dev_name: str, workspace_dir: Path, command: str, stdin_input: Optional[str] = None, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str]:
+    def exec_command(self, dev_name: str, workspace_dir: Path, command: str, stdin_input: Optional[str] = None, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str, int]:
         """Execute a command in the container.
-        
+
         Args:
             dev_name: Development environment name
             workspace_dir: Workspace directory path
@@ -636,10 +636,10 @@ class ContainerManager:
             stream: Stream output to console in real-time
             live: Whether the container is in live mode
             extra_env: Additional environment variables to pass to container
-            
+
         Returns:
-            Tuple of (success, stdout, stderr)
-            
+            Tuple of (success, stdout, stderr, exit_code)
+
         Raises:
             ContainerError: If command execution fails
         """
@@ -717,7 +717,8 @@ class ContainerManager:
                 stdout = '\n'.join(stdout_lines)
                 stderr = '\n'.join(stderr_lines)
                 success = process.returncode == 0
-                
+                exit_code = process.returncode
+
             else:
                 # Non-streaming mode (original behavior)
                 process = subprocess.run(
@@ -730,7 +731,8 @@ class ContainerManager:
                 stdout = process.stdout if process.stdout else ""
                 stderr = process.stderr if process.stderr else ""
                 success = process.returncode == 0
-            
+                exit_code = process.returncode
+
             if debug:
                 console.print(f"[dim]Command exit code: {process.returncode}[/dim]")
                 if not stream:  # Only show this in debug if not already streamed
@@ -743,15 +745,15 @@ class ContainerManager:
                 # If stderr is empty but stdout contains error patterns, use stdout as error
                 if not stderr:
                     stderr = stdout
-            
-            return success, stdout, stderr
-            
+
+            return success, stdout, stderr, exit_code
+
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to exec command in {dev_name}: {e}")
     
-    def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str]:
+    def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str, int]:
         """Execute Claude CLI in the container.
-        
+
         Args:
             dev_name: Development environment name
             workspace_dir: Workspace directory path
@@ -760,10 +762,10 @@ class ContainerManager:
             stream: Stream output to console in real-time
             live: Whether the container is in live mode
             extra_env: Additional environment variables to pass to container
-            
+
         Returns:
-            Tuple of (success, stdout, stderr)
-            
+            Tuple of (success, stdout, stderr, exit_code)
+
         Raises:
             ContainerError: If Claude execution fails
         """
@@ -779,7 +781,7 @@ class ContainerManager:
             extra_env=extra_env
         )
 
-    def exec_codex(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str]:
+    def exec_codex(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str, int]:
         """Execute OpenAI Codex CLI in the container.
 
         Args:
@@ -792,7 +794,7 @@ class ContainerManager:
             extra_env: Additional environment variables to pass to container
 
         Returns:
-            Tuple of (success, stdout, stderr)
+            Tuple of (success, stdout, stderr, exit_code)
 
         Raises:
             ContainerError: If Codex execution fails

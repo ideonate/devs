@@ -392,7 +392,7 @@ def claude(dev_name: str, prompt: str, auth: bool, api_key: str, reset_workspace
         console.print(f"📝 Prompt: {prompt}")
         console.print("")
 
-        success, output, error = container_manager.exec_claude(
+        success, output, error, _ = container_manager.exec_claude(
             dev_name=dev_name,
             workspace_dir=workspace_dir,
             prompt=prompt,
@@ -574,7 +574,7 @@ def codex(dev_name: str, prompt: str, auth: bool, api_key: str, reset_workspace:
         console.print(f"📝 Prompt: {prompt}")
         console.print("")
 
-        success, output, error = container_manager.exec_codex(
+        success, output, error, _ = container_manager.exec_codex(
             dev_name=dev_name,
             workspace_dir=workspace_dir,
             prompt=prompt,
@@ -752,13 +752,13 @@ def runtests(dev_name: str, reset_workspace: bool, live: bool, env: tuple, debug
         console.print(f"🔧 Command: {command}")
         console.print("")
         
-        success, output, error = container_manager.exec_command(
-            dev_name=dev_name, 
-            workspace_dir=workspace_dir, 
-            command=command, 
-            debug=debug, 
-            stream=True, 
-            live=live, 
+        success, output, error, _ = container_manager.exec_command(
+            dev_name=dev_name,
+            workspace_dir=workspace_dir,
+            command=command,
+            debug=debug,
+            stream=True,
+            live=live,
             extra_env=extra_env
         )
         
