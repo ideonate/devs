@@ -143,7 +143,8 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, task_typ
             task_description=task_description,
             event=event,
             devs_options=parsed_devs_options,
-            task_type=task_type
+            task_type=task_type,
+            worker_log_path=str(log_file_path) if log_file_path else None
         )
         
         # Output result as JSON to stdout
@@ -180,16 +181,17 @@ def worker(task_id: str, dev_name: str, repo_name: str, repo_path: str, task_typ
 
 def _process_task_subprocess(
     task_id: str,
-    dev_name: str, 
+    dev_name: str,
     repo_name: str,
     repo_path: Path,
     task_description: Optional[str],
     event,
     devs_options,
-    task_type: str = 'claude'
+    task_type: str = 'claude',
+    worker_log_path: Optional[str] = None
 ) -> dict:
     """Process a single task in subprocess (extracted from ContainerPool._process_task).
-    
+
     Args:
         task_id: Unique task identifier
         dev_name: Name of container to execute in
@@ -199,7 +201,8 @@ def _process_task_subprocess(
         event: WebhookEvent instance
         devs_options: DevsOptions instance
         task_type: Task type ('claude' or 'tests')
-        
+        worker_log_path: Path to worker log file (for including in failure messages)
+
     Returns:
         Dict with 'success', 'output', and optionally 'error' keys
     """
@@ -253,7 +256,9 @@ def _process_task_subprocess(
             repo_path=repo_path,
             event=event,
             devs_options=devs_options,
-            task_description=task_description
+            task_description=task_description,
+            task_id=task_id,
+            worker_log_path=worker_log_path
         ))
         
         if result.success:

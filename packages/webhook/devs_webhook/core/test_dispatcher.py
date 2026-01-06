@@ -35,7 +35,8 @@ class TestDispatcher(BaseDispatcher):
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None,
         task_description: Optional[str] = None,
-        task_id: Optional[str] = None
+        task_id: Optional[str] = None,
+        worker_log_path: Optional[str] = None
     ) -> TaskResult:
         """Execute tests using container and report results via GitHub Checks API.
 
@@ -46,10 +47,13 @@ class TestDispatcher(BaseDispatcher):
             devs_options: Options from DEVS.yml file
             task_description: Task description (ignored by test dispatcher)
             task_id: Optional task identifier for logging
+            worker_log_path: Optional path to worker log file (for including in failure messages)
 
         Returns:
             Test execution result
         """
+        # Store worker_log_path for use in failure messages
+        self._worker_log_path = worker_log_path
         # Generate task_id if not provided
         if not task_id:
             task_id = str(uuid.uuid4())[:8]
@@ -185,11 +189,15 @@ class TestDispatcher(BaseDispatcher):
                     logger.warning("Could not extract installation ID", error=str(e))
                     installation_id = None
                 
+                summary = f"An error occurred during test execution: {error_msg}"
+                if hasattr(self, '_worker_log_path') and self._worker_log_path:
+                    summary += f"\n\nWorker log: `{self._worker_log_path}`"
+
                 await self.github_client.complete_check_run_failure(
                     repo=event.repository.full_name,
                     check_run_id=check_run_id,
                     title="Test execution failed",
-                    summary=f"An error occurred during test execution: {error_msg}",
+                    summary=summary,
                     installation_id=installation_id
                 )
             elif hasattr(event, 'is_test') and event.is_test:
@@ -513,6 +521,8 @@ class TestDispatcher(BaseDispatcher):
                 summary = f"Tests failed with exit code: {result.exit_code}"
                 if details_url:
                     summary += f"\n\n[View test artifacts]({details_url})"
+                if hasattr(self, '_worker_log_path') and self._worker_log_path:
+                    summary += f"\n\nWorker log: `{self._worker_log_path}`"
 
                 await self.github_client.complete_check_run_failure(
                     repo=repo_name,

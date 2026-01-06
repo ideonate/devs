@@ -40,17 +40,21 @@ class BaseDispatcher:
         repo_path: Path,
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None,
-        task_description: Optional[str] = None
+        task_description: Optional[str] = None,
+        task_id: Optional[str] = None,
+        worker_log_path: Optional[str] = None
     ) -> TaskResult:
         """Execute operation in container - to be implemented by subclasses.
-        
+
         Args:
             dev_name: Name of dev container (e.g., eamonn)
             repo_path: Path to repository on host
             event: Original webhook event
             devs_options: Options from DEVS.yml file
             task_description: Task description
-            
+            task_id: Optional task identifier for logging
+            worker_log_path: Optional path to worker log file (for including in failure messages)
+
         Returns:
             Task execution result
         """

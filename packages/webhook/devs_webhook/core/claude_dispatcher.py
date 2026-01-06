@@ -32,7 +32,8 @@ class ClaudeDispatcher(BaseDispatcher):
         event: WebhookEvent,
         devs_options: Optional[DevsOptions] = None,
         task_description: Optional[str] = None,
-        task_id: Optional[str] = None
+        task_id: Optional[str] = None,
+        worker_log_path: Optional[str] = None
     ) -> TaskResult:
         """Execute a task using Claude Code CLI in a container.
 
@@ -43,10 +44,13 @@ class ClaudeDispatcher(BaseDispatcher):
             event: Original webhook event
             devs_options: Options from DEVS.yml file
             task_id: Optional task identifier for logging
+            worker_log_path: Optional path to worker log file (for including in failure messages)
 
         Returns:
             Task execution result
         """
+        # Store worker_log_path for use in failure messages
+        self._worker_log_path = worker_log_path
         # Generate task_id if not provided
         if not task_id:
             task_id = str(uuid.uuid4())[:8]
@@ -398,12 +402,16 @@ Always remember to PUSH your work to origin!
                            error=error_msg)
                 return
             
+            log_info = ""
+            if hasattr(self, '_worker_log_path') and self._worker_log_path:
+                log_info = f"\n\nWorker log: `{self._worker_log_path}`"
+
             comment = f"""I encountered an error while trying to process your request:
 
 ```
 {error_msg}
 ```
-
+{log_info}
 Please check the webhook handler logs for more details, or try mentioning me again with a more specific request.
 """
             
