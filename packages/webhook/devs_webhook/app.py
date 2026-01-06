@@ -32,6 +32,13 @@ class TestEventRequest(BaseModel):
     prompt: str
     repo: str = "test/repo"  # Default test repository
 
+
+class TestRunTestsRequest(BaseModel):
+    """Request model for test runtests endpoint."""
+    repo: str  # Repository name (org/repo format)
+    branch: str = "main"  # Branch to test
+    commit_sha: str = "HEAD"  # Commit SHA to test
+
 # Initialize FastAPI app
 app = FastAPI(
     title="DevContainer Webhook Handler",
@@ -288,7 +295,7 @@ async def test_event(
         logger.info("Test task queued successfully",
                    delivery_id=delivery_id,
                    repo=request.repo)
-        
+
         return JSONResponse(
             status_code=202,
             content={
@@ -303,10 +310,127 @@ async def test_event(
         logger.error("Failed to queue test task",
                     delivery_id=delivery_id,
                     repo=request.repo)
-        
+
         raise HTTPException(
             status_code=500,
             detail="Failed to queue test task"
+        )
+
+
+@app.post("/testruntests")
+async def test_runtests(
+    request: TestRunTestsRequest,
+    config: WebhookConfig = Depends(require_dev_mode),
+    username: str = Depends(verify_admin_credentials)
+):
+    """Test endpoint to simulate GitHub push events for CI/runtests testing.
+
+    Only available in development mode. Skips GitHub Checks API calls.
+
+    Example:
+        POST /testruntests
+        {
+            "repo": "myorg/myproject",
+            "branch": "main",
+            "commit_sha": "abc123"
+        }
+    """
+    # Generate a unique delivery ID for this test
+    delivery_id = f"test-ci-{uuid.uuid4().hex[:8]}"
+
+    logger.info(
+        "Test runtests event received",
+        repo=request.repo,
+        branch=request.branch,
+        commit_sha=request.commit_sha,
+        delivery_id=delivery_id
+    )
+
+    # Create a mock push event
+    from .github.models import GitHubRepository, GitHubUser, TestPushEvent
+
+    # Mock repository
+    mock_repo = GitHubRepository(
+        id=999999,
+        name=request.repo.split("/")[-1],
+        full_name=request.repo,
+        owner=GitHubUser(
+            login=request.repo.split("/")[0],
+            id=999999,
+            avatar_url="https://github.com/test.png",
+            html_url=f"https://github.com/{request.repo.split('/')[0]}"
+        ),
+        html_url=f"https://github.com/{request.repo}",
+        clone_url=f"https://github.com/{request.repo}.git",
+        ssh_url=f"git@github.com:{request.repo}.git",
+        default_branch="main"
+    )
+
+    # Mock push event
+    mock_event = TestPushEvent(
+        action="pushed",
+        repository=mock_repo,
+        sender=GitHubUser(
+            login="test-user",
+            id=999999,
+            avatar_url="https://github.com/test.png",
+            html_url="https://github.com/test-user"
+        ),
+        ref=f"refs/heads/{request.branch}",
+        before="0000000000000000000000000000000000000000",
+        after=request.commit_sha if request.commit_sha != "HEAD" else "abc123def456",
+        created=False,
+        deleted=False,
+        forced=False,
+        compare=f"https://github.com/{request.repo}/compare/main...{request.branch}",
+        commits=[],
+        head_commit={
+            "id": request.commit_sha if request.commit_sha != "HEAD" else "abc123def456",
+            "message": "Test commit for CI",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "url": f"https://github.com/{request.repo}/commit/{request.commit_sha}",
+            "author": {"name": "Test User", "email": "test@example.com"},
+            "committer": {"name": "Test User", "email": "test@example.com"},
+            "added": [],
+            "removed": [],
+            "modified": []
+        }
+    )
+
+    # Queue the task directly in the container pool as a CI task
+    success = await get_webhook_handler().container_pool.queue_task(
+        task_id=delivery_id,
+        repo_name=request.repo,
+        task_description=None,  # CI tasks don't have a description
+        event=mock_event,
+        is_ci=True  # Mark as CI task to use TestDispatcher
+    )
+
+    if success:
+        logger.info("Test CI task queued successfully",
+                   delivery_id=delivery_id,
+                   repo=request.repo,
+                   branch=request.branch)
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "test_ci_accepted",
+                "delivery_id": delivery_id,
+                "repo": request.repo,
+                "branch": request.branch,
+                "commit_sha": request.commit_sha,
+                "message": "Test CI task queued for processing (GitHub Checks API calls will be skipped)"
+            }
+        )
+    else:
+        logger.error("Failed to queue test CI task",
+                    delivery_id=delivery_id,
+                    repo=request.repo)
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to queue test CI task"
         )
 
 

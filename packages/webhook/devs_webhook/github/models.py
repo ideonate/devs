@@ -367,6 +367,17 @@ Clone URL: {self.repository.clone_url}
         return hashlib.sha256(content_string.encode()).hexdigest()[:16]
 
 
+class TestPushEvent(PushEvent):
+    """Test event for push/CI, used for local testing of runtests functionality."""
+
+    is_test: bool = True  # Mark as test event to skip GitHub Checks API calls
+
+    class Config:
+        arbitrary_types_allowed = True
+        extra = "allow"
+
+    def get_context_for_claude(self) -> str:
+        return f"""Test push event for CI testing."""
 
 
 # Discriminated union for automatic event type detection

@@ -442,7 +442,83 @@ def test(prompt: str, repo: str, host: str, port: int):
     except httpx.ConnectError:
         click.echo(f"❌ Failed to connect to webhook server at {actual_host}:{actual_port}")
         click.echo(f"💡 Make sure the server is running with: devs-webhook serve --dev")
-        
+
+    except Exception as e:
+        click.echo(f"❌ Unexpected error: {e}")
+
+
+@cli.command('test-runtests')
+@click.argument('repo')
+@click.option('--branch', default='main', help='Branch to test (default: main)')
+@click.option('--commit', default='HEAD', help='Commit SHA to test (default: HEAD)')
+@click.option('--host', default=None, help='Webhook server host')
+@click.option('--port', default=None, type=int, help='Webhook server port')
+def test_runtests(repo: str, branch: str, commit: str, host: str, port: int):
+    """Send a test CI/runtests event to the webhook handler.
+
+    This sends a test push event to the /testruntests endpoint, which is only
+    available in development mode. GitHub Checks API calls are skipped.
+
+    Examples:
+        devs-webhook test-runtests myorg/myproject
+        devs-webhook test-runtests myorg/myproject --branch feature-branch
+        devs-webhook test-runtests myorg/myproject --commit abc123
+    """
+    config = get_config()
+
+    # Use CLI options or config defaults
+    actual_host = host or config.webhook_host
+    actual_port = port or config.webhook_port
+    url = f"http://{actual_host}:{actual_port}/testruntests"
+
+    payload = {
+        "repo": repo,
+        "branch": branch,
+        "commit_sha": commit
+    }
+
+    try:
+        click.echo(f"🧪 Sending test CI event to {url}")
+        click.echo(f"📦 Repository: {repo}")
+        click.echo(f"🌿 Branch: {branch}")
+        click.echo(f"📝 Commit: {commit}")
+
+        # Include authentication if available
+        auth = None
+        if config.admin_username and config.admin_password:
+            auth = BasicAuth(config.admin_username, config.admin_password)
+
+        response = httpx.post(
+            url,
+            json=payload,
+            auth=auth,
+            timeout=10.0
+        )
+
+        if response.status_code == 202:
+            data = response.json()
+            click.echo(f"\n✅ Test CI event accepted!")
+            click.echo(f"🆔 Delivery ID: {data['delivery_id']}")
+            click.echo(f"📋 Status: {data['status']}")
+            click.echo(f"\n💡 GitHub Checks API calls will be skipped")
+            click.echo(f"💡 Check logs or /status endpoint for processing updates")
+
+        elif response.status_code == 404:
+            click.echo(f"❌ Test endpoint not available (server not in development mode)")
+            click.echo(f"💡 Start server with: devs-webhook serve --dev")
+
+        else:
+            click.echo(f"❌ Request failed with status {response.status_code}")
+            try:
+                error_data = response.json()
+                click.echo(f"Error: {error_data.get('detail', 'Unknown error')}")
+            except:
+                click.echo(f"Response: {response.text}")
+
+    except httpx.ConnectError:
+        click.echo(f"❌ Failed to connect to webhook server at {actual_host}:{actual_port}")
+        click.echo(f"💡 Make sure the server is running with: devs-webhook serve --dev")
+
     except Exception as e:
         click.echo(f"❌ Unexpected error: {e}")
 
