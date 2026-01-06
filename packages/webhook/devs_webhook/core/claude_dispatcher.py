@@ -158,12 +158,20 @@ class ClaudeDispatcher(BaseDispatcher):
                        container=dev_name,
                        project_name=project.info.name)
             
-            # 2. Ensure workspace exists (force=True for webhook to reset contents like CLI)
-            workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=True)
-            
-            logger.info("Workspace created/reset",
-                       container=dev_name,
-                       workspace_dir=str(workspace_dir))
+            # 2. Ensure workspace exists and sync code
+            # Don't use reset_contents=True as it deletes files created by postCreateCommand
+            # (e.g., backend/.env). Instead, create workspace if needed, then sync git-tracked files.
+            if workspace_manager.workspace_exists(dev_name):
+                workspace_dir = workspace_manager.get_workspace_dir(dev_name)
+                workspace_manager.sync_workspace(dev_name)
+                logger.info("Synced existing workspace",
+                           container=dev_name,
+                           workspace_dir=str(workspace_dir))
+            else:
+                workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=False)
+                logger.info("Created new workspace",
+                           container=dev_name,
+                           workspace_dir=str(workspace_dir))
             
             # 3. Build Claude prompt
             workspace_name = project.get_workspace_name(dev_name)
