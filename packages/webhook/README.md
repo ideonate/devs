@@ -524,6 +524,53 @@ export GITHUB_WEBHOOK_SECRET="dev-secret"
 devs-webhook serve --reload
 ```
 
+### Local Testing
+
+The webhook server provides test endpoints for local development that simulate GitHub webhook events without requiring actual GitHub webhooks.
+
+**1. Start the server in development mode:**
+
+```bash
+# Load environment variables and start server
+set -a; source ./packages/webhook/.env; set +a
+devs-webhook serve --env-file ./packages/webhook/.env --dev --port 8001
+```
+
+**2. Test Claude/issue handling (`/testevent`):**
+
+```bash
+# Load env vars for authentication
+set -a; source ./packages/webhook/.env; set +a
+
+# Send a test prompt (simulates @mention in an issue)
+devs-webhook test --repo myorg/myproject --port 8001 "Fix the login bug"
+```
+
+**3. Test CI/runtests handling (`/testruntests`):**
+
+```bash
+# Load env vars for authentication
+set -a; source ./packages/webhook/.env; set +a
+
+# Send a test CI event (simulates a push event, skips GitHub Checks API)
+devs-webhook test-runtests --repo myorg/myproject --port 8001 --branch main
+devs-webhook test-runtests --repo myorg/myproject --port 8001 --branch feature-branch --commit abc123
+```
+
+**Test command options:**
+
+| Option | Description |
+|--------|-------------|
+| `--repo` | Repository name in org/repo format |
+| `--port` | Webhook server port (default: 8000) |
+| `--host` | Webhook server host (default: 127.0.0.1) |
+| `--username` | Admin username for auth (default: from `ADMIN_USERNAME` env var) |
+| `--password` | Admin password for auth (default: from `ADMIN_PASSWORD` env var) |
+| `--branch` | Branch to test (test-runtests only, default: main) |
+| `--commit` | Commit SHA to test (test-runtests only, default: HEAD) |
+
+**Note:** The test endpoints are only available when the server is started with `--dev` flag. Test events skip GitHub API calls (no check runs created, no comments posted).
+
 ### Production with Docker
 
 ```bash

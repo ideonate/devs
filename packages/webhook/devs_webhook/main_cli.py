@@ -448,7 +448,7 @@ def test(prompt: str, repo: str, host: str, port: int, username: str, password: 
 
 
 @cli.command('test-runtests')
-@click.argument('repo')
+@click.option('--repo', required=True, help='Repository name (org/repo format)')
 @click.option('--branch', default='main', help='Branch to test (default: main)')
 @click.option('--commit', default='HEAD', help='Commit SHA to test (default: HEAD)')
 @click.option('--host', default='127.0.0.1', help='Webhook server host (default: 127.0.0.1)')
@@ -462,9 +462,9 @@ def test_runtests(repo: str, branch: str, commit: str, host: str, port: int, use
     available in development mode. GitHub Checks API calls are skipped.
 
     Examples:
-        devs-webhook test-runtests myorg/myproject
-        devs-webhook test-runtests myorg/myproject --branch feature-branch
-        devs-webhook test-runtests myorg/myproject --commit abc123
+        devs-webhook test-runtests --repo myorg/myproject
+        devs-webhook test-runtests --repo myorg/myproject --branch feature-branch
+        devs-webhook test-runtests --repo myorg/myproject --commit abc123
     """
     # Use CLI options or environment variables
     actual_host = host or os.environ.get('WEBHOOK_HOST', '127.0.0.1')
