@@ -783,8 +783,8 @@ class ContainerPool:
                    repo=repo_name,
                    branch=default_branch)
 
-        # Try to checkout the branch
-        checkout_cmd = ["git", "-C", str(repo_path), "checkout", default_branch]
+        # Try to checkout the branch (use -f to discard local modifications from previous runs)
+        checkout_cmd = ["git", "-C", str(repo_path), "checkout", "-f", default_branch]
         process = await asyncio.create_subprocess_exec(
             *checkout_cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -800,7 +800,7 @@ class ContainerPool:
             # dev branch doesn't exist, try main
             logger.info("Branch 'dev' not found, trying 'main'",
                        repo=repo_name)
-            checkout_cmd = ["git", "-C", str(repo_path), "checkout", "main"]
+            checkout_cmd = ["git", "-C", str(repo_path), "checkout", "-f", "main"]
             process = await asyncio.create_subprocess_exec(
                 *checkout_cmd,
                 stdout=asyncio.subprocess.PIPE,

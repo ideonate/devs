@@ -346,10 +346,12 @@ class TestDispatcher(BaseDispatcher):
                            container=dev_name,
                            commit_sha=commit_sha)
 
+                # Use -f to force checkout and discard any local modifications
+                # from previous test runs (workspace may have leftover changes)
                 checkout_success, checkout_stdout, checkout_stderr, checkout_code = container_manager.exec_command(
                     dev_name=dev_name,
                     workspace_dir=workspace_dir,
-                    command=f"git checkout {commit_sha}",
+                    command=f"git checkout -f {commit_sha}",
                     debug=self.config.dev_mode,
                     stream=False,
                     extra_env=extra_env
