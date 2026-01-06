@@ -27,6 +27,8 @@ class TestDispatcher(BaseDispatcher):
         super().__init__("test")
         # Track last artifact URL for passing to Checks API
         self._last_artifact_url: Optional[str] = None
+        # Track combined report.md content for passing to Checks API
+        self._last_report_content: Optional[str] = None
     
     async def execute_task(
         self,
@@ -59,8 +61,9 @@ class TestDispatcher(BaseDispatcher):
             task_id = str(uuid.uuid4())[:8]
 
         check_run_id = None
-        # Reset artifact URL for this task
+        # Reset artifact URL and report content for this task
         self._last_artifact_url = None
+        self._last_report_content = None
 
         try:
             logger.info("Starting test execution",
@@ -152,7 +155,8 @@ class TestDispatcher(BaseDispatcher):
                     check_run_id,
                     result,
                     installation_id,
-                    details_url=self._last_artifact_url
+                    details_url=self._last_artifact_url,
+                    report_content=self._last_report_content
                 )
             elif hasattr(event, 'is_test') and event.is_test:
                 logger.info("Skipping GitHub check run result reporting for test event")
@@ -413,7 +417,15 @@ class TestDispatcher(BaseDispatcher):
                            container=dev_name,
                            full_stderr=stderr)
 
-            # 7. Upload artifacts to S3 if configured
+            # 7. Collect report.md files from test-results/ for Checks API
+            self._last_report_content = self._collect_report_markdown(
+                container_manager=container_manager,
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                extra_env=extra_env
+            )
+
+            # 8. Upload artifacts to S3 if configured
             s3_url, artifact_url = self._upload_bridge_artifacts(
                 project=project,
                 dev_name=dev_name,
@@ -445,6 +457,91 @@ class TestDispatcher(BaseDispatcher):
 
             return False, "", error_msg, 1
     
+    def _collect_report_markdown(
+        self,
+        container_manager: ContainerManager,
+        dev_name: str,
+        workspace_dir: Path,
+        extra_env: Optional[dict] = None
+    ) -> Optional[str]:
+        """Collect all report.md files from test-results/ directory in the container.
+
+        Searches for report.md files recursively up to 2 levels deep in test-results/
+        and combines their contents.
+
+        Args:
+            container_manager: Container manager instance
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            extra_env: Optional extra environment variables
+
+        Returns:
+            Combined markdown content from all report.md files, or None if none found
+        """
+        try:
+            # Find all report.md files in test-results/ (2 levels deep)
+            find_cmd = "find test-results -maxdepth 2 -name 'report.md' -type f 2>/dev/null | sort"
+            success, stdout, stderr, exit_code = container_manager.exec_command(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                command=find_cmd,
+                debug=self.config.dev_mode,
+                stream=False,
+                extra_env=extra_env
+            )
+
+            if not success or not stdout.strip():
+                logger.debug("No report.md files found in test-results/",
+                            container=dev_name)
+                return None
+
+            report_files = stdout.strip().split('\n')
+            logger.info("Found report.md files",
+                       container=dev_name,
+                       files=report_files)
+
+            # Collect contents from each report file
+            combined_parts = []
+            for report_file in report_files:
+                if not report_file.strip():
+                    continue
+
+                cat_cmd = f"cat '{report_file}'"
+                cat_success, content, cat_stderr, cat_code = container_manager.exec_command(
+                    dev_name=dev_name,
+                    workspace_dir=workspace_dir,
+                    command=cat_cmd,
+                    debug=self.config.dev_mode,
+                    stream=False,
+                    extra_env=extra_env
+                )
+
+                if cat_success and content.strip():
+                    # Add header for each report file
+                    header = f"## {report_file}\n"
+                    combined_parts.append(header + content.strip())
+                    logger.debug("Collected report content",
+                               container=dev_name,
+                               file=report_file,
+                               content_length=len(content))
+
+            if not combined_parts:
+                return None
+
+            combined_content = "\n\n---\n\n".join(combined_parts)
+            logger.info("Combined report.md content",
+                       container=dev_name,
+                       num_files=len(combined_parts),
+                       total_length=len(combined_content))
+
+            return combined_content
+
+        except Exception as e:
+            logger.warning("Failed to collect report.md files",
+                          container=dev_name,
+                          error=str(e))
+            return None
+
     def _get_commit_sha(self, event: WebhookEvent) -> Optional[str]:
         """Get the commit SHA to test from the webhook event.
         
@@ -477,7 +574,8 @@ class TestDispatcher(BaseDispatcher):
         check_run_id: int,
         result: TaskResult,
         installation_id: Optional[str] = None,
-        details_url: Optional[str] = None
+        details_url: Optional[str] = None,
+        report_content: Optional[str] = None
     ) -> None:
         """Report test results to GitHub via Checks API.
 
@@ -487,6 +585,7 @@ class TestDispatcher(BaseDispatcher):
             result: Test execution result
             installation_id: GitHub App installation ID if known from webhook event
             details_url: URL to test artifacts/details (shown as "View more details" link)
+            report_content: Combined content from report.md files in test-results/
         """
         try:
             if result.success:
@@ -494,27 +593,41 @@ class TestDispatcher(BaseDispatcher):
                 if details_url:
                     summary += f"\n\n[View test artifacts]({details_url})"
 
+                # Truncate report content for GitHub API limits (~65k chars)
+                text = report_content
+                if text and len(text) > 65000:
+                    text = text[:65000] + "\n\n[Report truncated]"
+
                 await self.github_client.complete_check_run_success(
                     repo=repo_name,
                     check_run_id=check_run_id,
                     title="Tests passed",
                     summary=summary,
+                    text=text,
                     details_url=details_url,
                     installation_id=installation_id
                 )
                 logger.info("Reported test success to GitHub",
                            repo=repo_name,
                            check_run_id=check_run_id,
-                           details_url=details_url)
+                           details_url=details_url,
+                           has_report_content=bool(report_content))
             else:
-                # Combine stdout and stderr for complete output in GitHub Checks
-                # (previously only showed stderr if present, losing all stdout)
-                combined_parts = []
+                # Combine report content with stdout/stderr for failure output
+                text_parts = []
+
+                # Add report.md content first if available
+                if report_content:
+                    text_parts.append(report_content)
+                    text_parts.append("\n---\n\n## Command Output\n")
+
+                # Add stdout and stderr
                 if result.output:
-                    combined_parts.append(result.output)
+                    text_parts.append(result.output)
                 if result.error:
-                    combined_parts.append(result.error)
-                error_text = "\n".join(combined_parts) if combined_parts else "Test execution failed"
+                    text_parts.append(result.error)
+
+                error_text = "\n".join(text_parts) if text_parts else "Test execution failed"
 
                 # Truncate for GitHub API limits (~65k chars)
                 if len(error_text) > 65000:
@@ -539,7 +652,8 @@ class TestDispatcher(BaseDispatcher):
                            repo=repo_name,
                            check_run_id=check_run_id,
                            exit_code=result.exit_code,
-                           details_url=details_url)
+                           details_url=details_url,
+                           has_report_content=bool(report_content))
 
         except Exception as e:
             logger.error("Failed to report test results to GitHub",

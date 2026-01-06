@@ -398,19 +398,21 @@ class GitHubClient:
         check_run_id: int,
         title: str = "Tests passed",
         summary: str = "All tests completed successfully",
+        text: Optional[str] = None,
         details_url: Optional[str] = None,
         installation_id: Optional[str] = None
     ) -> bool:
         """Complete a check run with success status.
-        
+
         Args:
             repo: Repository in format "owner/repo"
             check_run_id: ID of the check run to complete
             title: Title for the check run output
             summary: Summary text for the check run
+            text: Additional detailed text output (e.g., test reports)
             details_url: URL to external build/test results
             installation_id: GitHub App installation ID if known from webhook event
-            
+
         Returns:
             True if successful
         """
@@ -418,7 +420,10 @@ class GitHubClient:
             'title': title,
             'summary': summary
         }
-        
+
+        if text:
+            output['text'] = text
+
         return await self.update_check_run(
             repo=repo,
             check_run_id=check_run_id,
