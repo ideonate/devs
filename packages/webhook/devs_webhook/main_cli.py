@@ -410,11 +410,9 @@ def test(prompt: str, repo: str, host: str, port: int, username: str, password: 
         click.echo(f"📝 Prompt: {prompt}")
         click.echo(f"📦 Repository: {repo}")
 
-        # Include authentication if available
-        auth = None
-        if admin_username and admin_password:
-            auth = BasicAuth(admin_username, admin_password)
-        
+        # Always include authentication (server requires it, even in dev mode)
+        auth = BasicAuth(admin_username, admin_password)
+
         response = httpx.post(
             url,
             json=payload,
@@ -487,10 +485,8 @@ def test_runtests(repo: str, branch: str, commit: str, host: str, port: int, use
         click.echo(f"🌿 Branch: {branch}")
         click.echo(f"📝 Commit: {commit}")
 
-        # Include authentication if available
-        auth = None
-        if admin_username and admin_password:
-            auth = BasicAuth(admin_username, admin_password)
+        # Always include authentication (server requires it, even in dev mode)
+        auth = BasicAuth(admin_username, admin_password)
 
         response = httpx.post(
             url,
