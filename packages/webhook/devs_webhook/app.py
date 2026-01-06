@@ -378,14 +378,15 @@ async def test_runtests(
         ),
         ref=f"refs/heads/{request.branch}",
         before="0000000000000000000000000000000000000000",
-        after=request.commit_sha if request.commit_sha != "HEAD" else "abc123def456",
+        # Use branch name when HEAD is specified - git checkout works with branch names
+        after=request.commit_sha if request.commit_sha != "HEAD" else request.branch,
         created=False,
         deleted=False,
         forced=False,
         compare=f"https://github.com/{request.repo}/compare/main...{request.branch}",
         commits=[],
         head_commit={
-            "id": request.commit_sha if request.commit_sha != "HEAD" else "abc123def456",
+            "id": request.commit_sha if request.commit_sha != "HEAD" else request.branch,
             "message": "Test commit for CI",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "url": f"https://github.com/{request.repo}/commit/{request.commit_sha}",
