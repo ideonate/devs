@@ -133,7 +133,9 @@ RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "# Auto-activate Python venv if it exists" >> "$shell_rc" && \
   echo "if [ -f /home/node/.devs-venv/workspace-venv/bin/activate ]; then" >> "$shell_rc" && \
   echo "    source /home/node/.devs-venv/workspace-venv/bin/activate" >> "$shell_rc" && \
-  echo "fi" >> "$shell_rc"; \
+  echo "fi" >> "$shell_rc" && \
+  echo "# Set TEST_RESULTS_FOLDER" >> "$shell_rc" && \
+  echo "export TEST_RESULTS_FOLDER=\"/home/node/bridge/test-results\"" >> "$shell_rc" && \
   done
 
 
