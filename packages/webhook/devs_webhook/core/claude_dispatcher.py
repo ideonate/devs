@@ -270,7 +270,7 @@ Always remember to PUSH your work to origin!
             if container_log:
                 container_log.start(prompt=prompt, workspace_dir=str(workspace_dir))
 
-            success, stdout, stderr = container_manager.exec_claude(
+            success, stdout, stderr, exit_code = container_manager.exec_claude(
                 dev_name=dev_name,
                 workspace_dir=workspace_dir,
                 prompt=prompt,

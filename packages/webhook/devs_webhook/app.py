@@ -403,7 +403,7 @@ async def test_runtests(
         repo_name=request.repo,
         task_description=None,  # CI tasks don't have a description
         event=mock_event,
-        is_ci=True  # Mark as CI task to use TestDispatcher
+        task_type='tests'  # Use TestDispatcher for CI tasks
     )
 
     if success:
