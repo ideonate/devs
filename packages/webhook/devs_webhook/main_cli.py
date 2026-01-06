@@ -447,6 +447,144 @@ def test(prompt: str, repo: str, host: str, port: int, username: str, password: 
         click.echo(f"❌ Unexpected error: {e}")
 
 
+@cli.command()
+@click.option('--all', 'cleanup_all', is_flag=True, help='Clean up all managed containers (not just idle ones)')
+@click.option('--max-age-hours', default=None, type=int, help='Override max age threshold (default: from config or 10)')
+@click.option('--idle-minutes', default=None, type=int, help='Override idle timeout (default: from config or 60)')
+@click.option('--dry-run', is_flag=True, help='Show what would be cleaned up without actually doing it')
+def cleanup(cleanup_all: bool, max_age_hours: int, idle_minutes: int, dry_run: bool):
+    """Clean up idle and old containers.
+
+    This command finds containers managed by devs-webhook and cleans up those that
+    are idle (exited, or running but not processing) and either:
+    - Idle for longer than the idle timeout
+    - Older than the max age threshold
+
+    Use this after burst mode processing completes, or via cron for periodic cleanup.
+
+    Examples:
+        devs-webhook cleanup                    # Clean up idle containers exceeding thresholds
+        devs-webhook cleanup --all              # Clean up ALL managed containers
+        devs-webhook cleanup --dry-run          # Show what would be cleaned up
+        devs-webhook cleanup --max-age-hours 2  # Override max age to 2 hours
+    """
+    from datetime import datetime, timezone, timedelta
+    from devs_common.utils.docker_client import DockerClient
+    from devs_common.core.workspace import WorkspaceManager
+    from devs_common.core.project import Project
+
+    try:
+        config = get_config()
+    except Exception:
+        # Config validation may fail without all env vars - use defaults
+        config = None
+
+    # Use config values or defaults
+    max_age = timedelta(hours=max_age_hours or (config.container_max_age_hours if config else 10))
+    idle_timeout = timedelta(minutes=idle_minutes or (config.container_timeout_minutes if config else 60))
+
+    click.echo("🧹 Container Cleanup")
+    click.echo(f"   Max age: {max_age.total_seconds() / 3600:.1f} hours")
+    click.echo(f"   Idle timeout: {idle_timeout.total_seconds() / 60:.0f} minutes")
+    if cleanup_all:
+        click.echo("   Mode: Clean ALL managed containers")
+    if dry_run:
+        click.echo("   Mode: DRY RUN (no changes will be made)")
+    click.echo()
+
+    try:
+        docker = DockerClient()
+    except Exception as e:
+        click.echo(f"❌ Failed to connect to Docker: {e}")
+        return
+
+    # Find all devs-managed containers
+    try:
+        containers = docker.find_containers_by_labels({"devs.managed": "true"})
+    except Exception as e:
+        click.echo(f"❌ Failed to list containers: {e}")
+        return
+
+    if not containers:
+        click.echo("✅ No managed containers found")
+        return
+
+    click.echo(f"Found {len(containers)} managed container(s)")
+
+    now = datetime.now(tz=timezone.utc)
+    cleaned = 0
+    skipped = 0
+
+    for container_data in containers:
+        container_name = container_data['name']
+        status = container_data['status']
+        created_str = container_data['created']
+        labels = container_data['labels']
+
+        # Parse creation time
+        try:
+            # Docker timestamp format: 2024-01-15T10:30:00.123456789Z
+            created = datetime.fromisoformat(created_str.replace('Z', '+00:00').split('.')[0] + '+00:00')
+        except Exception:
+            created = now  # Assume recent if can't parse
+
+        age = now - created
+        dev_name = labels.get('devs.dev', 'unknown')
+        project_name = labels.get('devs.project', 'unknown')
+
+        # Determine if we should clean up this container
+        should_cleanup = False
+        reason = ""
+
+        if cleanup_all:
+            should_cleanup = True
+            reason = "cleanup all requested"
+        elif status in ['exited', 'dead', 'created']:
+            # Container is not running - safe to clean up if old enough
+            if age > idle_timeout:
+                should_cleanup = True
+                reason = f"exited and idle {age.total_seconds() / 60:.0f}min"
+        elif status == 'running':
+            # Running container - only clean up if exceeds max age
+            # (We can't easily tell if it's truly idle without more context)
+            if age > max_age:
+                should_cleanup = True
+                reason = f"running but age {age.total_seconds() / 3600:.1f}h exceeds max"
+
+        if should_cleanup:
+            age_str = f"{age.total_seconds() / 3600:.1f}h" if age.total_seconds() > 3600 else f"{age.total_seconds() / 60:.0f}m"
+            click.echo(f"  🗑️  {container_name} ({status}, age {age_str}) - {reason}")
+
+            if not dry_run:
+                try:
+                    # Stop and remove the container
+                    container = docker.client.containers.get(container_data['id'])
+                    if status == 'running':
+                        container.stop(timeout=10)
+                    container.remove(force=True)
+
+                    # Also try to remove the workspace
+                    workspaces_dir = Path.home() / ".devs" / "workspaces"
+                    workspace_pattern = f"{project_name}-{dev_name}"
+                    for workspace in workspaces_dir.glob(f"{workspace_pattern}*"):
+                        if workspace.is_dir():
+                            import shutil
+                            shutil.rmtree(workspace)
+                            click.echo(f"      Removed workspace: {workspace.name}")
+
+                    cleaned += 1
+                except Exception as e:
+                    click.echo(f"      ❌ Failed to clean up: {e}")
+        else:
+            skipped += 1
+
+    click.echo()
+    if dry_run:
+        click.echo(f"🔍 Dry run complete: {len(containers) - skipped} would be cleaned, {skipped} would be kept")
+    else:
+        click.echo(f"✅ Cleanup complete: {cleaned} cleaned, {skipped} kept")
+
+
 @cli.command('test-runtests')
 @click.option('--repo', required=True, help='Repository name (org/repo format)')
 @click.option('--branch', default='main', help='Branch to test (default: main)')

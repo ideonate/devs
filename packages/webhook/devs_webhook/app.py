@@ -46,6 +46,19 @@ app = FastAPI(
     version="0.1.0"
 )
 
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Handle graceful shutdown - clean up all running containers."""
+    global webhook_handler
+    if webhook_handler is not None:
+        logger.info("Graceful shutdown initiated - cleaning up containers")
+        try:
+            await webhook_handler.container_pool.shutdown()
+            logger.info("Graceful shutdown complete - all containers cleaned up")
+        except Exception as e:
+            logger.error("Error during graceful shutdown", error=str(e))
+
 # Security setup for admin endpoints
 security = HTTPBasic()
 

@@ -36,38 +36,49 @@ class QueuedTask(NamedTuple):
 
 class ContainerPool:
     """Manages a pool of named containers for webhook tasks."""
-    
-    def __init__(self):
-        """Initialize container pool."""
+
+    def __init__(self, enable_cleanup_worker: bool = True):
+        """Initialize container pool.
+
+        Args:
+            enable_cleanup_worker: If True (default), starts background task to
+                clean up idle/old containers. Set to False for burst mode where
+                cleanup should be done manually after processing completes.
+        """
         self.config = get_config()
 
         # Track running containers for idle cleanup
         self.running_containers: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
-        
+
         # Task queues - one per dev name
         self.container_queues: Dict[str, asyncio.Queue] = {
             dev_name: asyncio.Queue() for dev_name in self.config.get_container_pool_list()
         }
-        
+
         # Container workers - one per dev name
         self.container_workers: Dict[str, asyncio.Task] = {}
-        
+
         # Cache DEVS.yml configuration for repositories
         # Stores tuple of (DevsOptions, config_hash) for invalidation
         self.repo_configs: Dict[str, tuple[DevsOptions, str]] = {}  # repo_name -> (DevsOptions, hash)
-        
+
         # Track which container is assigned to single-queue repos
         self.single_queue_assignments: Dict[str, str] = {}  # repo_name -> container_name
-        
+
         # Start worker tasks for each container
         self._start_workers()
 
-        # Start the idle container cleanup task
-        self.cleanup_worker = asyncio.create_task(self._idle_cleanup_worker())
-        
-        logger.info("Container pool initialized", 
-                   containers=self.config.get_container_pool_list())
+        # Start the idle container cleanup task (optional - disabled for burst mode)
+        self._cleanup_worker_enabled = enable_cleanup_worker
+        if enable_cleanup_worker:
+            self.cleanup_worker = asyncio.create_task(self._idle_cleanup_worker())
+            logger.info("Container pool initialized with cleanup worker",
+                       containers=self.config.get_container_pool_list())
+        else:
+            self.cleanup_worker = None
+            logger.info("Container pool initialized (cleanup worker disabled)",
+                       containers=self.config.get_container_pool_list())
     
     
     def get_repo_config(self, repo_name: str) -> Optional[DevsOptions]:
@@ -491,19 +502,34 @@ class ContainerPool:
     
     async def _process_task_subprocess(self, dev_name: str, queued_task: QueuedTask) -> None:
         """Process a single task via subprocess for Docker safety.
-        
+
         Args:
             dev_name: Name of container to execute in
             queued_task: Task to process
         """
         repo_name = queued_task.repo_name
         repo_path = self.config.repo_cache_dir / repo_name.replace("/", "-")
-        
+
         logger.info("Starting task processing via subprocess",
                    task_id=queued_task.task_id,
                    container=dev_name,
                    repo_name=repo_name,
                    repo_path=str(repo_path))
+
+        # Track container as running
+        now = datetime.now(tz=timezone.utc)
+        async with self._lock:
+            if dev_name not in self.running_containers:
+                # First task for this container - record start time
+                self.running_containers[dev_name] = {
+                    "repo_path": repo_path,
+                    "started_at": now,
+                    "last_used": now,
+                }
+            else:
+                # Container already running - just update last_used
+                self.running_containers[dev_name]["last_used"] = now
+                self.running_containers[dev_name]["repo_path"] = repo_path
 
         try:
             # Get cached config or ensure it's loaded
@@ -727,9 +753,15 @@ class ContainerPool:
                 queued_task,
                 f"Task processing encountered an error: {type(e).__name__}\n\n{str(e)}"
             )
-            
+
             # Task execution failed, but we've logged it - don't re-raise
-    
+
+        finally:
+            # Update last_used timestamp after task completes (success or failure)
+            async with self._lock:
+                if dev_name in self.running_containers:
+                    self.running_containers[dev_name]["last_used"] = datetime.now(tz=timezone.utc)
+
     async def _checkout_default_branch(self, repo_name: str, repo_path: Path) -> None:
         """Checkout the default branch to ensure devcontainer files are from the right branch.
 
@@ -945,13 +977,14 @@ class ContainerPool:
     async def shutdown(self) -> None:
         """Shutdown the container pool and all workers."""
         logger.info("Shutting down container pool")
-        
-        # Cancel the cleanup worker
-        self.cleanup_worker.cancel()
-        try:
-            await self.cleanup_worker
-        except asyncio.CancelledError:
-            pass
+
+        # Cancel the cleanup worker (if enabled)
+        if self.cleanup_worker is not None:
+            self.cleanup_worker.cancel()
+            try:
+                await self.cleanup_worker
+            except asyncio.CancelledError:
+                pass
 
         # Cancel all worker tasks
         for dev_name, worker_task in self.container_workers.items():
@@ -1028,6 +1061,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
     async def get_status(self) -> Dict[str, Any]:
         """Get current pool status."""
         async with self._lock:
+            now = datetime.now(tz=timezone.utc)
             return {
                 "container_queues": {
                     name: queue.qsize()
@@ -1036,14 +1070,62 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                 "running_containers": {
                     name: {
                         "repo_path": str(info["repo_path"]),
+                        "started_at": info["started_at"].isoformat(),
                         "last_used": info["last_used"].isoformat(),
+                        "age_hours": round((now - info["started_at"]).total_seconds() / 3600, 2),
+                        "idle_minutes": round((now - info["last_used"]).total_seconds() / 60, 2),
                     }
                     for name, info in self.running_containers.items()
                 },
                 "total_containers": len(self.config.get_container_pool_list()),
                 "single_queue_assignments": self.single_queue_assignments.copy(),
                 "cached_repo_configs": list(self.repo_configs.keys()),
+                "cleanup_settings": {
+                    "idle_timeout_minutes": self.config.container_timeout_minutes,
+                    "max_age_hours": self.config.container_max_age_hours,
+                    "check_interval_seconds": self.config.cleanup_check_interval_seconds,
+                },
             }
+
+    async def force_stop_container(self, container_name: str) -> bool:
+        """Force stop a container immediately.
+
+        This method stops a container regardless of whether it's currently processing
+        a task. Use with caution - any running task will be interrupted.
+
+        Args:
+            container_name: Name of the container to stop
+
+        Returns:
+            True if container was found and stopped, False otherwise
+        """
+        async with self._lock:
+            if container_name not in self.running_containers:
+                logger.warning("Container not found for force stop",
+                              container=container_name,
+                              available=list(self.running_containers.keys()))
+                return False
+
+            info = self.running_containers[container_name]
+            repo_path = info["repo_path"]
+
+            logger.info("Force stopping container",
+                       container=container_name,
+                       repo_path=str(repo_path))
+
+            try:
+                await self._cleanup_container(container_name, repo_path)
+                del self.running_containers[container_name]
+
+                logger.info("Container force stopped successfully",
+                           container=container_name)
+                return True
+
+            except Exception as e:
+                logger.error("Failed to force stop container",
+                            container=container_name,
+                            error=str(e))
+                return False
 
     def get_total_queued_tasks(self) -> int:
         """Get the total number of tasks queued across all containers.
@@ -1095,22 +1177,47 @@ Please check the webhook handler logs for more details, or try mentioning me aga
             return False
 
     async def _idle_cleanup_worker(self) -> None:
-        """Periodically clean up idle containers."""
+        """Periodically clean up idle and old containers.
+
+        Containers are cleaned up if:
+        1. They have been idle longer than container_timeout_minutes
+        2. They are older than container_max_age_hours AND currently idle
+
+        Containers that are currently processing a task are never stopped,
+        even if they exceed the max age.
+        """
         while True:
             try:
-                await asyncio.sleep(60)  # Check every minute
-                
+                await asyncio.sleep(self.config.cleanup_check_interval_seconds)
+
                 async with self._lock:
                     now = datetime.now(tz=timezone.utc)
                     idle_timeout = timedelta(minutes=self.config.container_timeout_minutes)
-                    
-                    idle_containers = []
+                    max_age = timedelta(hours=self.config.container_max_age_hours)
+
+                    containers_to_cleanup = []
                     for dev_name, info in self.running_containers.items():
-                        if now - info["last_used"] > idle_timeout:
-                            idle_containers.append((dev_name, info["repo_path"]))
-                    
-                    for dev_name, repo_path in idle_containers:
-                        logger.info("Container idle, cleaning up", container=dev_name)
+                        idle_duration = now - info["last_used"]
+                        age = now - info["started_at"]
+
+                        # Check if container is idle (not currently processing)
+                        is_idle = idle_duration > timedelta(seconds=10)  # Small grace period
+
+                        # Clean up if: idle too long OR (old AND idle)
+                        if idle_duration > idle_timeout:
+                            logger.info("Container idle timeout exceeded",
+                                       container=dev_name,
+                                       idle_minutes=idle_duration.total_seconds() / 60)
+                            containers_to_cleanup.append((dev_name, info["repo_path"]))
+                        elif age > max_age and is_idle:
+                            logger.info("Container max age exceeded (cleaning up while idle)",
+                                       container=dev_name,
+                                       age_hours=age.total_seconds() / 3600,
+                                       max_age_hours=self.config.container_max_age_hours)
+                            containers_to_cleanup.append((dev_name, info["repo_path"]))
+
+                    for dev_name, repo_path in containers_to_cleanup:
+                        logger.info("Cleaning up container", container=dev_name)
                         await self._cleanup_container(dev_name, repo_path)
                         del self.running_containers[dev_name]
 

@@ -69,7 +69,15 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default="eamonn,harry,darren",
         description="Comma-separated list of named containers in the pool"
     )
-    container_timeout_minutes: int = Field(default=60, description="Container timeout in minutes")
+    container_timeout_minutes: int = Field(default=60, description="Container idle timeout in minutes")
+    container_max_age_hours: int = Field(
+        default=10,
+        description="Maximum container age in hours (containers older than this are cleaned up when idle)"
+    )
+    cleanup_check_interval_seconds: int = Field(
+        default=60,
+        description="How often to check for idle/old containers (in seconds)"
+    )
     max_concurrent_tasks: int = Field(default=3, description="Maximum concurrent tasks")
     
     # Repository settings

@@ -323,7 +323,9 @@ devs start eamonn --env DEBUG=false --env NEW_VAR=test
 
 **Container Pool**:
 - `CONTAINER_POOL`: Comma-separated container names (default: eamonn,harry,darren)
-- `CONTAINER_TIMEOUT_MINUTES`: Idle timeout for containers (default: 60)
+- `CONTAINER_TIMEOUT_MINUTES`: Idle timeout for containers in minutes (default: 60)
+- `CONTAINER_MAX_AGE_HOURS`: Maximum container age in hours - containers older than this are cleaned up when idle (default: 10)
+- `CLEANUP_CHECK_INTERVAL_SECONDS`: How often to check for idle/old containers (default: 60)
 - `MAX_CONCURRENT_TASKS`: Maximum parallel tasks (default: 3)
 
 **Access Control**:
@@ -481,6 +483,40 @@ devs-webhook-worker --container-name eamonn --task-json-stdin < task.json
 - **JSON Communication**: Large payloads passed via stdin
 - **Timeout Protection**: 60-minute timeout for tasks
 - **Deduplication**: Content hashing prevents duplicate processing
+
+### Container Lifecycle Management
+
+Containers are automatically managed with cleanup based on idle time and age:
+
+1. **Idle Cleanup**: Containers idle for longer than `CONTAINER_TIMEOUT_MINUTES` (default: 60 min) are stopped and cleaned up
+2. **Age-Based Cleanup**: Containers older than `CONTAINER_MAX_AGE_HOURS` (default: 10 hours) are cleaned up when they become idle
+3. **Graceful Shutdown**: On server shutdown (SIGTERM/SIGINT), all running containers are cleaned up
+4. **Manual Stop**: Admin can force-stop containers via `POST /container/{name}/stop` endpoint
+
+**Key behaviors**:
+- Containers currently processing tasks are never interrupted by age-based cleanup
+- Age-based cleanup only triggers when a container is idle (not actively processing)
+- The cleanup check runs every `CLEANUP_CHECK_INTERVAL_SECONDS` (default: 60 seconds)
+
+**Status endpoint** (`GET /status`) shows container details:
+- `started_at`: When container first started processing tasks
+- `last_used`: Last task completion time
+- `age_hours`: How long container has been running
+- `idle_minutes`: How long since last task completed
+
+**Burst Mode Considerations**:
+In SQS burst mode (`--burst`), the background cleanup worker is disabled since:
+- Containers may be reused across tasks in the batch
+- The process exits after completion anyway
+
+After burst processing completes, use `devs-webhook cleanup` to clean up containers:
+```bash
+# After burst mode completes
+devs-webhook cleanup                    # Clean up idle containers
+devs-webhook cleanup --all              # Clean up ALL managed containers
+devs-webhook cleanup --dry-run          # Preview what would be cleaned
+devs-webhook cleanup --max-age-hours 2  # Override max age threshold
+```
 
 ## Testing
 

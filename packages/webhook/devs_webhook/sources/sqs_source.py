@@ -58,14 +58,18 @@ class SQSTaskSource(TaskSource):
             task_processor: Optional task processor instance. If not provided,
                           a new one will be created.
             burst_mode: If True, process all available messages and exit instead
-                       of polling indefinitely.
+                       of polling indefinitely. Also disables background cleanup
+                       worker (use `devs-webhook cleanup` after burst completes).
             wait_for_tasks: If True (default), burst mode will wait for all
                           queued tasks to complete before exiting. If False,
                           exits as soon as SQS queue is drained.
             task_timeout: Optional timeout in seconds for waiting on task completion
                          in burst mode. If None, waits indefinitely.
         """
-        self.task_processor = task_processor or TaskProcessor()
+        # In burst mode, disable background cleanup worker since we'll exit after processing
+        # Use `devs-webhook cleanup` command after burst completes for cleanup
+        enable_cleanup = not burst_mode
+        self.task_processor = task_processor or TaskProcessor(enable_cleanup_worker=enable_cleanup)
         self.config = get_config()
         self._running = False
         self._poll_task: Optional[asyncio.Task] = None
@@ -237,7 +241,7 @@ class SQSTaskSource(TaskSource):
             return []
 
     async def stop(self) -> None:
-        """Stop polling SQS."""
+        """Stop polling SQS and clean up containers."""
         logger.info("Stopping SQS task source")
         self._running = False
 
@@ -247,6 +251,14 @@ class SQSTaskSource(TaskSource):
                 await self._poll_task
             except asyncio.CancelledError:
                 pass
+
+        # Gracefully shutdown the container pool
+        logger.info("Shutting down container pool")
+        try:
+            await self.task_processor.container_pool.shutdown()
+            logger.info("Container pool shutdown complete")
+        except Exception as e:
+            logger.error("Error during container pool shutdown", error=str(e))
 
         logger.info("SQS task source stopped")
 

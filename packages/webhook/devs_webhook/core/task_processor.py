@@ -24,20 +24,23 @@ class TaskProcessor:
     and contains all the business logic for processing GitHub webhook events.
     """
 
-    def __init__(self, container_pool: ContainerPool = None):
+    def __init__(self, container_pool: ContainerPool = None, enable_cleanup_worker: bool = True):
         """Initialize task processor.
 
         Args:
             container_pool: Optional container pool instance. If not provided,
                           a new one will be created.
+            enable_cleanup_worker: If True (default), enables background cleanup
+                of idle containers. Set to False for burst mode.
         """
         self.config = get_config()
-        self.container_pool = container_pool or ContainerPool()
+        self.container_pool = container_pool or ContainerPool(enable_cleanup_worker=enable_cleanup_worker)
         self.github_client = GitHubClient(self.config)
 
         logger.info("Task processor initialized",
                    mentioned_user=self.config.github_mentioned_user,
-                   container_pool=self.config.get_container_pool_list())
+                   container_pool=self.config.get_container_pool_list(),
+                   cleanup_worker=enable_cleanup_worker)
 
     async def _add_eyes_reaction(self, event: Any, repo_name: str) -> None:
         """Add an eyes reaction to indicate we're processing the event.
