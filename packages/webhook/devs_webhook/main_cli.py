@@ -379,39 +379,41 @@ def test_setup():
 @cli.command()
 @click.argument('prompt')
 @click.option('--repo', default='test/repo', help='Repository name (default: test/repo)')
-@click.option('--host', default=None, help='Webhook server host')
-@click.option('--port', default=None, type=int, help='Webhook server port')
-def test(prompt: str, repo: str, host: str, port: int):
+@click.option('--host', default='127.0.0.1', help='Webhook server host (default: 127.0.0.1)')
+@click.option('--port', default=8000, type=int, help='Webhook server port (default: 8000)')
+@click.option('--username', default=None, help='Admin username for authentication')
+@click.option('--password', default=None, help='Admin password for authentication')
+def test(prompt: str, repo: str, host: str, port: int, username: str, password: str):
     """Send a test prompt to the webhook handler.
-    
+
     This sends a test event to the /testevent endpoint, which is only available
     in development mode.
-    
+
     Examples:
         devs-webhook test "Fix the login bug"
         devs-webhook test "Add dark mode toggle" --repo myorg/myproject
     """
-    config = get_config()
-    
-    # Use CLI options or config defaults
-    actual_host = host or config.webhook_host
-    actual_port = port or config.webhook_port
+    # Use CLI options or environment variables
+    actual_host = host or os.environ.get('WEBHOOK_HOST', '127.0.0.1')
+    actual_port = port or int(os.environ.get('WEBHOOK_PORT', '8000'))
+    admin_username = username or os.environ.get('ADMIN_USERNAME', 'admin')
+    admin_password = password or os.environ.get('ADMIN_PASSWORD', '')
     url = f"http://{actual_host}:{actual_port}/testevent"
-    
+
     payload = {
         "prompt": prompt,
         "repo": repo
     }
-    
+
     try:
         click.echo(f"🧪 Sending test event to {url}")
         click.echo(f"📝 Prompt: {prompt}")
         click.echo(f"📦 Repository: {repo}")
-        
+
         # Include authentication if available
         auth = None
-        if config.admin_username and config.admin_password:
-            auth = BasicAuth(config.admin_username, config.admin_password)
+        if admin_username and admin_password:
+            auth = BasicAuth(admin_username, admin_password)
         
         response = httpx.post(
             url,
@@ -451,9 +453,11 @@ def test(prompt: str, repo: str, host: str, port: int):
 @click.argument('repo')
 @click.option('--branch', default='main', help='Branch to test (default: main)')
 @click.option('--commit', default='HEAD', help='Commit SHA to test (default: HEAD)')
-@click.option('--host', default=None, help='Webhook server host')
-@click.option('--port', default=None, type=int, help='Webhook server port')
-def test_runtests(repo: str, branch: str, commit: str, host: str, port: int):
+@click.option('--host', default='127.0.0.1', help='Webhook server host (default: 127.0.0.1)')
+@click.option('--port', default=8000, type=int, help='Webhook server port (default: 8000)')
+@click.option('--username', default=None, help='Admin username for authentication')
+@click.option('--password', default=None, help='Admin password for authentication')
+def test_runtests(repo: str, branch: str, commit: str, host: str, port: int, username: str, password: str):
     """Send a test CI/runtests event to the webhook handler.
 
     This sends a test push event to the /testruntests endpoint, which is only
@@ -464,11 +468,11 @@ def test_runtests(repo: str, branch: str, commit: str, host: str, port: int):
         devs-webhook test-runtests myorg/myproject --branch feature-branch
         devs-webhook test-runtests myorg/myproject --commit abc123
     """
-    config = get_config()
-
-    # Use CLI options or config defaults
-    actual_host = host or config.webhook_host
-    actual_port = port or config.webhook_port
+    # Use CLI options or environment variables
+    actual_host = host or os.environ.get('WEBHOOK_HOST', '127.0.0.1')
+    actual_port = port or int(os.environ.get('WEBHOOK_PORT', '8000'))
+    admin_username = username or os.environ.get('ADMIN_USERNAME', 'admin')
+    admin_password = password or os.environ.get('ADMIN_PASSWORD', '')
     url = f"http://{actual_host}:{actual_port}/testruntests"
 
     payload = {
@@ -485,8 +489,8 @@ def test_runtests(repo: str, branch: str, commit: str, host: str, port: int):
 
         # Include authentication if available
         auth = None
-        if config.admin_username and config.admin_password:
-            auth = BasicAuth(config.admin_username, config.admin_password)
+        if admin_username and admin_password:
+            auth = BasicAuth(admin_username, admin_password)
 
         response = httpx.post(
             url,
