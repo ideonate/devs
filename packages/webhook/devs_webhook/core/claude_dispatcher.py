@@ -295,12 +295,22 @@ Always remember to PUSH your work to origin!
                     error=stderr if not success else None
                 )
 
-            # Log the actual output for debugging
+            # Log full output for debugging (useful in worker logs)
+            if stdout:
+                logger.info("Claude stdout",
+                           container=dev_name,
+                           full_stdout=stdout)
+            if stderr:
+                logger.info("Claude stderr",
+                           container=dev_name,
+                           full_stderr=stderr)
+
+            # Log error summary on failure
             if not success:
                 logger.error("Claude execution failed",
                            container=dev_name,
-                           stdout=stdout[:1000] if stdout else "",
-                           stderr=stderr[:1000] if stderr else "",
+                           stdout_tail=stdout[-1000:] if stdout and len(stdout) > 1000 else stdout,
+                           stderr_tail=stderr[-1000:] if stderr and len(stderr) > 1000 else stderr,
                            success=success)
 
             # If failed and no stderr, check stdout for error messages

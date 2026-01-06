@@ -327,6 +327,16 @@ class TestDispatcher(BaseDispatcher):
                        output_length=len(stdout) if stdout else 0,
                        error_length=len(stderr) if stderr else 0)
 
+            # Log full output for debugging (useful in worker logs)
+            if stdout:
+                logger.info("Test stdout",
+                           container=dev_name,
+                           full_stdout=stdout)
+            if stderr:
+                logger.info("Test stderr",
+                           container=dev_name,
+                           full_stderr=stderr)
+
             # 7. Upload artifacts to S3 if configured
             s3_url, artifact_url = self._upload_bridge_artifacts(
                 project=project,

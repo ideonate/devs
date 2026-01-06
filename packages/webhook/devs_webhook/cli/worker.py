@@ -261,18 +261,38 @@ def _process_task_subprocess(
                        task_id=task_id,
                        dev_name=dev_name,
                        output_length=len(result.output) if result.output else 0)
-            
+
+            # Log full output on success
+            if result.output:
+                logger.info("Task output",
+                           task_id=task_id,
+                           full_output=result.output)
+
             return {
                 'success': True,
                 'output': result.output,
             }
         else:
+            # Log tail of output on failure (last 2000 chars is more useful than first 500)
+            output_tail = ""
+            if result.output:
+                if len(result.output) > 2000:
+                    output_tail = f"...[truncated {len(result.output) - 2000} chars]...\n" + result.output[-2000:]
+                else:
+                    output_tail = result.output
+
             logger.error("Task execution failed",
                         task_id=task_id,
                         dev_name=dev_name,
                         error=result.error,
-                        output_preview=result.output[:500] if result.output else "")
-            
+                        output_tail=output_tail)
+
+            # Also log full output separately for debugging
+            if result.output:
+                logger.info("Full task output on failure",
+                           task_id=task_id,
+                           full_output=result.output)
+
             return {
                 'success': False,
                 'output': result.output or '',
