@@ -33,7 +33,7 @@ cli.add_command(worker)
 @click.option('--no-wait', is_flag=True, help='In burst mode, exit immediately after draining SQS queue without waiting for tasks to complete')
 @click.option('--timeout', type=int, default=None, help='Timeout in seconds for waiting on task completion in burst mode (default: wait indefinitely)')
 @click.option('--container-logs', is_flag=True, help='Enable container output logging to files (CloudWatch compatible)')
-@click.option('--container-logs-dir', type=click.Path(path_type=Path), default=None, help='Directory for container log files (default: /var/log/devs-webhook/containers)')
+@click.option('--container-logs-dir', type=click.Path(path_type=Path), default=None, help='Directory for container log files (default: ~/.devs/logs/webhook/containers)')
 def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source: str, burst: bool, no_wait: bool, timeout: int, container_logs: bool, container_logs_dir: Path):
     """Start the webhook handler server.
 

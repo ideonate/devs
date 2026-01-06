@@ -101,7 +101,7 @@ class WebhookConfig(BaseSettings, BaseConfig):
 
     # Container output logging (CloudWatch-friendly)
     container_logs_dir: Path = Field(
-        default_factory=lambda: Path("/var/log/devs-webhook/containers"),
+        default_factory=lambda: Path.home() / ".devs" / "logs" / "webhook" / "containers",
         description="Directory for container output logs (CloudWatch agent compatible)"
     )
     container_logs_enabled: bool = Field(
@@ -111,7 +111,7 @@ class WebhookConfig(BaseSettings, BaseConfig):
 
     # Worker process logging (captures full worker subprocess logs)
     worker_logs_dir: Path = Field(
-        default_factory=lambda: Path("/var/log/devs-webhook/workers"),
+        default_factory=lambda: Path.home() / ".devs" / "logs" / "webhook" / "workers",
         description="Directory for worker subprocess logs"
     )
     worker_logs_enabled: bool = Field(
