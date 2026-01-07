@@ -479,6 +479,35 @@ class TestDispatcher(BaseDispatcher):
             Combined markdown content from all report.md files, or None if none found
         """
         try:
+            # First, check what exists in test-results/ for diagnostic purposes
+            ls_cmd = "ls -la test-results/ 2>/dev/null || echo 'test-results directory does not exist'"
+            ls_success, ls_stdout, ls_stderr, ls_exit_code = container_manager.exec_command(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                command=ls_cmd,
+                debug=self.config.dev_mode,
+                stream=False,
+                extra_env=extra_env
+            )
+            logger.info("test-results directory listing",
+                       container=dev_name,
+                       ls_output=ls_stdout.strip() if ls_stdout else "empty",
+                       ls_exit_code=ls_exit_code)
+
+            # Also list subdirectories to see if report files exist
+            ls_recursive_cmd = "find test-results -type f -name '*.md' -o -name '*.html' -o -name '*.json' 2>/dev/null | head -20 || echo 'no files found'"
+            _, ls_recursive_stdout, _, _ = container_manager.exec_command(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                command=ls_recursive_cmd,
+                debug=self.config.dev_mode,
+                stream=False,
+                extra_env=extra_env
+            )
+            logger.info("test-results file listing",
+                       container=dev_name,
+                       files_found=ls_recursive_stdout.strip() if ls_recursive_stdout else "none")
+
             # Find all report.md files in test-results/ (2 levels deep)
             find_cmd = "find test-results -maxdepth 2 -name 'report.md' -type f 2>/dev/null | sort"
             success, stdout, stderr, exit_code = container_manager.exec_command(
@@ -491,8 +520,11 @@ class TestDispatcher(BaseDispatcher):
             )
 
             if not success or not stdout.strip():
-                logger.debug("No report.md files found in test-results/",
-                            container=dev_name)
+                logger.info("No report.md files found in test-results/",
+                           container=dev_name,
+                           find_success=success,
+                           find_exit_code=exit_code,
+                           find_stderr=stderr.strip() if stderr else "none")
                 return None
 
             report_files = stdout.strip().split('\n')
