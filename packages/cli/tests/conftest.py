@@ -3,12 +3,19 @@ import os
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from devs_common.core.project import Project
+
+
+@pytest.fixture(autouse=True)
+def mock_check_dependencies():
+    """Mock check_dependencies to prevent CLI from exiting due to missing tools."""
+    with patch('devs.cli.check_dependencies'):
+        yield
 
 
 @pytest.fixture
@@ -244,21 +251,28 @@ def mock_container_response():
 
 
 class MockContainer:
-    """Mock Docker container for testing."""
-    
+    """Mock Docker container for testing - matches ContainerInfo interface."""
+
     def __init__(self, name: str, status: str = "running", labels: Optional[Dict[str, str]] = None):
+        from datetime import datetime
         self.name = name.lstrip("/")
         self.status = status
+        self.labels = labels or {}
+        self.created = datetime.now()
+        self.id = f"mock-{name}"
+        self.container_id = self.id
+        # Extract dev_name and project_name from labels (like ContainerInfo does)
+        self.dev_name = self.labels.get("devs.name", "unknown")
+        self.project_name = self.labels.get("devs.project", "unknown")
         self.attrs = {
             "State": {
                 "Status": status,
                 "Running": status == "running"
             },
             "Config": {
-                "Labels": labels or {}
+                "Labels": self.labels
             }
         }
-        self.id = f"mock-{name}"
     
     def exec_run(self, cmd: str, **kwargs):
         """Mock exec_run method."""

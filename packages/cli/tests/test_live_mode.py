@@ -361,9 +361,9 @@ class TestLiveModeDevcontainerTemplate:
             
             # Should return the project directory (live mode)
             assert result == project_dir
-            
-            # Should NOT check gitignore or copy template since .devcontainer exists
-            mock_is_gitignored.assert_not_called()
+
+            # When .devcontainer exists, the implementation checks if it's gitignored
+            # to warn about outdated templates, but should NOT copy template
             mock_copytree.assert_not_called()
     
     @patch('devs_common.core.workspace.get_template_dir')

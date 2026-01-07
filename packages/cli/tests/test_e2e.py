@@ -11,7 +11,21 @@ from click.testing import CliRunner
 from devs.cli import cli
 
 
+def docker_available():
+    """Check if Docker is available."""
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            timeout=5
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        return False
+
+
 @pytest.mark.e2e
+@pytest.mark.skipif(not docker_available(), reason="Docker is not available")
 class TestEndToEnd:
     """End-to-end test suite using the actual devs project."""
     

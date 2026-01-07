@@ -151,9 +151,7 @@ class TestWebhookHandlerAuthorization:
     @pytest.mark.asyncio
     async def test_webhook_handler_blocks_unauthorized_user(self):
         """Test that webhook handler blocks unauthorized users for Claude dispatch."""
-        # Clear the config cache to ensure we get fresh config
         from devs_webhook.config import get_config
-        get_config.cache_clear()
 
         with patch.dict('os.environ', {
             'GITHUB_WEBHOOK_SECRET': 'test-secret',
@@ -163,66 +161,73 @@ class TestWebhookHandlerAuthorization:
             'ALLOWED_ORGS': 'testorg',
             'DEV_MODE': 'true'
         }):
+            # Clear the config cache inside patch context so new config gets patched env
+            get_config.cache_clear()
             handler = WebhookHandler()
-            
-            # Create a mock event from unauthorized user
-            headers = {'x-github-event': 'issues'}
-            payload = json.dumps({
-                'action': 'opened',
-                'repository': {
-                    'id': 1,
-                    'name': 'testrepo',
-                    'full_name': 'testorg/testrepo',
-                    'owner': {
-                        'login': 'testorg',
+            try:
+                # Mock ensure_repo_config to avoid actual repo cloning
+                from devs_common.devs_config import DevsOptions
+                handler.container_pool.ensure_repo_config = AsyncMock(return_value=DevsOptions())
+
+                # Create a mock event from unauthorized user
+                headers = {'x-github-event': 'issues'}
+                payload = json.dumps({
+                    'action': 'opened',
+                    'repository': {
                         'id': 1,
-                        'avatar_url': 'http://example.com',
-                        'html_url': 'http://example.com'
+                        'name': 'testrepo',
+                        'full_name': 'testorg/testrepo',
+                        'owner': {
+                            'login': 'testorg',
+                            'id': 1,
+                            'avatar_url': 'http://example.com',
+                            'html_url': 'http://example.com'
+                        },
+                        'html_url': 'http://example.com',
+                        'clone_url': 'http://example.com',
+                        'ssh_url': 'http://example.com',
+                        'default_branch': 'main'
                     },
-                    'html_url': 'http://example.com',
-                    'clone_url': 'http://example.com',
-                    'ssh_url': 'http://example.com',
-                    'default_branch': 'main'
-                },
-                'sender': {
-                    'login': 'unauthorized_user',  # Not in authorized list
-                    'id': 999,
-                    'avatar_url': 'http://example.com',
-                    'html_url': 'http://example.com'
-                },
-                'issue': {
-                    'id': 1,
-                    'number': 1,
-                    'title': 'Test issue',
-                    'body': '@botuser please help',
-                    'state': 'open',
-                    'user': {
-                        'login': 'unauthorized_user',
+                    'sender': {
+                        'login': 'unauthorized_user',  # Not in authorized list
                         'id': 999,
                         'avatar_url': 'http://example.com',
                         'html_url': 'http://example.com'
                     },
-                    'html_url': 'http://example.com',
-                    'created_at': '2024-01-01T00:00:00Z',
-                    'updated_at': '2024-01-01T00:00:00Z'
-                }
-            }).encode()
-            
-            # Mock the container pool to track if task was queued
-            handler.container_pool.queue_task = MagicMock(return_value=True)
-            
-            # Process the webhook
-            await handler.process_webhook(headers, payload, 'test-delivery-id')
-            
-            # Task should NOT have been queued due to unauthorized user
-            handler.container_pool.queue_task.assert_not_called()
-    
+                    'issue': {
+                        'id': 1,
+                        'number': 1,
+                        'title': 'Test issue',
+                        'body': '@botuser please help',
+                        'state': 'open',
+                        'user': {
+                            'login': 'unauthorized_user',
+                            'id': 999,
+                            'avatar_url': 'http://example.com',
+                            'html_url': 'http://example.com'
+                        },
+                        'html_url': 'http://example.com',
+                        'created_at': '2024-01-01T00:00:00Z',
+                        'updated_at': '2024-01-01T00:00:00Z'
+                    }
+                }).encode()
+
+                # Mock the container pool to track if task was queued
+                handler.container_pool.queue_task = AsyncMock(return_value=True)
+
+                # Process the webhook
+                await handler.process_webhook(headers, payload, 'test-delivery-id')
+
+                # Task should NOT have been queued due to unauthorized user
+                handler.container_pool.queue_task.assert_not_called()
+            finally:
+                # Clean up async workers
+                await handler.container_pool.shutdown()
+
     @pytest.mark.asyncio
     async def test_webhook_handler_allows_authorized_user(self):
         """Test that webhook handler allows authorized users for Claude dispatch."""
-        # Clear the config cache to ensure we get fresh config
         from devs_webhook.config import get_config
-        get_config.cache_clear()
 
         with patch.dict('os.environ', {
             'GITHUB_WEBHOOK_SECRET': 'test-secret',
@@ -232,66 +237,73 @@ class TestWebhookHandlerAuthorization:
             'ALLOWED_ORGS': 'testorg',
             'DEV_MODE': 'true'
         }):
+            # Clear the config cache inside patch context so new config gets patched env
+            get_config.cache_clear()
             handler = WebhookHandler()
-            
-            # Create a mock event from authorized user
-            headers = {'x-github-event': 'issues'}
-            payload = json.dumps({
-                'action': 'opened',
-                'repository': {
-                    'id': 1,
-                    'name': 'testrepo',
-                    'full_name': 'testorg/testrepo',
-                    'owner': {
-                        'login': 'testorg',
+            try:
+                # Mock ensure_repo_config to avoid actual repo cloning
+                from devs_common.devs_config import DevsOptions
+                handler.container_pool.ensure_repo_config = AsyncMock(return_value=DevsOptions())
+
+                # Create a mock event from authorized user
+                headers = {'x-github-event': 'issues'}
+                payload = json.dumps({
+                    'action': 'opened',
+                    'repository': {
                         'id': 1,
-                        'avatar_url': 'http://example.com',
-                        'html_url': 'http://example.com'
+                        'name': 'testrepo',
+                        'full_name': 'testorg/testrepo',
+                        'owner': {
+                            'login': 'testorg',
+                            'id': 1,
+                            'avatar_url': 'http://example.com',
+                            'html_url': 'http://example.com'
+                        },
+                        'html_url': 'http://example.com',
+                        'clone_url': 'http://example.com',
+                        'ssh_url': 'http://example.com',
+                        'default_branch': 'main'
                     },
-                    'html_url': 'http://example.com',
-                    'clone_url': 'http://example.com',
-                    'ssh_url': 'http://example.com',
-                    'default_branch': 'main'
-                },
-                'sender': {
-                    'login': 'alice',  # In authorized list
-                    'id': 123,
-                    'avatar_url': 'http://example.com',
-                    'html_url': 'http://example.com'
-                },
-                'issue': {
-                    'id': 1,
-                    'number': 1,
-                    'title': 'Test issue',
-                    'body': '@botuser please help',
-                    'state': 'open',
-                    'user': {
-                        'login': 'alice',
+                    'sender': {
+                        'login': 'alice',  # In authorized list
                         'id': 123,
                         'avatar_url': 'http://example.com',
                         'html_url': 'http://example.com'
                     },
-                    'html_url': 'http://example.com',
-                    'created_at': '2024-01-01T00:00:00Z',
-                    'updated_at': '2024-01-01T00:00:00Z'
-                }
-            }).encode()
-            
-            # Mock the container pool to track if task was queued
-            handler.container_pool.queue_task = MagicMock(return_value=True)
-            
-            # Process the webhook
-            await handler.process_webhook(headers, payload, 'test-delivery-id')
-            
-            # Task SHOULD have been queued for authorized user
-            handler.container_pool.queue_task.assert_called_once()
-    
+                    'issue': {
+                        'id': 1,
+                        'number': 1,
+                        'title': 'Test issue',
+                        'body': '@botuser please help',
+                        'state': 'open',
+                        'user': {
+                            'login': 'alice',
+                            'id': 123,
+                            'avatar_url': 'http://example.com',
+                            'html_url': 'http://example.com'
+                        },
+                        'html_url': 'http://example.com',
+                        'created_at': '2024-01-01T00:00:00Z',
+                        'updated_at': '2024-01-01T00:00:00Z'
+                    }
+                }).encode()
+
+                # Mock the container pool to track if task was queued
+                handler.container_pool.queue_task = AsyncMock(return_value=True)
+
+                # Process the webhook
+                await handler.process_webhook(headers, payload, 'test-delivery-id')
+
+                # Task SHOULD have been queued for authorized user
+                handler.container_pool.queue_task.assert_called_once()
+            finally:
+                # Clean up async workers
+                await handler.container_pool.shutdown()
+
     @pytest.mark.asyncio
     async def test_status_includes_authorized_users(self):
         """Test that status endpoint includes authorized trigger users."""
-        # Clear the config cache to ensure we get fresh config
         from devs_webhook.config import get_config
-        get_config.cache_clear()
 
         with patch.dict('os.environ', {
             'GITHUB_WEBHOOK_SECRET': 'test-secret',
@@ -301,14 +313,19 @@ class TestWebhookHandlerAuthorization:
             'AUTHORIZED_CI_TRIGGER_USERS': 'alice,bob,charlie,botuser',
             'DEV_MODE': 'true'
         }):
+            # Clear the config cache inside patch context so new config gets patched env
+            get_config.cache_clear()
             handler = WebhookHandler()
+            try:
+                # Mock container pool status with an async mock
+                handler.container_pool.get_status = AsyncMock(return_value={})
 
-            # Mock container pool status with an async mock
-            handler.container_pool.get_status = AsyncMock(return_value={})
+                status = await handler.get_status()
 
-            status = await handler.get_status()
-
-            assert 'authorized_trigger_users' in status
-            assert status['authorized_trigger_users'] == ['alice', 'bob', 'charlie']
-            assert 'authorized_ci_trigger_users' in status
-            assert status['authorized_ci_trigger_users'] == ['alice', 'bob', 'charlie', 'botuser']
+                assert 'authorized_trigger_users' in status
+                assert status['authorized_trigger_users'] == ['alice', 'bob', 'charlie']
+                assert 'authorized_ci_trigger_users' in status
+                assert status['authorized_ci_trigger_users'] == ['alice', 'bob', 'charlie', 'botuser']
+            finally:
+                # Clean up async workers
+                await handler.container_pool.shutdown()

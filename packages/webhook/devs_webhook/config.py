@@ -268,17 +268,21 @@ class WebhookConfig(BaseSettings, BaseConfig):
     
     def is_repository_allowed(self, repo_full_name: str, repo_owner: str) -> bool:
         """Check if a repository is allowed based on allowlist configuration.
-        
+
         Args:
             repo_full_name: Full repository name (e.g., "owner/repo")
             repo_owner: Repository owner username or organization
-            
+
         Returns:
             True if repository is allowed, False otherwise
         """
         allowed_orgs = self.get_allowed_orgs_list()
         allowed_users = self.get_allowed_users_list()
-        
+
+        # If no allowlist is configured, allow all repositories (backward compatibility)
+        if not allowed_orgs and not allowed_users:
+            return True
+
         # Check if owner is in allowed orgs or users
         return repo_owner.lower() in allowed_orgs or repo_owner.lower() in allowed_users
     

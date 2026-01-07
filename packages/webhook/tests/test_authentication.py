@@ -5,9 +5,9 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 import base64
 
-# Import the app
+# Import the app and config module
 from devs_webhook.app import app
-from devs_webhook.config import WebhookConfig
+from devs_webhook.config import WebhookConfig, get_config
 
 
 def create_basic_auth_header(username: str, password: str) -> dict:
@@ -20,7 +20,11 @@ def create_basic_auth_header(username: str, password: str) -> dict:
 @pytest.fixture
 def client():
     """Create test client."""
-    return TestClient(app)
+    # Clear the config cache before each test
+    get_config.cache_clear()
+    yield TestClient(app)
+    # Clear the cache after test too
+    get_config.cache_clear()
 
 
 @pytest.fixture
@@ -52,10 +56,11 @@ def mock_config_dev_mode():
 @pytest.fixture
 def mock_webhook_handler():
     """Mock webhook handler."""
+    from unittest.mock import AsyncMock
     handler = MagicMock()
-    handler.get_status.return_value = {"status": "healthy", "containers": []}
-    handler.list_containers.return_value = []
-    handler.stop_container.return_value = True
+    handler.get_status = AsyncMock(return_value={"status": "healthy", "containers": []})
+    handler.list_containers = AsyncMock(return_value=[])
+    handler.stop_container = AsyncMock(return_value=True)
     return handler
 
 
@@ -70,20 +75,11 @@ class TestPublicEndpoints:
     
     def test_health_endpoint(self, client):
         """Test detailed health endpoint."""
-        with patch("devs_webhook.app.get_config") as mock_get_config:
-            mock_config = MagicMock()
-            mock_config.dev_mode = False
-            mock_config.github_mentioned_user = "testuser"
-            mock_config.container_pool = "test1,test2"
-            mock_config.webhook_path = "/webhook"
-            mock_config.log_format = "json"
-            mock_get_config.return_value = mock_config
-            
-            response = client.get("/health")
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "healthy"
-            assert "config" in data
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["service"] == "devs-webhook"
 
 
 class TestProtectedEndpoints:
@@ -97,7 +93,7 @@ class TestProtectedEndpoints:
     
     def test_status_with_wrong_auth(self, client, mock_config_with_auth, mock_webhook_handler):
         """Test status endpoint with wrong credentials."""
-        with patch("devs_webhook.app.get_config", return_value=mock_config_with_auth):
+        with patch("devs_webhook.config.get_config", return_value=mock_config_with_auth):
             with patch("devs_webhook.app.get_webhook_handler", return_value=mock_webhook_handler):
                 headers = create_basic_auth_header("admin", "wrong_password")
                 response = client.get("/status", headers=headers)
@@ -105,12 +101,15 @@ class TestProtectedEndpoints:
     
     def test_status_with_correct_auth(self, client, mock_config_with_auth, mock_webhook_handler):
         """Test status endpoint with correct credentials."""
-        with patch("devs_webhook.app.get_config", return_value=mock_config_with_auth):
+        app.dependency_overrides[get_config] = lambda: mock_config_with_auth
+        try:
             with patch("devs_webhook.app.get_webhook_handler", return_value=mock_webhook_handler):
                 headers = create_basic_auth_header("admin", "secure_password")
                 response = client.get("/status", headers=headers)
                 assert response.status_code == 200
                 assert "status" in response.json()
+        finally:
+            app.dependency_overrides.clear()
     
     def test_containers_without_auth(self, client, mock_webhook_handler):
         """Test containers endpoint without authentication."""
@@ -120,12 +119,15 @@ class TestProtectedEndpoints:
     
     def test_containers_with_auth(self, client, mock_config_with_auth, mock_webhook_handler):
         """Test containers endpoint with authentication."""
-        with patch("devs_webhook.app.get_config", return_value=mock_config_with_auth):
+        app.dependency_overrides[get_config] = lambda: mock_config_with_auth
+        try:
             with patch("devs_webhook.app.get_webhook_handler", return_value=mock_webhook_handler):
                 headers = create_basic_auth_header("admin", "secure_password")
                 response = client.get("/containers", headers=headers)
                 assert response.status_code == 200
                 assert isinstance(response.json(), list)
+        finally:
+            app.dependency_overrides.clear()
     
     def test_stop_container_without_auth(self, client, mock_webhook_handler):
         """Test stop container endpoint without authentication."""
@@ -135,44 +137,53 @@ class TestProtectedEndpoints:
     
     def test_stop_container_with_auth(self, client, mock_config_with_auth, mock_webhook_handler):
         """Test stop container endpoint with authentication."""
-        with patch("devs_webhook.app.get_config", return_value=mock_config_with_auth):
+        app.dependency_overrides[get_config] = lambda: mock_config_with_auth
+        try:
             with patch("devs_webhook.app.get_webhook_handler", return_value=mock_webhook_handler):
                 headers = create_basic_auth_header("admin", "secure_password")
                 response = client.post("/container/test-container/stop", headers=headers)
                 assert response.status_code == 200
                 assert response.json()["status"] == "stopped"
+        finally:
+            app.dependency_overrides.clear()
 
 
 class TestDevModeAuthentication:
     """Test authentication behavior in development mode."""
-    
+
     def test_dev_mode_allows_any_auth(self, client, mock_config_dev_mode, mock_webhook_handler):
         """Test that dev mode with no password allows any credentials."""
-        with patch("devs_webhook.app.get_config", return_value=mock_config_dev_mode):
+        app.dependency_overrides[get_config] = lambda: mock_config_dev_mode
+        try:
             with patch("devs_webhook.app.get_webhook_handler", return_value=mock_webhook_handler):
                 # Should work with any credentials in dev mode without password
                 headers = create_basic_auth_header("anyuser", "anypass")
                 response = client.get("/status", headers=headers)
                 assert response.status_code == 200
-    
+        finally:
+            app.dependency_overrides.clear()
+
     def test_dev_mode_with_password(self, client, mock_webhook_handler):
         """Test that dev mode with password still requires correct auth."""
         config = MagicMock(spec=WebhookConfig)
         config.dev_mode = True
         config.admin_username = "admin"
         config.admin_password = "devpass"
-        
-        with patch("devs_webhook.app.get_config", return_value=config):
+
+        app.dependency_overrides[get_config] = lambda: config
+        try:
             with patch("devs_webhook.app.get_webhook_handler", return_value=mock_webhook_handler):
                 # Wrong password should fail even in dev mode
                 headers = create_basic_auth_header("admin", "wrongpass")
                 response = client.get("/status", headers=headers)
                 assert response.status_code == 401
-                
+
                 # Correct password should work
                 headers = create_basic_auth_header("admin", "devpass")
                 response = client.get("/status", headers=headers)
                 assert response.status_code == 200
+        finally:
+            app.dependency_overrides.clear()
 
 
 class TestWebhookEndpoint:

@@ -2,8 +2,8 @@
 
 import json
 import pytest
-from unittest.mock import patch
-from devs_webhook.config import WebhookConfig
+from unittest.mock import patch, AsyncMock
+from devs_webhook.config import WebhookConfig, get_config
 from devs_webhook.core.webhook_handler import WebhookHandler
 from devs_webhook.github.parser import WebhookParser
 
@@ -140,87 +140,102 @@ class TestAllowlist:
             'GITHUB_TOKEN': 'token',
             'GITHUB_MENTIONED_USER': 'testuser'
         }):
+            # Clear the config cache inside the patch context so new config gets patched env
+            get_config.cache_clear()
             handler = WebhookHandler()
-            
-            # Create event from non-allowlisted repo
-            event = self.create_mock_issue_event(repo_owner='blocked-org')
-            
-            # Mock the container pool to avoid actual container operations
-            with patch.object(handler.container_pool, 'queue_task') as mock_queue:
-                headers = {"x-github-event": "issues"}
-                payload = json.dumps({
-                    "action": "opened",
-                    "repository": {
-                        "full_name": "blocked-org/repo",
-                        "owner": {"login": "blocked-org"}
-                    },
-                    "issue": {"body": "@testuser help"},
-                    "sender": {"login": "reporter"}
-                }).encode()
-                
-                await handler.process_webhook(headers, payload, "test-delivery-id")
-                
-                # Verify task was not queued
-                mock_queue.assert_not_called()
+            try:
+                # Create event from non-allowlisted repo
+                event = self.create_mock_issue_event(repo_owner='blocked-org')
+
+                # Mock the container pool to avoid actual container operations
+                mock_queue = AsyncMock(return_value=True)
+                with patch.object(handler.container_pool, 'queue_task', mock_queue):
+                    headers = {"x-github-event": "issues"}
+                    payload = json.dumps({
+                        "action": "opened",
+                        "repository": {
+                            "full_name": "blocked-org/repo",
+                            "owner": {"login": "blocked-org"}
+                        },
+                        "issue": {"body": "@testuser help"},
+                        "sender": {"login": "reporter"}
+                    }).encode()
+
+                    await handler.process_webhook(headers, payload, "test-delivery-id")
+
+                    # Verify task was not queued
+                    mock_queue.assert_not_called()
+            finally:
+                # Clean up async workers
+                await handler.container_pool.shutdown()
     
-    @pytest.mark.asyncio 
+    @pytest.mark.asyncio
     async def test_webhook_handler_allows_allowlisted_repo(self):
         """Test that webhook handler allows events from allowlisted repositories."""
         # Mock environment with allowlist
         with patch.dict('os.environ', {
             'ALLOWED_ORGS': 'allowed-org',
             'GITHUB_WEBHOOK_SECRET': 'secret',
-            'GITHUB_TOKEN': 'token', 
+            'GITHUB_TOKEN': 'token',
             'GITHUB_MENTIONED_USER': 'testuser'
         }):
+            # Clear the config cache inside the patch context so new config gets patched env
+            get_config.cache_clear()
             handler = WebhookHandler()
-            
-            # Mock the container pool to avoid actual container operations
-            with patch.object(handler.container_pool, 'queue_task', return_value=True) as mock_queue:
-                headers = {"x-github-event": "issues"}
-                payload_data = {
-                    "action": "opened",
-                    "repository": {
-                        "id": 789,
-                        "name": "repo",
-                        "full_name": "allowed-org/repo",
-                        "owner": {
-                            "login": "allowed-org",
-                            "id": 111,
-                            "avatar_url": "https://github.com/avatar.jpg",
-                            "html_url": "https://github.com/allowed-org"
-                        },
-                        "html_url": "https://github.com/allowed-org/repo",
-                        "clone_url": "https://github.com/allowed-org/repo.git",
-                        "ssh_url": "git@github.com:allowed-org/repo.git",
-                        "default_branch": "main"
-                    },
-                    "issue": {
-                        "id": 1,
-                        "number": 123,
-                        "title": "Test issue",
-                        "body": "@testuser help with this",
-                        "state": "open",
-                        "user": {
-                            "login": "reporter",
-                            "id": 456,
-                            "avatar_url": "https://github.com/avatar.jpg",
-                            "html_url": "https://github.com/reporter"
-                        },
-                        "html_url": "https://github.com/allowed-org/repo/issues/123",
-                        "created_at": "2023-01-01T00:00:00Z",
-                        "updated_at": "2023-01-01T00:00:00Z"
-                    },
-                    "sender": {
-                        "login": "reporter",
-                        "id": 456,
-                        "avatar_url": "https://github.com/avatar.jpg",
-                        "html_url": "https://github.com/reporter"
-                    }
-                }
-                payload = json.dumps(payload_data).encode()
-                
-                await handler.process_webhook(headers, payload, "test-delivery-id")
-                
-                # Verify task was queued
-                mock_queue.assert_called_once()
+            try:
+                # Mock the container pool methods to avoid actual operations
+                from devs_common.devs_config import DevsOptions
+                mock_queue = AsyncMock(return_value=True)
+                mock_ensure_config = AsyncMock(return_value=DevsOptions())
+                with patch.object(handler.container_pool, 'queue_task', mock_queue):
+                    with patch.object(handler.container_pool, 'ensure_repo_config', mock_ensure_config):
+                        headers = {"x-github-event": "issues"}
+                        payload_data = {
+                            "action": "opened",
+                            "repository": {
+                                "id": 789,
+                                "name": "repo",
+                                "full_name": "allowed-org/repo",
+                                "owner": {
+                                    "login": "allowed-org",
+                                    "id": 111,
+                                    "avatar_url": "https://github.com/avatar.jpg",
+                                    "html_url": "https://github.com/allowed-org"
+                                },
+                                "html_url": "https://github.com/allowed-org/repo",
+                                "clone_url": "https://github.com/allowed-org/repo.git",
+                                "ssh_url": "git@github.com:allowed-org/repo.git",
+                                "default_branch": "main"
+                            },
+                            "issue": {
+                                "id": 1,
+                                "number": 123,
+                                "title": "Test issue",
+                                "body": "@testuser help with this",
+                                "state": "open",
+                                "user": {
+                                    "login": "reporter",
+                                    "id": 456,
+                                    "avatar_url": "https://github.com/avatar.jpg",
+                                    "html_url": "https://github.com/reporter"
+                                },
+                                "html_url": "https://github.com/allowed-org/repo/issues/123",
+                                "created_at": "2023-01-01T00:00:00Z",
+                                "updated_at": "2023-01-01T00:00:00Z"
+                            },
+                            "sender": {
+                                "login": "reporter",
+                                "id": 456,
+                                "avatar_url": "https://github.com/avatar.jpg",
+                                "html_url": "https://github.com/reporter"
+                            }
+                        }
+                        payload = json.dumps(payload_data).encode()
+
+                        await handler.process_webhook(headers, payload, "test-delivery-id")
+
+                        # Verify task was queued
+                        mock_queue.assert_called_once()
+            finally:
+                # Clean up async workers
+                await handler.container_pool.shutdown()
