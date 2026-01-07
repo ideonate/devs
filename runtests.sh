@@ -37,17 +37,6 @@ fi
 
 print_status "Using Python: $(python3 --version)"
 
-# Create and activate virtual environment to avoid PEP 668 externally-managed-environment errors
-VENV_DIR="${TEST_RESULTS_BASE}/.venv"
-print_status "Creating virtual environment at ${VENV_DIR}..."
-python3 -m venv "${VENV_DIR}"
-source "${VENV_DIR}/bin/activate"
-print_status "Virtual environment activated"
-
-# Upgrade pip in the virtual environment
-print_status "Upgrading pip..."
-pip install --upgrade pip --quiet
-
 # Install packages in development mode
 print_status "Installing packages in development mode..."
 
