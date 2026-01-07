@@ -65,19 +65,36 @@ def temp_project(tmp_path):
     """Create a temporary project with devcontainer configuration."""
     project_path = tmp_path / "test-project"
     project_path.mkdir()
-    
-    # Create .git directory
-    git_dir = project_path / ".git"
-    git_dir.mkdir()
-    
-    # Create config file with remote URL
-    config_file = git_dir / "config"
-    config_file.write_text("""[core]
-    repositoryformatversion = 0
-[remote "origin"]
-    url = https://github.com/test-org/test-repo.git
-    fetch = +refs/heads/*:refs/remotes/origin/*
-""")
+
+    # Initialize a proper git repository using git init
+    subprocess.run(
+        ['git', 'init'],
+        cwd=project_path,
+        capture_output=True,
+        check=True
+    )
+
+    # Configure git user for commits
+    subprocess.run(
+        ['git', 'config', 'user.email', 'test@test.com'],
+        cwd=project_path,
+        capture_output=True,
+        check=True
+    )
+    subprocess.run(
+        ['git', 'config', 'user.name', 'Test User'],
+        cwd=project_path,
+        capture_output=True,
+        check=True
+    )
+
+    # Add remote origin
+    subprocess.run(
+        ['git', 'remote', 'add', 'origin', 'https://github.com/test-org/test-repo.git'],
+        cwd=project_path,
+        capture_output=True,
+        check=True
+    )
     
     # Create .devcontainer directory
     devcontainer_dir = project_path / ".devcontainer"
@@ -132,23 +149,38 @@ def mock_project(temp_project):
 
 @pytest.fixture
 def mock_container_manager(mock_docker_client, mock_project):
-    """Create a mock ContainerManager instance."""
+    """Create a mock ContainerManager instance with Docker mocked."""
+    from unittest.mock import patch
     from devs_common.core.container import ContainerManager
-    
-    manager = ContainerManager(mock_project)
-    manager.docker_client = mock_docker_client
-    return manager
+
+    # Patch Docker before creating ContainerManager since __init__ connects to Docker
+    with patch('devs_common.utils.docker_client.docker') as mock_docker_module:
+        mock_docker_module.from_env.return_value = mock_docker_client
+        mock_docker_client.ping = MagicMock()  # Add ping method for connection test
+
+        manager = ContainerManager(mock_project)
+        # Replace the docker attribute with our mock
+        manager.docker.client = mock_docker_client
+        yield manager
 
 
 @pytest.fixture
 def mock_workspace_manager(mock_project, tmp_path):
     """Create a mock WorkspaceManager instance."""
     from devs_common.core.workspace import WorkspaceManager
-    
-    manager = WorkspaceManager(mock_project)
-    # Override the workspaces directory to use temp path
-    manager.workspaces_dir = tmp_path / "workspaces"
-    manager.workspaces_dir.mkdir(exist_ok=True)
+    from devs_common.config import BaseConfig
+
+    # Create a mock config with the temp workspaces directory
+    workspaces_dir = tmp_path / "workspaces"
+    workspaces_dir.mkdir(exist_ok=True)
+
+    mock_config = MagicMock(spec=BaseConfig)
+    mock_config.workspaces_dir = workspaces_dir
+    mock_config.ensure_directories = MagicMock()
+
+    manager = WorkspaceManager(mock_project, config=mock_config)
+    # Also add workspaces_dir directly for tests that access it directly
+    manager.workspaces_dir = workspaces_dir
     return manager
 
 
