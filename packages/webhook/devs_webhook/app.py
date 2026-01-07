@@ -9,6 +9,7 @@ Architecture:
 """
 
 import secrets
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import JSONResponse
@@ -41,17 +42,17 @@ class TestRunTestsRequest(BaseModel):
     commit_sha: str = "HEAD"  # Commit SHA to test
     pr_number: Optional[int] = None  # PR number (creates PR event instead of push event)
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="DevContainer Webhook Handler",
-    description="GitHub webhook handler for automated devcontainer operations with Claude Code",
-    version="0.1.0"
-)
+
+# Initialize webhook handler lazily (used in lifespan)
+webhook_handler = None
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Handle graceful shutdown - clean up all running containers."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle application lifespan events (startup and shutdown)."""
+    # Startup: nothing needed currently
+    yield
+    # Shutdown: clean up all running containers
     global webhook_handler
     if webhook_handler is not None:
         logger.info("Graceful shutdown initiated - cleaning up containers")
@@ -61,11 +62,17 @@ async def shutdown_event():
         except Exception as e:
             logger.error("Error during graceful shutdown", error=str(e))
 
+
+# Initialize FastAPI app with lifespan handler
+app = FastAPI(
+    title="DevContainer Webhook Handler",
+    description="GitHub webhook handler for automated devcontainer operations with Claude Code",
+    version="0.1.0",
+    lifespan=lifespan
+)
+
 # Security setup for admin endpoints
 security = HTTPBasic()
-
-# Initialize webhook handler lazily
-webhook_handler = None
 
 
 def get_webhook_handler():

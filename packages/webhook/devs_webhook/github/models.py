@@ -3,7 +3,7 @@
 import re
 import hashlib
 from typing import Optional, Dict, Any, List, Union, Annotated
-from pydantic import BaseModel, Field, Discriminator, Tag
+from pydantic import BaseModel, ConfigDict, Field, Discriminator, Tag
 from datetime import datetime
 
 
@@ -50,9 +50,8 @@ class GitHubIssue(BaseModel):
     # Additional fields that may be present for PRs treated as issues
     draft: Optional[bool] = None
     pull_request: Optional[Dict[str, Any]] = None
-    
-    class Config:
-        extra = "ignore"  # Ignore additional fields not in model
+
+    model_config = ConfigDict(extra="ignore")  # Ignore additional fields not in model
 
 
 class GitHubPullRequest(BaseModel):
@@ -279,12 +278,10 @@ Clone URL: {self.repository.clone_url}
 class TestIssueEvent(IssueEvent):
     """Test event for issues, used in unit tests."""
 
-    is_test: bool = True # Mark as test event
-   
-    class Config:
-        arbitrary_types_allowed = True
-        extra = "allow"
-    
+    is_test: bool = True  # Mark as test event
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
+
     def __init__(self, **data):
         super().__init__(**data)
         self.action = "opened"  # Default action for test events
@@ -372,9 +369,7 @@ class TestPushEvent(PushEvent):
 
     is_test: bool = True  # Mark as test event to skip GitHub Checks API calls
 
-    class Config:
-        arbitrary_types_allowed = True
-        extra = "allow"
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
     def get_context_for_claude(self) -> str:
         return f"""Test push event for CI testing."""
@@ -385,9 +380,7 @@ class TestPullRequestEvent(PullRequestEvent):
 
     is_test: bool = True  # Mark as test event to skip GitHub Checks API calls
 
-    class Config:
-        arbitrary_types_allowed = True
-        extra = "allow"
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
     def get_context_for_claude(self) -> str:
         return f"""Test pull request event for CI testing."""

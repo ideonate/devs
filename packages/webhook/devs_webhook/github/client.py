@@ -1,6 +1,6 @@
 """GitHub API client using PyGithub."""
 
-from github import Github
+from github import Github, Auth
 from github.GithubException import GithubException
 from typing import Optional, Dict, Any, List
 from pathlib import Path
@@ -15,17 +15,18 @@ logger = structlog.get_logger()
 
 class GitHubClient:
     """GitHub API client using PyGithub."""
-    
+
     def __init__(self, config):
         """Initialize GitHub client.
-        
+
         Args:
             config: WebhookConfig instance
         """
         self.config = config
         self.token = config.github_token
         self.app_auth = config.create_github_app_auth("github client")
-        self.github = Github(self.token)
+        # Use the new Auth.Token pattern instead of deprecated login_or_token
+        self.github = Github(auth=Auth.Token(self.token))
         
         if self.app_auth:
             logger.info("GitHub API client initialized with PyGithub and GitHub App authentication")
