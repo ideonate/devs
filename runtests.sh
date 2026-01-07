@@ -79,12 +79,13 @@ pip install pytest pytest-html pytest-json-report pytest-md-report --quiet
 # Track overall test status
 OVERALL_EXIT_CODE=0
 
-# Run CLI package tests
-print_status "Running CLI package tests..."
+# Run simpler CLI package tests (tests that don't require Docker)
+# These include project tests which use mocks for git operations
+print_status "Running CLI package tests (simpler tests only)..."
 CLI_RESULTS_DIR="${TEST_RESULTS_BASE}/cli"
 mkdir -p "${CLI_RESULTS_DIR}"
 
-pytest packages/cli/tests/ -v --tb=short \
+pytest packages/cli/tests/test_project.py -v --tb=short \
     --html="${CLI_RESULTS_DIR}/report.html" --self-contained-html \
     --json-report --json-report-file="${CLI_RESULTS_DIR}/report.json" --json-report-indent=2 \
     --md-report --md-report-flavor gfm --md-report-output "${CLI_RESULTS_DIR}/report.md" \
@@ -96,7 +97,7 @@ else
     print_error "CLI package tests failed!"
 fi
 
-# Run Webhook package tests
+# Run Webhook package tests (all are simpler tests, no Docker required)
 print_status "Running Webhook package tests..."
 WEBHOOK_RESULTS_DIR="${TEST_RESULTS_BASE}/webhook"
 mkdir -p "${WEBHOOK_RESULTS_DIR}"
