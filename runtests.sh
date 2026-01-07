@@ -102,6 +102,14 @@ print_status "Running Webhook package tests..."
 WEBHOOK_RESULTS_DIR="${TEST_RESULTS_BASE}/webhook"
 mkdir -p "${WEBHOOK_RESULTS_DIR}"
 
+# Set dummy environment variables for webhook tests
+# These are required by the webhook config validation when importing the app module
+export GITHUB_TOKEN="test_token_for_ci"
+export GITHUB_MENTIONED_USER="testuser"
+export GITHUB_WEBHOOK_SECRET="test_secret_for_ci"
+export ADMIN_PASSWORD="test_admin_password"
+export DEV_MODE="true"
+
 pytest packages/webhook/tests/ -v --tb=short \
     --html="${WEBHOOK_RESULTS_DIR}/report.html" --self-contained-html \
     --json-report --json-report-file="${WEBHOOK_RESULTS_DIR}/report.json" --json-report-indent=2 \
