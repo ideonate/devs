@@ -30,11 +30,11 @@ setup_python_env() {
             python3 -m venv venv
             echo "Created virtual environment at $dir/venv"
         fi
-        
+
         # Activate and install requirements
         source venv/bin/activate
         pip install --upgrade pip
-        
+
         # Install requirements with SSH key support for private repos
         if [ -f /home/node/.ssh/id_ed25519_github ]; then
             echo "Installing Python dependencies with SSH key support..."
@@ -44,7 +44,7 @@ setup_python_env() {
             pip install -r requirements.txt
         fi
         echo "Installed Python dependencies for $dir"
-        
+
         # Install development dependencies if available
         if [ -f "requirements-dev.txt" ]; then
             if [ -f /home/node/.ssh/id_ed25519_github ]; then
@@ -54,20 +54,41 @@ setup_python_env() {
             fi
             echo "Installed development dependencies for $dir"
         fi
-        
+
         # Install pre-commit hooks if .pre-commit-config.yaml exists
         if [ -f ".pre-commit-config.yaml" ]; then
             pre-commit install
             echo "Installed pre-commit hooks for $dir"
         fi
-        
+
         # Create .python-version file pointing to the venv
         venv_path="$(pwd)/venv"
         echo "$venv_path" > .python-version
         echo "Created .python-version file pointing to $venv_path for $dir"
-        
+
         cd ..
     fi
+}
+
+# Function to install a Python package from pyproject.toml in editable mode
+install_pyproject_package() {
+    local pkg_dir="$1"
+    local extras="${2:-dev}"  # Default to [dev] extras
+
+    if [ ! -f "$pkg_dir/pyproject.toml" ]; then
+        return 1
+    fi
+
+    echo "📦 Installing $pkg_dir in editable mode with [$extras] extras..."
+
+    if [ -f /home/node/.ssh/id_ed25519_github ]; then
+        GIT_SSH_COMMAND="ssh -i /home/node/.ssh/id_ed25519_github -o StrictHostKeyChecking=no" \
+            pip install -e "$pkg_dir[$extras]"
+    else
+        pip install -e "$pkg_dir[$extras]"
+    fi
+
+    echo "✅ Installed $pkg_dir"
 }
 
 # Function to setup Node modules in a directory
@@ -106,24 +127,72 @@ for dirpath in */; do
     fi
 done
 
-# Also check root directory for requirements.txt
-echo "Checking root directory for requirements.txt..."
-if [ -f "requirements.txt" ]; then
-    echo "Found requirements.txt in root directory, setting up Python virtual environment..."
-    
-    # Always use external venv location to keep workspace clean
-    VENV_DIR="$EXTERNAL_VENV_BASE/workspace-venv"
-    mkdir -p "$(dirname "$VENV_DIR")"
-    echo "Using venv location: $VENV_DIR"
-    
-    if [ ! -d "$VENV_DIR" ]; then
-        python3 -m venv "$VENV_DIR"
-        echo "Created virtual environment at $VENV_DIR"
+# Setup Python virtual environment
+echo "Setting up Python virtual environment..."
+
+# Always use external venv location to keep workspace clean
+VENV_DIR="$EXTERNAL_VENV_BASE/workspace-venv"
+mkdir -p "$(dirname "$VENV_DIR")"
+echo "Using venv location: $VENV_DIR"
+
+if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR"
+    echo "Created virtual environment at $VENV_DIR"
+fi
+
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip
+
+# Check for monorepo structure with packages/ directory containing pyproject.toml files
+PYTHON_INSTALLED=false
+if [ -d "packages" ]; then
+    echo "Detected packages/ directory - checking for Python monorepo structure..."
+
+    # Count packages with pyproject.toml
+    PKG_COUNT=0
+    for pkg_dir in packages/*/; do
+        if [ -f "${pkg_dir}pyproject.toml" ]; then
+            PKG_COUNT=$((PKG_COUNT + 1))
+        fi
+    done
+
+    if [ "$PKG_COUNT" -gt 0 ]; then
+        echo "Found $PKG_COUNT Python packages in packages/ directory"
+        PYTHON_INSTALLED=true
+
+        # Install common package first (if it exists) since other packages depend on it
+        if [ -f "packages/common/pyproject.toml" ]; then
+            install_pyproject_package "packages/common" "dev"
+        fi
+
+        # Install remaining packages in editable mode with dev dependencies
+        for pkg_dir in packages/*/; do
+            pkg_name="${pkg_dir%/}"
+            # Skip common since we already installed it
+            if [ "$pkg_name" = "packages/common" ]; then
+                continue
+            fi
+            if [ -f "${pkg_dir}pyproject.toml" ]; then
+                install_pyproject_package "$pkg_name" "dev"
+            fi
+        done
+
+        echo "✅ All monorepo packages installed in editable mode"
     fi
-    
-    source "$VENV_DIR/bin/activate"
-    pip install --upgrade pip
-    
+fi
+
+# Check for root pyproject.toml (single package project)
+if [ "$PYTHON_INSTALLED" = "false" ] && [ -f "pyproject.toml" ]; then
+    echo "Found pyproject.toml in root directory..."
+    PYTHON_INSTALLED=true
+    install_pyproject_package "." "dev"
+fi
+
+# Fall back to requirements.txt if no pyproject.toml found
+if [ "$PYTHON_INSTALLED" = "false" ] && [ -f "requirements.txt" ]; then
+    echo "Found requirements.txt in root directory, installing dependencies..."
+    PYTHON_INSTALLED=true
+
     # Install requirements with SSH key support for private repos
     if [ -f /home/node/.ssh/id_ed25519_github ]; then
         echo "Installing Python dependencies with SSH key support..."
@@ -133,7 +202,7 @@ if [ -f "requirements.txt" ]; then
         pip install -r requirements.txt
     fi
     echo "Installed Python dependencies in root directory"
-    
+
     if [ -f "requirements-dev.txt" ]; then
         if [ -f /home/node/.ssh/id_ed25519_github ]; then
             GIT_SSH_COMMAND="ssh -i /home/node/.ssh/id_ed25519_github -o StrictHostKeyChecking=no" pip install -r requirements-dev.txt
@@ -142,28 +211,31 @@ if [ -f "requirements.txt" ]; then
         fi
         echo "Installed development dependencies in root directory"
     fi
-    
+fi
+
+# Common post-install tasks for Python projects
+if [ "$PYTHON_INSTALLED" = "true" ]; then
     if [ -f ".pre-commit-config.yaml" ]; then
         pre-commit install
         echo "Installed pre-commit hooks in root directory"
     fi
-    
+
     # Handle potential .python-version file from host
     if [ -f ".python-version" ]; then
         echo "⚠️  Found .python-version file (from host) - this is ignored in the container"
         echo "   The container uses its own Python environment at: $VENV_DIR"
     fi
-    
+
     # Create a symlink to help VS Code discover the Python interpreter
     # This is a well-known location that the Python extension checks
     if [ ! -e "$HOME/.python_venv" ]; then
         ln -s "$VENV_DIR" "$HOME/.python_venv"
         echo "Created symlink at ~/.python_venv for VS Code Python discovery"
     fi
-    
+
     echo "✅ Python environment ready at: $VENV_DIR"
     echo "   To activate: source $VENV_DIR/bin/activate"
-    
+
     # Always create VS Code settings for the external venv
     if [ -d ".vscode" ] || [ -f *.code-workspace 2>/dev/null ]; then
         mkdir -p .vscode
@@ -177,7 +249,7 @@ EOF
         echo "Created .vscode/settings.devcontainer.json for VS Code Python extension"
     fi
 else
-    echo "No requirements.txt found in root directory"
+    echo "No Python project detected (no pyproject.toml or requirements.txt found)"
 fi
 
 # Auto-discover Node projects (any directory with package.json)
@@ -213,27 +285,28 @@ echo ""
 echo "Discovered environments:"
 
 # Show discovered Python environments
-# Check root directory first
-if [ -f "./requirements.txt" ] || [ -f "./package.json" ]; then
-    if [ -f "./requirements.txt" ]; then
-        echo "  Python (root): source $EXTERNAL_VENV_BASE/workspace-venv/bin/activate"
-    fi
-    if [ -f "./package.json" ]; then
-        echo "  Node (root): npm run dev (or check package.json scripts)"
+if [ "$PYTHON_INSTALLED" = "true" ]; then
+    echo "  Python: source $EXTERNAL_VENV_BASE/workspace-venv/bin/activate"
+    # List installed packages if monorepo
+    if [ -d "packages" ]; then
+        for pkg_dir in packages/*/; do
+            if [ -f "${pkg_dir}pyproject.toml" ]; then
+                pkg_name="${pkg_dir%/}"
+                echo "    - $pkg_name (editable install)"
+            fi
+        done
     fi
 fi
 
-# Check subdirectories
-if [ -d * ] 2>/dev/null; then
-    for dirpath in */; do
-        dirname=${dirpath%/}  # Remove trailing slash
-        if [ -d "$dirname" ]; then
-            if [ -f "$dirname/requirements.txt" ]; then
-                echo "  Python ($dirname): cd $dirname && source venv/bin/activate"
-            fi
-            if [ -f "$dirname/package.json" ]; then
-                echo "  Node ($dirname): cd $dirname && npm run dev (or check package.json scripts)"
-            fi
-        fi
-    done
+# Check for Node.js
+if [ -f "./package.json" ]; then
+    echo "  Node (root): npm run dev (or check package.json scripts)"
 fi
+
+# Check subdirectories for Node projects
+for dirpath in */; do
+    dirname=${dirpath%/}
+    if [ -d "$dirname" ] && [ -f "$dirname/package.json" ]; then
+        echo "  Node ($dirname): cd $dirname && npm run dev (or check package.json scripts)"
+    fi
+done 2>/dev/null || true
