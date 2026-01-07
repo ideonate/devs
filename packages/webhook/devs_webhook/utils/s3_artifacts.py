@@ -69,6 +69,86 @@ class S3ArtifactUploader:
                 )
         return self._s3_client
 
+    def _generate_s3_key(
+        self,
+        repo_name: str,
+        task_type: str,
+        filename: str
+    ) -> str:
+        """Generate S3 key with secret token for URL obscurity.
+
+        Args:
+            repo_name: Repository name (owner/repo format)
+            task_type: Type of task (e.g., "tests", "claude")
+            filename: Filename including extension
+
+        Returns:
+            S3 key with format: prefix/repo-name/task-type/secret-token/filename
+        """
+        secret_token = generate_secret_token(32)
+        safe_repo_name = repo_name.replace("/", "-")
+        return f"{self.prefix}/{safe_repo_name}/{task_type}/{secret_token}/{filename}"
+
+    def _upload_to_s3(
+        self,
+        local_path: Path,
+        s3_key: str,
+        description: str,
+        task_id: str,
+        extra_log_fields: Optional[dict] = None
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Upload a local file to S3 and return URLs.
+
+        Args:
+            local_path: Path to the local file to upload
+            s3_key: S3 key to upload to
+            description: Description for logging (e.g., "artifacts", "file")
+            task_id: Task identifier for logging
+            extra_log_fields: Additional fields to include in log messages
+
+        Returns:
+            Tuple of (s3_url, public_url):
+                - s3_url: S3 URL of the uploaded file (s3://bucket/key)
+                - public_url: Public HTTP URL if base_url is configured, None otherwise
+            Both are None if upload failed.
+        """
+        log_fields = extra_log_fields or {}
+
+        try:
+            s3_client = self._get_s3_client()
+
+            logger.info(f"Uploading {description} to S3",
+                       bucket=self.bucket,
+                       key=s3_key,
+                       **log_fields)
+
+            s3_client.upload_file(
+                str(local_path),
+                self.bucket,
+                s3_key
+            )
+
+            s3_url = f"s3://{self.bucket}/{s3_key}"
+            public_url = f"{self.base_url}/{s3_key}" if self.base_url else None
+
+            logger.info(f"{description.capitalize()} upload successful",
+                       s3_url=s3_url,
+                       public_url=public_url,
+                       task_id=task_id)
+
+            return s3_url, public_url
+
+        except ImportError:
+            # boto3 not installed - already logged
+            return None, None
+        except Exception as e:
+            logger.error(f"Failed to upload {description} to S3",
+                        bucket=self.bucket,
+                        key=s3_key,
+                        error=str(e),
+                        exc_info=True)
+            return None, None
+
     def upload_directory_as_tar(
         self,
         directory: Path,
@@ -108,69 +188,78 @@ class S3ArtifactUploader:
                        directory=str(directory))
             return None, None
 
-        # Generate a secret token for URL obscurity (43 chars from 32 bytes)
-        secret_token = generate_secret_token(32)
-
-        # Generate S3 key with timestamp and secret token for uniqueness and obscurity
-        # Format: prefix/repo-name/task-type/secret-token/timestamp-taskid-devname.tar.gz
+        # Generate S3 key
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        safe_repo_name = repo_name.replace("/", "-")
-        s3_key = f"{self.prefix}/{safe_repo_name}/{task_type}/{secret_token}/{timestamp}-{task_id}-{dev_name}.tar.gz"
+        filename = f"{timestamp}-{task_id}-{dev_name}.tar.gz"
+        s3_key = self._generate_s3_key(repo_name, task_type, filename)
+
+        # Create tar.gz in a temporary file
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp_file:
+            tmp_path = Path(tmp_file.name)
 
         try:
-            s3_client = self._get_s3_client()
+            # Create tar archive
+            with tarfile.open(tmp_path, "w:gz") as tar:
+                tar.add(directory, arcname=directory.name)
 
-            # Create tar.gz in a temporary file
-            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp_file:
-                tmp_path = Path(tmp_file.name)
+            return self._upload_to_s3(
+                local_path=tmp_path,
+                s3_key=s3_key,
+                description="artifacts",
+                task_id=task_id,
+                extra_log_fields={"directory": str(directory), "file_count": len(contents)}
+            )
+        finally:
+            # Clean up temporary file
+            if tmp_path.exists():
+                tmp_path.unlink()
 
-            try:
-                # Create tar archive
-                with tarfile.open(tmp_path, "w:gz") as tar:
-                    tar.add(directory, arcname=directory.name)
+    def upload_file(
+        self,
+        file_path: Path,
+        repo_name: str,
+        task_id: str,
+        dev_name: str,
+        task_type: str = "tests",
+        file_suffix: str = ""
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Upload a single file to S3.
 
-                # Upload to S3
-                logger.info("Uploading artifacts to S3",
-                           bucket=self.bucket,
-                           key=s3_key,
-                           directory=str(directory),
-                           file_count=len(contents))
+        The S3 key includes a cryptographically secure random token to make
+        the URL difficult to guess, providing security through obscurity.
 
-                s3_client.upload_file(
-                    str(tmp_path),
-                    self.bucket,
-                    s3_key
-                )
+        Args:
+            file_path: Path to file to upload
+            repo_name: Repository name (owner/repo format)
+            task_id: Unique task identifier
+            dev_name: Container/dev name
+            task_type: Type of task (e.g., "tests", "claude")
+            file_suffix: Optional suffix to add before file extension (e.g., "-worker")
 
-                s3_url = f"s3://{self.bucket}/{s3_key}"
-
-                # Construct public URL if base_url is configured
-                public_url = None
-                if self.base_url:
-                    public_url = f"{self.base_url}/{s3_key}"
-
-                logger.info("Artifact upload successful",
-                           s3_url=s3_url,
-                           public_url=public_url,
-                           task_id=task_id)
-
-                return s3_url, public_url
-
-            finally:
-                # Clean up temporary file
-                if tmp_path.exists():
-                    tmp_path.unlink()
-
-        except ImportError:
-            # boto3 not installed - already logged
+        Returns:
+            Tuple of (s3_url, public_url):
+                - s3_url: S3 URL of the uploaded file (s3://bucket/key)
+                - public_url: Public HTTP URL if base_url is configured, None otherwise
+            Both are None if upload failed or was skipped.
+        """
+        if not file_path.exists():
+            logger.warning("File does not exist, skipping upload",
+                          file_path=str(file_path))
             return None, None
-        except Exception as e:
-            logger.error("Failed to upload artifacts to S3",
-                        bucket=self.bucket,
-                        key=s3_key,
-                        error=str(e),
-                        exc_info=True)
-            return None, None
+
+        # Generate S3 key
+        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        file_ext = file_path.suffix or ".log"
+        filename = f"{timestamp}-{task_id}-{dev_name}{file_suffix}{file_ext}"
+        s3_key = self._generate_s3_key(repo_name, task_type, filename)
+
+        return self._upload_to_s3(
+            local_path=file_path,
+            s3_key=s3_key,
+            description="file",
+            task_id=task_id,
+            extra_log_fields={"file_path": str(file_path)}
+        )
 
 
 def create_s3_uploader_from_config(config) -> Optional[S3ArtifactUploader]:
