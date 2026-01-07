@@ -1,12 +1,13 @@
 """DevContainer CLI wrapper utilities."""
 
 import os
+import re
 import sys
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-from ..exceptions import DevsError, DependencyError
+from ..exceptions import DevsError, DependencyError, PortConflictError
 from ..config import BaseConfig
 from .console import get_console
 from .config_hash import get_env_mount_path
@@ -90,8 +91,62 @@ def prepare_devcontainer_environment(
     # Merge in any extra environment variables
     if extra_env:
         env.update(extra_env)
-    
+
     return env
+
+
+def parse_docker_error(error_output: str) -> Tuple[Optional[str], Optional[str]]:
+    """Parse Docker error output for specific error patterns.
+
+    Args:
+        error_output: The stderr/stdout from Docker or devcontainer command
+
+    Returns:
+        Tuple of (error_type, details) where:
+        - error_type: 'port_conflict', 'daemon_not_running', or None
+        - details: Additional info (e.g., port number for port conflicts)
+    """
+    # Check for port conflict errors
+    # Pattern: "Bind for 0.0.0.0:5002 failed: port is already allocated"
+    # Also handles IPv6: "Bind for [::]:3000 failed: port is already allocated"
+    port_conflict_pattern = r'Bind for (?:[^:]+|\[.*?\]):(\d+) failed: port is already allocated'
+    port_match = re.search(port_conflict_pattern, error_output)
+    if port_match:
+        return ('port_conflict', port_match.group(1))
+
+    # Check for Docker daemon not running
+    if 'Cannot connect to the Docker daemon' in error_output:
+        return ('daemon_not_running', None)
+
+    # Check for image pull errors
+    if 'pull access denied' in error_output.lower() or 'not found' in error_output.lower():
+        image_pattern = r'(?:pull access denied for|repository does not exist)[^:]*:?\s*([^\s,]+)'
+        image_match = re.search(image_pattern, error_output, re.IGNORECASE)
+        if image_match:
+            return ('image_not_found', image_match.group(1))
+
+    return (None, None)
+
+
+def format_port_conflict_error(port: str) -> str:
+    """Format a user-friendly error message for port conflicts.
+
+    Args:
+        port: The port number that is conflicting
+
+    Returns:
+        Formatted error message with actionable suggestions
+    """
+    return f"""Port {port} is already in use by another process
+
+To resolve this:
+• Find and stop the process using port {port}:
+  lsof -ti:{port} | xargs ps -p
+  lsof -ti:{port} | xargs kill -9
+• Or stop other devcontainers that may be using this port:
+  devs list
+  devs stop <container-name>"""
+
 
 class DevContainerCLI:
     """Wrapper for DevContainer CLI operations."""
@@ -294,14 +349,43 @@ class DevContainerCLI:
                         for line in lines:
                             console.print(f"   [dim]{line}[/dim]")
             else:
-                error_msg = f"DevContainer up failed (exit code {result.returncode})"
-                if result.stderr:
-                    error_msg += f": {result.stderr}"
-                if result.stdout:
-                    console.print(f"   [yellow]DevContainer stdout:[/yellow]")
-                    for line in result.stdout.strip().split('\n')[-50:]:
-                        console.print(f"   {line}")
-                raise DevsError(error_msg)
+                # Combine stderr and stdout for error parsing
+                full_output = (result.stderr or '') + (result.stdout or '')
+
+                # Parse for specific Docker errors
+                error_type, error_details = parse_docker_error(full_output)
+
+                if error_type == 'port_conflict' and error_details:
+                    # Provide user-friendly port conflict message
+                    console.print(f"   [bold red]Port {error_details} is already in use by another process[/bold red]")
+                    console.print()
+                    console.print("   [bold]To resolve this:[/bold]")
+                    console.print(f"   • Find and stop the process using port {error_details}:")
+                    console.print(f"     [cyan]lsof -ti:{error_details} | xargs ps -p[/cyan]")
+                    console.print(f"     [cyan]lsof -ti:{error_details} | xargs kill -9[/cyan]")
+                    console.print("   • Or stop other devcontainers that may be using this port:")
+                    console.print("     [cyan]devs list[/cyan]")
+                    console.print("     [cyan]devs stop <container-name>[/cyan]")
+                    raise PortConflictError(error_details)
+
+                elif error_type == 'daemon_not_running':
+                    console.print("   [bold red]Docker daemon is not running[/bold red]")
+                    console.print()
+                    console.print("   [bold]To resolve this:[/bold]")
+                    console.print("   • Start Docker Desktop (macOS/Windows)")
+                    console.print("   • Or start the Docker service: [cyan]sudo systemctl start docker[/cyan]")
+                    raise DevsError("Docker daemon is not running")
+
+                else:
+                    # Generic error handling
+                    error_msg = f"DevContainer up failed (exit code {result.returncode})"
+                    if result.stderr:
+                        error_msg += f": {result.stderr}"
+                    if result.stdout:
+                        console.print(f"   [yellow]DevContainer stdout:[/yellow]")
+                        for line in result.stdout.strip().split('\n')[-50:]:
+                            console.print(f"   {line}")
+                    raise DevsError(error_msg)
             
             return True
             

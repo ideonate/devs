@@ -26,6 +26,16 @@ class DockerError(ContainerError):
     pass
 
 
+class PortConflictError(ContainerError):
+    """Raised when a port conflict is detected during container startup."""
+
+    def __init__(self, port: str, message: str = ""):
+        self.port = port
+        if not message:
+            message = f"Port {port} is already in use by another process"
+        super().__init__(message)
+
+
 class WorkspaceError(DevsError):
     """Raised when workspace operations fail."""
     pass
