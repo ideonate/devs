@@ -29,6 +29,8 @@ class TestDispatcher(BaseDispatcher):
         self._last_artifact_url: Optional[str] = None
         # Track combined report.md content for passing to Checks API
         self._last_report_content: Optional[str] = None
+        # Track worker log URL for passing to Checks API
+        self._last_worker_log_url: Optional[str] = None
     
     async def execute_task(
         self,
@@ -61,9 +63,10 @@ class TestDispatcher(BaseDispatcher):
             task_id = str(uuid.uuid4())[:8]
 
         check_run_id = None
-        # Reset artifact URL and report content for this task
+        # Reset artifact URL, report content, and worker log URL for this task
         self._last_artifact_url = None
         self._last_report_content = None
+        self._last_worker_log_url = None
 
         try:
             logger.info("Starting test execution",
@@ -156,7 +159,8 @@ class TestDispatcher(BaseDispatcher):
                     result,
                     installation_id,
                     details_url=self._last_artifact_url,
-                    report_content=self._last_report_content
+                    report_content=self._last_report_content,
+                    worker_log_url=self._last_worker_log_url
                 )
             elif hasattr(event, 'is_test') and event.is_test:
                 logger.info("Skipping GitHub check run result reporting for test event")
@@ -426,11 +430,12 @@ class TestDispatcher(BaseDispatcher):
             )
 
             # 8. Upload artifacts to S3 if configured
+            effective_task_id = task_id or str(uuid.uuid4())[:8]
             s3_url, artifact_url = self._upload_bridge_artifacts(
                 project=project,
                 dev_name=dev_name,
                 repo_name=event.repository.full_name,
-                task_id=task_id or str(uuid.uuid4())[:8]
+                task_id=effective_task_id
             )
             if s3_url:
                 logger.info("Test artifacts uploaded to S3",
@@ -441,6 +446,19 @@ class TestDispatcher(BaseDispatcher):
             # Return artifact_url as part of success tuple for use in Checks API
             # We'll store it as instance variable for access in execute_task
             self._last_artifact_url = artifact_url
+
+            # 9. Upload worker log file to S3 if configured and available
+            worker_log_url = self._upload_worker_log(
+                worker_log_path=self._worker_log_path,
+                repo_name=event.repository.full_name,
+                task_id=effective_task_id,
+                dev_name=dev_name
+            )
+            if worker_log_url:
+                self._last_worker_log_url = worker_log_url
+                logger.info("Worker log uploaded to S3",
+                           container=dev_name,
+                           worker_log_url=worker_log_url)
 
             return success, stdout, stderr, exit_code
 
@@ -575,7 +593,8 @@ class TestDispatcher(BaseDispatcher):
         result: TaskResult,
         installation_id: Optional[str] = None,
         details_url: Optional[str] = None,
-        report_content: Optional[str] = None
+        report_content: Optional[str] = None,
+        worker_log_url: Optional[str] = None
     ) -> None:
         """Report test results to GitHub via Checks API.
 
@@ -586,12 +605,17 @@ class TestDispatcher(BaseDispatcher):
             installation_id: GitHub App installation ID if known from webhook event
             details_url: URL to test artifacts/details (shown as "View more details" link)
             report_content: Combined content from report.md files in test-results/
+            worker_log_url: URL to uploaded worker log file (if available)
         """
         try:
             if result.success:
                 summary = f"All tests completed successfully (exit code: {result.exit_code})"
                 if details_url:
                     summary += f"\n\n[View test artifacts]({details_url})"
+                if worker_log_url:
+                    summary += f"\n\n[View worker log]({worker_log_url})"
+                if hasattr(self, '_worker_log_path') and self._worker_log_path:
+                    summary += f"\n\nWorker log path: `{self._worker_log_path}`"
 
                 # Truncate report content for GitHub API limits (~65k chars)
                 text = report_content
@@ -611,6 +635,7 @@ class TestDispatcher(BaseDispatcher):
                            repo=repo_name,
                            check_run_id=check_run_id,
                            details_url=details_url,
+                           worker_log_url=worker_log_url,
                            has_report_content=bool(report_content))
             else:
                 # Combine report content with stdout/stderr for failure output
@@ -636,8 +661,10 @@ class TestDispatcher(BaseDispatcher):
                 summary = f"Tests failed with exit code: {result.exit_code}"
                 if details_url:
                     summary += f"\n\n[View test artifacts]({details_url})"
+                if worker_log_url:
+                    summary += f"\n\n[View worker log]({worker_log_url})"
                 if hasattr(self, '_worker_log_path') and self._worker_log_path:
-                    summary += f"\n\nWorker log: `{self._worker_log_path}`"
+                    summary += f"\n\nWorker log path: `{self._worker_log_path}`"
 
                 await self.github_client.complete_check_run_failure(
                     repo=repo_name,
@@ -653,6 +680,7 @@ class TestDispatcher(BaseDispatcher):
                            check_run_id=check_run_id,
                            exit_code=result.exit_code,
                            details_url=details_url,
+                           worker_log_url=worker_log_url,
                            has_report_content=bool(report_content))
 
         except Exception as e:
@@ -703,3 +731,53 @@ class TestDispatcher(BaseDispatcher):
             dev_name=dev_name,
             task_type="tests"
         )
+
+    def _upload_worker_log(
+        self,
+        worker_log_path: Optional[str],
+        repo_name: str,
+        task_id: str,
+        dev_name: str
+    ) -> Optional[str]:
+        """Upload worker log file to S3 if available.
+
+        Args:
+            worker_log_path: Path to worker log file (may be None)
+            repo_name: Repository name (owner/repo format)
+            task_id: Unique task identifier
+            dev_name: Development environment name
+
+        Returns:
+            Public URL to the uploaded log file, or None if upload skipped/failed.
+        """
+        if not worker_log_path:
+            logger.debug("No worker log path provided, skipping upload")
+            return None
+
+        # Check if S3 artifact upload is configured
+        s3_uploader = create_s3_uploader_from_config(self.config)
+        if not s3_uploader:
+            logger.debug("S3 artifact upload not configured, skipping worker log upload")
+            return None
+
+        log_path = Path(worker_log_path)
+        if not log_path.exists():
+            logger.warning("Worker log file does not exist, skipping upload",
+                          worker_log_path=worker_log_path)
+            return None
+
+        logger.info("Attempting to upload worker log",
+                   worker_log_path=worker_log_path,
+                   repo_name=repo_name,
+                   task_id=task_id)
+
+        s3_url, public_url = s3_uploader.upload_file(
+            file_path=log_path,
+            repo_name=repo_name,
+            task_id=task_id,
+            dev_name=dev_name,
+            task_type="tests",
+            file_suffix="-worker"
+        )
+
+        return public_url
