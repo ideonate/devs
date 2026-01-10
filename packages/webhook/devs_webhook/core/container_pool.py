@@ -1082,30 +1082,11 @@ Please check the webhook handler logs for more details, or try mentioning me aga
             github_client = GitHubClient(self.config)
 
             repo_name = queued_task.event.repository.full_name
-            reaction_added = False
 
-            # Add reaction based on event type
-            if isinstance(queued_task.event, CommentEvent):
-                # React to the comment itself
-                reaction_added = await github_client.add_reaction_to_comment(
-                    repo=repo_name,
-                    comment_id=queued_task.event.comment.id,
-                    reaction="rocket"
-                )
-            elif isinstance(queued_task.event, IssueEvent):
-                # React to the issue
-                reaction_added = await github_client.add_reaction_to_issue(
-                    repo=repo_name,
-                    issue_number=queued_task.event.issue.number,
-                    reaction="rocket"
-                )
-            elif isinstance(queued_task.event, PullRequestEvent):
-                # React to the PR
-                reaction_added = await github_client.add_reaction_to_pr(
-                    repo=repo_name,
-                    pr_number=queued_task.event.pull_request.number,
-                    reaction="rocket"
-                )
+            reaction_added = await github_client.add_reaction_to_event(
+                event=queued_task.event,
+                reaction="rocket"
+            )
 
             if reaction_added:
                 logger.info("Successfully added completion reaction",
