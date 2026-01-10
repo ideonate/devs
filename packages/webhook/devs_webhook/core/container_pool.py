@@ -672,6 +672,9 @@ class ContainerPool:
                     except:
                         # If JSON parsing fails, just log that task succeeded
                         pass
+
+                    # Add completion reaction to indicate worker has finished
+                    await self._add_completion_reaction(queued_task)
                 else:
                     # Failure - post error to GitHub
                     stdout_content = stdout.decode('utf-8', errors='replace') if stdout else ''
@@ -1052,12 +1055,76 @@ Please check the webhook handler logs for more details, or try mentioning me aga
             logger.info("Posted error comment to GitHub",
                        task_id=queued_task.task_id,
                        repo=repo_name)
-                       
+
         except Exception as e:
             logger.error("Failed to post error to GitHub",
                         task_id=queued_task.task_id,
                         error=str(e))
-    
+
+    async def _add_completion_reaction(self, queued_task: QueuedTask) -> None:
+        """Add a rocket reaction to indicate the worker has finished processing.
+
+        This mirrors the eyes reaction added when the task is queued, providing
+        visual feedback that the worker has completed (whether or not Claude
+        wrote any output to the issue).
+
+        Args:
+            queued_task: The task that completed
+        """
+        try:
+            # Skip GitHub operations for test events
+            if queued_task.event.is_test:
+                logger.info("Skipping completion reaction for test event",
+                           task_id=queued_task.task_id)
+                return
+
+            # Create GitHub client
+            github_client = GitHubClient(self.config)
+
+            repo_name = queued_task.event.repository.full_name
+            reaction_added = False
+
+            # Add reaction based on event type
+            if isinstance(queued_task.event, CommentEvent):
+                # React to the comment itself
+                reaction_added = await github_client.add_reaction_to_comment(
+                    repo=repo_name,
+                    comment_id=queued_task.event.comment.id,
+                    reaction="rocket"
+                )
+            elif isinstance(queued_task.event, IssueEvent):
+                # React to the issue
+                reaction_added = await github_client.add_reaction_to_issue(
+                    repo=repo_name,
+                    issue_number=queued_task.event.issue.number,
+                    reaction="rocket"
+                )
+            elif isinstance(queued_task.event, PullRequestEvent):
+                # React to the PR
+                reaction_added = await github_client.add_reaction_to_pr(
+                    repo=repo_name,
+                    pr_number=queued_task.event.pull_request.number,
+                    reaction="rocket"
+                )
+
+            if reaction_added:
+                logger.info("Successfully added completion reaction",
+                           task_id=queued_task.task_id,
+                           event_type=type(queued_task.event).__name__,
+                           repo=repo_name)
+            else:
+                logger.warning("Could not add completion reaction",
+                              task_id=queued_task.task_id,
+                              event_type=type(queued_task.event).__name__,
+                              repo=repo_name)
+
+        except Exception as e:
+            # Log the error but don't fail the task processing
+            logger.error("Error adding completion reaction - continuing anyway",
+                        task_id=queued_task.task_id,
+                        error=str(e),
+                        exc_info=True)
+
     async def get_status(self) -> Dict[str, Any]:
         """Get current pool status."""
         async with self._lock:
