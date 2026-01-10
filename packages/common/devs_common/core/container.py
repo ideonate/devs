@@ -773,7 +773,7 @@ class ContainerManager:
         return self.exec_command(
             dev_name=dev_name,
             workspace_dir=workspace_dir,
-            command="claude --dangerously-skip-permissions",
+            command="claude --dangerously-skip-permissions -p",
             stdin_input=prompt,
             debug=debug,
             stream=stream,
