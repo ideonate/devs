@@ -49,6 +49,8 @@ class ContainerPool:
 
         # Track running containers for idle cleanup
         self.running_containers: Dict[str, Dict[str, Any]] = {}
+        # Track which containers are actively processing a task (vs just idle/started)
+        self.actively_processing: set[str] = set()
         self._lock = asyncio.Lock()
 
         # Get container pools (main pool for AI tasks, optionally separate CI pool)
@@ -573,6 +575,18 @@ class ContainerPool:
                    repo_name=repo_name,
                    repo_path=str(repo_path))
 
+        # Check if we need to evict an LRU container to stay under the limit
+        can_proceed = await self._evict_lru_container_if_needed(dev_name)
+        if not can_proceed:
+            # All containers are actively processing - this shouldn't happen often
+            # since the queue should prevent tasks from running when containers are busy
+            logger.warning("All containers actively processing, task will wait",
+                          task_id=queued_task.task_id,
+                          container=dev_name)
+            # Re-queue the task to retry later
+            await self.container_queues[dev_name].put(queued_task)
+            return
+
         # Track container as running
         now = datetime.now(tz=timezone.utc)
         async with self._lock:
@@ -587,6 +601,9 @@ class ContainerPool:
                 # Container already running - just update last_used
                 self.running_containers[dev_name]["last_used"] = now
                 self.running_containers[dev_name]["repo_path"] = repo_path
+
+            # Mark as actively processing
+            self.actively_processing.add(dev_name)
 
         try:
             # Get cached config or ensure it's loaded
@@ -837,10 +854,12 @@ class ContainerPool:
             # Task execution failed, but we've logged it - don't re-raise
 
         finally:
-            # Update last_used timestamp after task completes (success or failure)
+            # Update last_used timestamp and clear actively_processing status
             async with self._lock:
                 if dev_name in self.running_containers:
                     self.running_containers[dev_name]["last_used"] = datetime.now(tz=timezone.utc)
+                # Mark as no longer actively processing
+                self.actively_processing.discard(dev_name)
 
     async def _checkout_default_branch(self, repo_name: str, repo_path: Path) -> None:
         """Checkout the default branch to ensure devcontainer files are from the right branch.
@@ -1207,10 +1226,12 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                 },
                 "single_queue_assignments": self.single_queue_assignments.copy(),
                 "cached_repo_configs": list(self.repo_configs.keys()),
+                "actively_processing": list(self.actively_processing),
                 "cleanup_settings": {
                     "idle_timeout_minutes": self.config.container_timeout_minutes,
                     "max_age_hours": self.config.container_max_age_hours,
                     "check_interval_seconds": self.config.cleanup_check_interval_seconds,
+                    "max_running_containers": self.config.max_running_containers,
                 },
             }
 
@@ -1369,7 +1390,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
     
     async def _cleanup_container(self, dev_name: str, repo_path: Path) -> None:
         """Clean up a container after use.
-        
+
         Args:
             dev_name: Name of container to clean up
             repo_path: Path to repository on host
@@ -1377,27 +1398,114 @@ Please check the webhook handler logs for more details, or try mentioning me aga
         try:
             # Create project and managers for cleanup
             project = Project(repo_path)
-            
+
             # Use the same config as the rest of the webhook handler
             workspace_manager = WorkspaceManager(project, self.config)
             container_manager = ContainerManager(project, self.config)
-            
+
             # Stop container
             logger.info("Starting container stop", container=dev_name)
             stop_success = container_manager.stop_container(dev_name)
             logger.info("Container stop result", container=dev_name, success=stop_success)
-            
+
             # Remove workspace
             logger.info("Starting workspace removal", container=dev_name)
             workspace_success = workspace_manager.remove_workspace(dev_name)
             logger.info("Workspace removal result", container=dev_name, success=workspace_success)
-            
-            logger.info("Container cleanup complete", 
+
+            logger.info("Container cleanup complete",
                        container=dev_name,
                        container_stopped=stop_success,
                        workspace_removed=workspace_success)
-            
+
         except Exception as e:
             logger.error("Container cleanup failed",
                         container=dev_name,
                         error=str(e))
+
+    async def _evict_lru_container_if_needed(self, requesting_container: str) -> bool:
+        """Evict the least recently used idle container if we're at the limit.
+
+        This method enforces the max_running_containers limit by stopping idle
+        containers when needed to make room for new tasks.
+
+        Args:
+            requesting_container: The container name that needs to start processing
+
+        Returns:
+            True if we can proceed (either under limit, no limit set, or eviction succeeded),
+            False if we couldn't make room (all containers actively processing)
+        """
+        max_running = self.config.max_running_containers
+
+        # If no limit is set (0), always allow
+        if max_running <= 0:
+            return True
+
+        async with self._lock:
+            # Count currently running containers (excluding the requesting one if not yet started)
+            current_running = len(self.running_containers)
+
+            # If requesting container is already running, don't double-count
+            is_already_running = requesting_container in self.running_containers
+
+            # Calculate how many would be running if we start this container
+            would_be_running = current_running if is_already_running else current_running + 1
+
+            # If we're under the limit, we're fine
+            if would_be_running <= max_running:
+                logger.debug("Under container limit",
+                            current_running=current_running,
+                            max_running=max_running,
+                            requesting_container=requesting_container)
+                return True
+
+            # Need to evict - find LRU idle container
+            # "Idle" means not in actively_processing set
+            lru_candidate = None
+            lru_last_used = None
+
+            for dev_name, info in self.running_containers.items():
+                # Skip the requesting container
+                if dev_name == requesting_container:
+                    continue
+
+                # Skip containers that are actively processing a task
+                if dev_name in self.actively_processing:
+                    continue
+
+                # Find the one with oldest last_used timestamp
+                if lru_candidate is None or info["last_used"] < lru_last_used:
+                    lru_candidate = dev_name
+                    lru_last_used = info["last_used"]
+
+            if lru_candidate is None:
+                # All other containers are actively processing
+                logger.warning("Cannot evict any containers - all are actively processing",
+                              current_running=current_running,
+                              max_running=max_running,
+                              actively_processing=list(self.actively_processing))
+                return False
+
+            # Evict the LRU container
+            logger.info("Evicting LRU container to make room",
+                       evicting=lru_candidate,
+                       last_used=lru_last_used.isoformat() if lru_last_used else "unknown",
+                       requesting_container=requesting_container,
+                       current_running=current_running,
+                       max_running=max_running)
+
+            repo_path = self.running_containers[lru_candidate]["repo_path"]
+
+            # Cleanup must be done outside the lock to avoid deadlock
+            # Store info and remove from tracking first
+            del self.running_containers[lru_candidate]
+
+        # Do the actual cleanup outside the lock
+        await self._cleanup_container(lru_candidate, repo_path)
+
+        logger.info("LRU container evicted successfully",
+                   evicted=lru_candidate,
+                   requesting_container=requesting_container)
+
+        return True

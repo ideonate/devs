@@ -80,6 +80,12 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default=10,
         description="Maximum container age in hours (containers older than this are cleaned up when idle)"
     )
+    max_running_containers: int = Field(
+        default=0,
+        description="Maximum number of containers that can be running at once across all repos. "
+                    "When limit is reached, least recently used idle containers are stopped. "
+                    "Set to 0 for no limit (default). Must not exceed the container pool size."
+    )
     cleanup_check_interval_seconds: int = Field(
         default=60,
         description="How often to check for idle/old containers (in seconds)"
