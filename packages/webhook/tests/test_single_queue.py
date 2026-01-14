@@ -28,7 +28,12 @@ def mock_config_hash():
 def mock_config():
     """Create a mock configuration."""
     config = MagicMock()
-    config.get_container_pool_list.return_value = ["eamonn", "harry", "darren"]
+    container_pool = ["eamonn", "harry", "darren"]
+    config.get_container_pool_list.return_value = container_pool
+    # New methods for separate container pools - default to main pool
+    config.get_test_container_pool_list.return_value = container_pool
+    config.get_claude_container_pool_list.return_value = container_pool
+    config.get_pool_for_task_type.return_value = container_pool
     config.github_token = "test-token-1234567890"  # Non-empty token
     config.container_timeout_minutes = 60
     # Create a real temp directory for repo_cache_dir

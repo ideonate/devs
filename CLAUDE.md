@@ -322,11 +322,25 @@ devs start eamonn --env DEBUG=false --env NEW_VAR=test
 - `CLAUDE_API_KEY`: Claude API key for webhook responses
 
 **Container Pool**:
-- `CONTAINER_POOL`: Comma-separated container names (default: eamonn,harry,darren)
+- `CONTAINER_POOL`: Comma-separated container names (default: eamonn,harry,darren). Used for both Claude and test tasks unless overridden.
+- `TEST_CONTAINER_POOL`: Optional comma-separated list of containers for CI/test tasks only. If not set, falls back to `CONTAINER_POOL`.
+- `CLAUDE_CONTAINER_POOL`: Optional comma-separated list of containers for Claude tasks only. If not set, falls back to `CONTAINER_POOL`.
 - `CONTAINER_TIMEOUT_MINUTES`: Idle timeout for containers in minutes (default: 60)
 - `CONTAINER_MAX_AGE_HOURS`: Maximum container age in hours - containers older than this are cleaned up when idle (default: 10)
 - `CLEANUP_CHECK_INTERVAL_SECONDS`: How often to check for idle/old containers (default: 60)
 - `MAX_CONCURRENT_TASKS`: Maximum parallel tasks (default: 3)
+
+**Example: Separate Pools for Tests and Claude**:
+```bash
+# Use alice and bob for Claude tasks, charlie for CI tests
+export CONTAINER_POOL=alice,bob
+export TEST_CONTAINER_POOL=charlie
+
+# Or alternatively, define all in CONTAINER_POOL and override just for Claude
+export CONTAINER_POOL=alice,bob,charlie
+export CLAUDE_CONTAINER_POOL=alice,bob
+export TEST_CONTAINER_POOL=charlie
+```
 
 **Access Control**:
 - `ALLOWED_ORGS`: Comma-separated GitHub organizations

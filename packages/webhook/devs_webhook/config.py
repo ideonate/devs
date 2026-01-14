@@ -67,7 +67,15 @@ class WebhookConfig(BaseSettings, BaseConfig):
     # Container pool settings
     container_pool: str = Field(
         default="eamonn,harry,darren",
-        description="Comma-separated list of named containers in the pool"
+        description="Comma-separated list of named containers in the pool (used for both Claude and tests unless overridden)"
+    )
+    test_container_pool: str = Field(
+        default="",
+        description="Comma-separated list of containers for CI/test tasks only (optional, falls back to container_pool)"
+    )
+    claude_container_pool: str = Field(
+        default="",
+        description="Comma-separated list of containers for Claude tasks only (optional, falls back to container_pool)"
     )
     container_timeout_minutes: int = Field(default=60, description="Container idle timeout in minutes")
     container_max_age_hours: int = Field(
@@ -215,6 +223,41 @@ class WebhookConfig(BaseSettings, BaseConfig):
         if not self.container_pool:
             return ["eamonn", "harry", "darren"]  # Default fallback
         return [container.strip() for container in self.container_pool.split(',') if container.strip()]
+
+    def get_test_container_pool_list(self) -> List[str]:
+        """Get test container pool as a list.
+
+        Returns the test-specific pool if configured, otherwise falls back to the main container pool.
+        """
+        if self.test_container_pool:
+            return [container.strip() for container in self.test_container_pool.split(',') if container.strip()]
+        return self.get_container_pool_list()
+
+    def get_claude_container_pool_list(self) -> List[str]:
+        """Get Claude container pool as a list.
+
+        Returns the Claude-specific pool if configured, otherwise falls back to the main container pool.
+        """
+        if self.claude_container_pool:
+            return [container.strip() for container in self.claude_container_pool.split(',') if container.strip()]
+        return self.get_container_pool_list()
+
+    def get_pool_for_task_type(self, task_type: str) -> List[str]:
+        """Get the appropriate container pool for a given task type.
+
+        Args:
+            task_type: Either 'tests' or 'claude'
+
+        Returns:
+            List of container names appropriate for the task type
+        """
+        if task_type == 'tests':
+            return self.get_test_container_pool_list()
+        elif task_type == 'claude':
+            return self.get_claude_container_pool_list()
+        else:
+            # Fallback for unknown task types
+            return self.get_container_pool_list()
     
     
     def ensure_directories(self) -> None:
