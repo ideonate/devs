@@ -67,7 +67,13 @@ class WebhookConfig(BaseSettings, BaseConfig):
     # Container pool settings
     container_pool: str = Field(
         default="eamonn,harry,darren",
-        description="Comma-separated list of named containers in the pool"
+        description="Comma-separated list of named containers in the pool for Claude tasks"
+    )
+    ci_container_pool: str = Field(
+        default="",
+        description="Optional comma-separated list of named containers for CI/test tasks only. "
+                    "If not specified, CI tasks use the main container_pool. "
+                    "If specified, the main container_pool is used only for Claude tasks."
     )
     container_timeout_minutes: int = Field(default=60, description="Container idle timeout in minutes")
     container_max_age_hours: int = Field(
@@ -211,10 +217,27 @@ class WebhookConfig(BaseSettings, BaseConfig):
         return [user.strip().lower() for user in self.authorized_ci_trigger_users.split(',') if user.strip()]
     
     def get_container_pool_list(self) -> List[str]:
-        """Get container pool as a list."""
+        """Get container pool as a list (for Claude tasks)."""
         if not self.container_pool:
             return ["eamonn", "harry", "darren"]  # Default fallback
         return [container.strip() for container in self.container_pool.split(',') if container.strip()]
+
+    def get_ci_container_pool_list(self) -> List[str]:
+        """Get CI container pool as a list (for test tasks).
+
+        If ci_container_pool is not configured, returns the main container pool.
+        """
+        if not self.ci_container_pool:
+            return self.get_container_pool_list()  # Fall back to main pool
+        return [container.strip() for container in self.ci_container_pool.split(',') if container.strip()]
+
+    def has_separate_ci_pool(self) -> bool:
+        """Check if a separate CI container pool is configured.
+
+        Returns:
+            True if ci_container_pool is configured and different from container_pool
+        """
+        return bool(self.ci_container_pool)
     
     
     def ensure_directories(self) -> None:
