@@ -676,10 +676,10 @@ class ContainerPool:
                     # Add completion reaction to indicate worker has finished
                     await self._add_completion_reaction(queued_task)
                 else:
-                    # Failure - post error to GitHub
+                    # Failure - post error to GitHub (but not for test tasks which use Checks API)
                     stdout_content = stdout.decode('utf-8', errors='replace') if stdout else ''
                     stderr_content = stderr.decode('utf-8', errors='replace') if stderr else ''
-                    
+
                     # Try to extract error from JSON if possible
                     error_msg = f"Task failed with exit code {process.returncode}"
                     try:
@@ -688,40 +688,49 @@ class ContainerPool:
                             error_msg = error_data['error']
                     except:
                         pass
-                    
+
                     logger.error("Subprocess task failed",
                                 task_id=queued_task.task_id,
                                 container=dev_name,
                                 return_code=process.returncode,
                                 error=error_msg)
-                    
+
                     # Log stdout and stderr for debugging
                     if stdout_content:
                         logger.error("Subprocess stdout",
                                     task_id=queued_task.task_id,
                                     container=dev_name,
                                     stdout=stdout_content[:2000])  # First 2000 chars
-                    
+
                     if stderr_content:
-                        logger.error("Subprocess stderr", 
+                        logger.error("Subprocess stderr",
                                     task_id=queued_task.task_id,
                                     container=dev_name,
                                     stderr=stderr_content[:2000])  # First 2000 chars
-                    
-                    # Post error to GitHub with both stdout and stderr
-                    error_details = f"Task processing failed with exit code {process.returncode}\n\n"
-                    if error_msg != f"Task failed with exit code {process.returncode}":
-                        error_details += f"Error: {error_msg}\n\n"
-                    if stderr_content:
-                        error_details += f"Stderr output:\n```\n{stderr_content[:1500]}\n```\n\n"
-                    if stdout_content and not stdout_content.startswith('{'):
-                        # Include stdout if it's not JSON
-                        error_details += f"Stdout output:\n```\n{stdout_content[:1500]}\n```"
-                    
-                    await self._post_subprocess_error_to_github(
-                        queued_task,
-                        error_details
-                    )
+
+                    # Only post error comments for non-test tasks
+                    # Test tasks report results via the GitHub Checks API, so posting
+                    # error comments would be redundant and confusing (stderr often
+                    # contains normal structured log output, not actual errors)
+                    if queued_task.task_type != 'tests':
+                        # Post error to GitHub with both stdout and stderr
+                        error_details = f"Task processing failed with exit code {process.returncode}\n\n"
+                        if error_msg != f"Task failed with exit code {process.returncode}":
+                            error_details += f"Error: {error_msg}\n\n"
+                        if stderr_content:
+                            error_details += f"Stderr output:\n```\n{stderr_content[:1500]}\n```\n\n"
+                        if stdout_content and not stdout_content.startswith('{'):
+                            # Include stdout if it's not JSON
+                            error_details += f"Stdout output:\n```\n{stdout_content[:1500]}\n```"
+
+                        await self._post_subprocess_error_to_github(
+                            queued_task,
+                            error_details
+                        )
+                    else:
+                        logger.info("Skipping GitHub error comment for test task (results reported via Checks API)",
+                                   task_id=queued_task.task_id,
+                                   container=dev_name)
                     
             except asyncio.TimeoutError:
                 logger.error("Subprocess task timed out",
@@ -732,15 +741,20 @@ class ContainerPool:
                 # Kill the subprocess
                 process.kill()
                 await process.wait()
-                
-                # Post timeout error to GitHub
-                await self._post_subprocess_error_to_github(
-                    queued_task,
-                    "Task processing timed out after 60 minutes. The task may have been too complex or encountered an issue."
-                )
-                
+
+                # Post timeout error to GitHub (skip for test tasks which use Checks API)
+                if queued_task.task_type != 'tests':
+                    await self._post_subprocess_error_to_github(
+                        queued_task,
+                        "Task processing timed out after 60 minutes. The task may have been too complex or encountered an issue."
+                    )
+                else:
+                    logger.info("Skipping GitHub timeout comment for test task (results reported via Checks API)",
+                               task_id=queued_task.task_id,
+                               container=dev_name)
+
                 # Don't raise exception - just log the timeout
-                
+
         except Exception as e:
             logger.error("Subprocess task processing failed",
                         task_id=queued_task.task_id,
@@ -750,12 +764,18 @@ class ContainerPool:
                         error=str(e),
                         error_type=type(e).__name__,
                         exc_info=True)
-            
-            # Post error to GitHub for any other exceptions
-            await self._post_subprocess_error_to_github(
-                queued_task,
-                f"Task processing encountered an error: {type(e).__name__}\n\n{str(e)}"
-            )
+
+            # Post error to GitHub for any other exceptions (skip for test tasks which use Checks API)
+            if queued_task.task_type != 'tests':
+                await self._post_subprocess_error_to_github(
+                    queued_task,
+                    f"Task processing encountered an error: {type(e).__name__}\n\n{str(e)}"
+                )
+            else:
+                logger.info("Skipping GitHub error comment for test task (results reported via Checks API)",
+                           task_id=queued_task.task_id,
+                           container=dev_name,
+                           error=str(e))
 
             # Task execution failed, but we've logged it - don't re-raise
 
