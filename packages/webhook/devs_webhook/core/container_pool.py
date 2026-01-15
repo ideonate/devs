@@ -51,9 +51,16 @@ class ContainerPool:
         self.running_containers: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
 
-        # Task queues - one per dev name
+        # Get container pools (main pool for AI tasks, optionally separate CI pool)
+        ai_pool = self.config.get_container_pool_list()
+        ci_pool = self.config.get_ci_container_pool_list()
+
+        # Combine all unique container names for queue/worker creation
+        all_containers = set(ai_pool) | set(ci_pool)
+
+        # Task queues - one per dev name (for all containers in both pools)
         self.container_queues: Dict[str, asyncio.Queue] = {
-            dev_name: asyncio.Queue() for dev_name in self.config.get_container_pool_list()
+            dev_name: asyncio.Queue() for dev_name in all_containers
         }
 
         # Container workers - one per dev name
@@ -73,12 +80,22 @@ class ContainerPool:
         self._cleanup_worker_enabled = enable_cleanup_worker
         if enable_cleanup_worker:
             self.cleanup_worker = asyncio.create_task(self._idle_cleanup_worker())
-            logger.info("Container pool initialized with cleanup worker",
-                       containers=self.config.get_container_pool_list())
+            if self.config.has_separate_ci_pool():
+                logger.info("Container pool initialized with cleanup worker",
+                           ai_containers=ai_pool,
+                           ci_containers=ci_pool)
+            else:
+                logger.info("Container pool initialized with cleanup worker",
+                           containers=ai_pool)
         else:
             self.cleanup_worker = None
-            logger.info("Container pool initialized (cleanup worker disabled)",
-                       containers=self.config.get_container_pool_list())
+            if self.config.has_separate_ci_pool():
+                logger.info("Container pool initialized (cleanup worker disabled)",
+                           ai_containers=ai_pool,
+                           ci_containers=ci_pool)
+            else:
+                logger.info("Container pool initialized (cleanup worker disabled)",
+                           containers=ai_pool)
     
     
     def get_repo_config(self, repo_name: str) -> Optional[DevsOptions]:
@@ -354,6 +371,20 @@ class ContainerPool:
                         error=str(e))
             raise
 
+    def _get_pool_for_task_type(self, task_type: str) -> list[str]:
+        """Get the appropriate container pool for a task type.
+
+        Args:
+            task_type: Task type ('claude' or 'tests')
+
+        Returns:
+            List of container names for the appropriate pool
+        """
+        if task_type == 'tests':
+            return self.config.get_ci_container_pool_list()
+        else:
+            return self.config.get_container_pool_list()
+
     async def queue_task(
         self,
         task_id: str,
@@ -363,18 +394,22 @@ class ContainerPool:
         task_type: str = 'claude'
     ) -> bool:
         """Queue a task for execution in the next available container.
-        
+
+        Tasks are routed to different container pools based on task_type:
+        - 'claude' tasks use the main container_pool
+        - 'tests' tasks use ci_container_pool (if configured, else main pool)
+
         For repositories with single_queue enabled in DEVS.yml, all tasks
         are routed to the same container to avoid conflicts. The single_queue
         setting is detected after the first clone and cached in memory.
-        
+
         Args:
             task_id: Unique task identifier
             repo_name: Repository name (owner/repo)
             task_description: Task description for Claude (unused for tests)
             event: Original webhook event
             task_type: Task type ('claude' or 'tests')
-            
+
         Returns:
             True if task was queued successfully
         """
@@ -382,44 +417,61 @@ class ContainerPool:
             # Get repository configuration (cached or load it)
             repo_config = self.get_repo_config(repo_name)
             single_queue_required = repo_config.single_queue if repo_config else False
-            
+
+            # Get the appropriate pool for this task type
+            target_pool = self._get_pool_for_task_type(task_type)
+
             # Determine which container to use
             best_container = None
-            
+
             if single_queue_required:
                 # Use the previously assigned container for this single-queue repo
                 if repo_name in self.single_queue_assignments:
                     best_container = self.single_queue_assignments[repo_name]
-                    logger.info("Using previously assigned container for single-queue repo",
-                               repo=repo_name,
-                               container=best_container)
-                else:
-                    # First time for this single-queue repo, assign a container
+                    # Ensure the assigned container is in the target pool
+                    if best_container not in target_pool:
+                        logger.warning("Single-queue container not in target pool, reassigning",
+                                      repo=repo_name,
+                                      old_container=best_container,
+                                      target_pool=target_pool,
+                                      task_type=task_type)
+                        best_container = None  # Will reassign below
+                    else:
+                        logger.info("Using previously assigned container for single-queue repo",
+                                   repo=repo_name,
+                                   container=best_container,
+                                   task_type=task_type)
+
+                if best_container is None:
+                    # First time for this single-queue repo or need reassignment
                     min_queue_size = float('inf')
-                    for dev_name in self.config.get_container_pool_list():
+                    for dev_name in target_pool:
                         queue_size = self.container_queues[dev_name].qsize()
                         if queue_size < min_queue_size:
                             min_queue_size = queue_size
                             best_container = dev_name
-                    
+
                     if best_container:
                         self.single_queue_assignments[repo_name] = best_container
                         logger.info("Assigned container for single-queue repo",
                                    repo=repo_name,
-                                   container=best_container)
+                                   container=best_container,
+                                   task_type=task_type)
             else:
-                # Normal load balancing - find container with shortest queue
+                # Normal load balancing - find container with shortest queue in target pool
                 min_queue_size = float('inf')
-                for dev_name in self.config.get_container_pool_list():
+                for dev_name in target_pool:
                     queue_size = self.container_queues[dev_name].qsize()
                     if queue_size < min_queue_size:
                         min_queue_size = queue_size
                         best_container = dev_name
-            
+
             if best_container is None:
-                logger.error("No containers available for task queuing")
+                logger.error("No containers available for task queuing",
+                            task_type=task_type,
+                            target_pool=target_pool)
                 return False
-            
+
             # Create queued task
             queued_task = QueuedTask(
                 task_id=task_id,
@@ -428,34 +480,39 @@ class ContainerPool:
                 event=event,
                 task_type=task_type
             )
-            
+
             # Add to queue
             await self.container_queues[best_container].put(queued_task)
-            
+
             queue_size = self.container_queues[best_container].qsize()
             logger.info("Task queued successfully",
                        task_id=task_id,
                        container=best_container,
                        queue_size=queue_size,
                        repo=repo_name,
-                       single_queue=single_queue_required)
-            
+                       task_type=task_type,
+                       single_queue=single_queue_required,
+                       separate_ci_pool=self.config.has_separate_ci_pool())
+
             return True
-            
+
         except Exception as e:
             logger.error("Failed to queue task",
                         task_id=task_id,
+                        task_type=task_type,
                         error=str(e))
             return False
     
     def _start_workers(self) -> None:
         """Start worker tasks for each container."""
-        for dev_name in self.config.get_container_pool_list():
+        # Start workers for all containers in both pools
+        all_containers = set(self.config.get_container_pool_list()) | set(self.config.get_ci_container_pool_list())
+        for dev_name in all_containers:
             worker_task = asyncio.create_task(
                 self._container_worker(dev_name)
             )
             self.container_workers[dev_name] = worker_task
-            
+
             logger.info("Started worker for container", container=dev_name)
     
     async def _container_worker(self, dev_name: str) -> None:
@@ -1130,7 +1187,10 @@ Please check the webhook handler logs for more details, or try mentioning me aga
         """Get current pool status."""
         async with self._lock:
             now = datetime.now(tz=timezone.utc)
-            return {
+            ai_pool = self.config.get_container_pool_list()
+            ci_pool = self.config.get_ci_container_pool_list()
+
+            status = {
                 "container_queues": {
                     name: queue.qsize()
                     for name, queue in self.container_queues.items()
@@ -1145,7 +1205,6 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                     }
                     for name, info in self.running_containers.items()
                 },
-                "total_containers": len(self.config.get_container_pool_list()),
                 "single_queue_assignments": self.single_queue_assignments.copy(),
                 "cached_repo_configs": list(self.repo_configs.keys()),
                 "cleanup_settings": {
@@ -1154,6 +1213,18 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                     "check_interval_seconds": self.config.cleanup_check_interval_seconds,
                 },
             }
+
+            # Add pool information
+            if self.config.has_separate_ci_pool():
+                status["ai_container_pool"] = ai_pool
+                status["ci_container_pool"] = ci_pool
+                status["total_ai_containers"] = len(ai_pool)
+                status["total_ci_containers"] = len(ci_pool)
+            else:
+                status["container_pool"] = ai_pool
+                status["total_containers"] = len(ai_pool)
+
+            return status
 
     async def force_stop_container(self, container_name: str) -> bool:
         """Force stop a container immediately.

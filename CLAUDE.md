@@ -322,7 +322,8 @@ devs start eamonn --env DEBUG=false --env NEW_VAR=test
 - `CLAUDE_API_KEY`: Claude API key for webhook responses
 
 **Container Pool**:
-- `CONTAINER_POOL`: Comma-separated container names (default: eamonn,harry,darren)
+- `CONTAINER_POOL`: Comma-separated container names for Claude tasks (default: eamonn,harry,darren)
+- `CI_CONTAINER_POOL`: Optional comma-separated container names for CI/test tasks only. If not specified, CI tasks use the main `CONTAINER_POOL`. If specified, the main `CONTAINER_POOL` is used only for Claude tasks, and this pool is used exclusively for tests. The pools can overlap (share container names) if desired.
 - `CONTAINER_TIMEOUT_MINUTES`: Idle timeout for containers in minutes (default: 60)
 - `CONTAINER_MAX_AGE_HOURS`: Maximum container age in hours - containers older than this are cleaned up when idle (default: 10)
 - `CLEANUP_CHECK_INTERVAL_SECONDS`: How often to check for idle/old containers (default: 60)
