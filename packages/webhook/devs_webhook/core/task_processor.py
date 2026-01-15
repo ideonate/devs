@@ -10,7 +10,6 @@ import structlog
 from ..config import get_config
 from ..github.parser import WebhookParser
 from ..github.client import GitHubClient
-from ..github.models import IssueEvent, PullRequestEvent, CommentEvent
 from .container_pool import ContainerPool
 from .deduplication import is_duplicate_content, get_cache_stats
 
@@ -50,39 +49,10 @@ class TaskProcessor:
             repo_name: Repository in format "owner/repo"
         """
         try:
-            reaction_added = False
-
-            # Determine what to react to based on event type
-            if isinstance(event, CommentEvent):
-                # React to the comment itself
-                reaction_added = await self.github_client.add_reaction_to_comment(
-                    repo=repo_name,
-                    comment_id=event.comment.id,
-                    reaction="eyes"
-                )
-                logger.info("Attempting to add reaction to comment",
-                           comment_id=event.comment.id,
-                           repo=repo_name)
-            elif isinstance(event, IssueEvent):
-                # React to the issue
-                reaction_added = await self.github_client.add_reaction_to_issue(
-                    repo=repo_name,
-                    issue_number=event.issue.number,
-                    reaction="eyes"
-                )
-                logger.info("Attempting to add reaction to issue",
-                           issue_number=event.issue.number,
-                           repo=repo_name)
-            elif isinstance(event, PullRequestEvent):
-                # React to the PR (PRs are issues in GitHub API)
-                reaction_added = await self.github_client.add_reaction_to_pr(
-                    repo=repo_name,
-                    pr_number=event.pull_request.number,
-                    reaction="eyes"
-                )
-                logger.info("Attempting to add reaction to PR",
-                           pr_number=event.pull_request.number,
-                           repo=repo_name)
+            reaction_added = await self.github_client.add_reaction_to_event(
+                event=event,
+                reaction="eyes"
+            )
 
             if reaction_added:
                 logger.info("Successfully added eyes reaction",

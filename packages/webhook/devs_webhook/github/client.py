@@ -2,13 +2,16 @@
 
 from github import Github, Auth
 from github.GithubException import GithubException
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from pathlib import Path
 from datetime import datetime, timezone
 import requests
 import structlog
 
 from .app_auth import GitHubAppAuth
+
+if TYPE_CHECKING:
+    from .models import WebhookEvent
 
 logger = structlog.get_logger()
 
@@ -476,3 +479,49 @@ class GitHubClient:
             details_url=details_url,
             installation_id=installation_id
         )
+
+    async def add_reaction_to_event(
+        self,
+        event: "WebhookEvent",
+        reaction: str = "eyes"
+    ) -> bool:
+        """Add a reaction to a GitHub event (issue, PR, or comment).
+
+        This is a convenience method that determines the correct API call
+        based on the event type.
+
+        Args:
+            event: The webhook event object (IssueEvent, PullRequestEvent, or CommentEvent)
+            reaction: Reaction type (eyes, +1, -1, laugh, confused, heart, hooray, rocket)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Import here to avoid circular imports
+        from .models import IssueEvent, PullRequestEvent, CommentEvent
+
+        repo_name = event.repository.full_name
+
+        if isinstance(event, CommentEvent):
+            return await self.add_reaction_to_comment(
+                repo=repo_name,
+                comment_id=event.comment.id,
+                reaction=reaction
+            )
+        elif isinstance(event, IssueEvent):
+            return await self.add_reaction_to_issue(
+                repo=repo_name,
+                issue_number=event.issue.number,
+                reaction=reaction
+            )
+        elif isinstance(event, PullRequestEvent):
+            return await self.add_reaction_to_pr(
+                repo=repo_name,
+                pr_number=event.pull_request.number,
+                reaction=reaction
+            )
+        else:
+            logger.warning("Unknown event type for reaction",
+                          event_type=type(event).__name__,
+                          repo=repo_name)
+            return False
