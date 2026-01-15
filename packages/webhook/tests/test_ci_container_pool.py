@@ -47,7 +47,7 @@ def mock_config_without_separate_ci_pool():
 
 @pytest.fixture
 def mock_config_with_overlapping_pools():
-    """Create a mock configuration with overlapping CI and Claude pools."""
+    """Create a mock configuration with overlapping CI and AI pools."""
     config = MagicMock()
     config.get_container_pool_list.return_value = ["eamonn", "harry", "shared"]
     config.get_ci_container_pool_list.return_value = ["ci1", "shared", "ci2"]
@@ -124,8 +124,8 @@ async def test_separate_ci_pool_creates_all_queues(mock_config_with_separate_ci_
 
 
 @pytest.mark.asyncio
-async def test_claude_task_routes_to_claude_pool(mock_config_with_separate_ci_pool, mock_event):
-    """Test that Claude tasks are routed to the Claude container pool."""
+async def test_ai_task_routes_to_ai_pool(mock_config_with_separate_ci_pool, mock_event):
+    """Test that AI tasks (Claude/Codex) are routed to the AI container pool."""
     with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config_with_separate_ci_pool):
         pool = ContainerPool()
 
@@ -148,8 +148,8 @@ async def test_claude_task_routes_to_claude_pool(mock_config_with_separate_ci_po
         )
         assert success
 
-        # Task should be in one of the Claude pool containers
-        claude_queue_sizes = [
+        # Task should be in one of the AI pool containers
+        ai_queue_sizes = [
             pool.container_queues["eamonn"].qsize(),
             pool.container_queues["harry"].qsize()
         ]
@@ -158,7 +158,7 @@ async def test_claude_task_routes_to_claude_pool(mock_config_with_separate_ci_po
             pool.container_queues["ci2"].qsize()
         ]
 
-        assert sum(claude_queue_sizes) == 1
+        assert sum(ai_queue_sizes) == 1
         assert sum(ci_queue_sizes) == 0
 
 
@@ -247,13 +247,13 @@ async def test_overlapping_pools_routes_correctly(mock_config_with_overlapping_p
         # Queue Claude task
         await pool.queue_task("task-1", "test-org/test-repo", "Claude", mock_event, task_type='claude')
 
-        # Claude task should be in eamonn, harry, or shared
-        claude_pool_count = (
+        # AI task should be in eamonn, harry, or shared
+        ai_pool_count = (
             pool.container_queues["eamonn"].qsize() +
             pool.container_queues["harry"].qsize() +
             pool.container_queues["shared"].qsize()
         )
-        assert claude_pool_count == 1
+        assert ai_pool_count == 1
 
         # Queue test task
         await pool.queue_task("task-2", "test-org/test-repo", "Test", mock_event, task_type='tests')
@@ -310,11 +310,11 @@ async def test_status_shows_separate_pools(mock_config_with_separate_ci_pool):
         status = await pool.get_status()
 
         # Should show separate pools
-        assert "claude_container_pool" in status
+        assert "ai_container_pool" in status
         assert "ci_container_pool" in status
-        assert status["claude_container_pool"] == ["eamonn", "harry"]
+        assert status["ai_container_pool"] == ["eamonn", "harry"]
         assert status["ci_container_pool"] == ["ci1", "ci2"]
-        assert status["total_claude_containers"] == 2
+        assert status["total_ai_containers"] == 2
         assert status["total_ci_containers"] == 2
 
 
@@ -334,7 +334,7 @@ async def test_status_shows_single_pool_when_not_separate(mock_config_without_se
 
         # Should show single pool
         assert "container_pool" in status
-        assert "claude_container_pool" not in status
+        assert "ai_container_pool" not in status
         assert "ci_container_pool" not in status
         assert status["container_pool"] == ["eamonn", "harry", "darren"]
         assert status["total_containers"] == 3
@@ -355,5 +355,5 @@ async def test_get_pool_for_task_type(mock_config_with_separate_ci_pool):
         # Test task type routing
         assert pool._get_pool_for_task_type('claude') == ["eamonn", "harry"]
         assert pool._get_pool_for_task_type('tests') == ["ci1", "ci2"]
-        # Unknown task type defaults to Claude pool
+        # Unknown task type defaults to AI pool
         assert pool._get_pool_for_task_type('unknown') == ["eamonn", "harry"]

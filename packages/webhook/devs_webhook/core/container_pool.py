@@ -51,12 +51,12 @@ class ContainerPool:
         self.running_containers: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
 
-        # Get container pools (main pool for Claude, optionally separate CI pool)
-        claude_pool = self.config.get_container_pool_list()
+        # Get container pools (main pool for AI tasks, optionally separate CI pool)
+        ai_pool = self.config.get_container_pool_list()
         ci_pool = self.config.get_ci_container_pool_list()
 
         # Combine all unique container names for queue/worker creation
-        all_containers = set(claude_pool) | set(ci_pool)
+        all_containers = set(ai_pool) | set(ci_pool)
 
         # Task queues - one per dev name (for all containers in both pools)
         self.container_queues: Dict[str, asyncio.Queue] = {
@@ -82,20 +82,20 @@ class ContainerPool:
             self.cleanup_worker = asyncio.create_task(self._idle_cleanup_worker())
             if self.config.has_separate_ci_pool():
                 logger.info("Container pool initialized with cleanup worker",
-                           claude_containers=claude_pool,
+                           ai_containers=ai_pool,
                            ci_containers=ci_pool)
             else:
                 logger.info("Container pool initialized with cleanup worker",
-                           containers=claude_pool)
+                           containers=ai_pool)
         else:
             self.cleanup_worker = None
             if self.config.has_separate_ci_pool():
                 logger.info("Container pool initialized (cleanup worker disabled)",
-                           claude_containers=claude_pool,
+                           ai_containers=ai_pool,
                            ci_containers=ci_pool)
             else:
                 logger.info("Container pool initialized (cleanup worker disabled)",
-                           containers=claude_pool)
+                           containers=ai_pool)
     
     
     def get_repo_config(self, repo_name: str) -> Optional[DevsOptions]:
@@ -1119,7 +1119,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
         """Get current pool status."""
         async with self._lock:
             now = datetime.now(tz=timezone.utc)
-            claude_pool = self.config.get_container_pool_list()
+            ai_pool = self.config.get_container_pool_list()
             ci_pool = self.config.get_ci_container_pool_list()
 
             status = {
@@ -1148,13 +1148,13 @@ Please check the webhook handler logs for more details, or try mentioning me aga
 
             # Add pool information
             if self.config.has_separate_ci_pool():
-                status["claude_container_pool"] = claude_pool
+                status["ai_container_pool"] = ai_pool
                 status["ci_container_pool"] = ci_pool
-                status["total_claude_containers"] = len(claude_pool)
+                status["total_ai_containers"] = len(ai_pool)
                 status["total_ci_containers"] = len(ci_pool)
             else:
-                status["container_pool"] = claude_pool
-                status["total_containers"] = len(claude_pool)
+                status["container_pool"] = ai_pool
+                status["total_containers"] = len(ai_pool)
 
             return status
 
