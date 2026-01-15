@@ -328,6 +328,7 @@ devs start eamonn --env DEBUG=false --env NEW_VAR=test
 - `CONTAINER_MAX_AGE_HOURS`: Maximum container age in hours - containers older than this are cleaned up when idle (default: 10)
 - `CLEANUP_CHECK_INTERVAL_SECONDS`: How often to check for idle/old containers (default: 60)
 - `MAX_CONCURRENT_TASKS`: Maximum parallel tasks (default: 3)
+- `MAX_RUNNING_CONTAINERS`: Maximum number of containers that can be running at once across all repos (default: 0 = no limit). When this limit is reached, the least recently used idle container is stopped to make room for new tasks. This helps limit resource usage when working with multiple repositories.
 
 **Access Control**:
 - `ALLOWED_ORGS`: Comma-separated GitHub organizations
@@ -487,12 +488,13 @@ devs-webhook-worker --container-name eamonn --task-json-stdin < task.json
 
 ### Container Lifecycle Management
 
-Containers are automatically managed with cleanup based on idle time and age:
+Containers are automatically managed with cleanup based on idle time, age, and resource limits:
 
 1. **Idle Cleanup**: Containers idle for longer than `CONTAINER_TIMEOUT_MINUTES` (default: 60 min) are stopped and cleaned up
 2. **Age-Based Cleanup**: Containers older than `CONTAINER_MAX_AGE_HOURS` (default: 10 hours) are cleaned up when they become idle
-3. **Graceful Shutdown**: On server shutdown (SIGTERM/SIGINT), all running containers are cleaned up
-4. **Manual Stop**: Admin can force-stop containers via `POST /container/{name}/stop` endpoint
+3. **Running Container Limit**: When `MAX_RUNNING_CONTAINERS` is set (default: 0 = no limit), the system automatically stops the least recently used idle container when the limit is reached and a new task needs to run. This prevents resource exhaustion when multiple repositories are in use.
+4. **Graceful Shutdown**: On server shutdown (SIGTERM/SIGINT), all running containers are cleaned up
+5. **Manual Stop**: Admin can force-stop containers via `POST /container/{name}/stop` endpoint
 
 **Key behaviors**:
 - Containers currently processing tasks are never interrupted by age-based cleanup

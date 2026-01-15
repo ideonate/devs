@@ -31,6 +31,7 @@ def mock_config():
     config.get_container_pool_list.return_value = ["eamonn", "harry", "darren"]
     config.github_token = "test-token-1234567890"  # Non-empty token
     config.container_timeout_minutes = 60
+    config.max_running_containers = 0  # No limit by default
     # Create a real temp directory for repo_cache_dir
     temp_dir = tempfile.mkdtemp()
     config.repo_cache_dir = Path(temp_dir)
