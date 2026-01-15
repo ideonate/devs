@@ -2,20 +2,27 @@
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from devs_common.config import BaseConfig
 
 
 class Config(BaseConfig):
     """Configuration settings for devs CLI."""
-    
+
     # Default settings
     PROJECT_PREFIX = "dev"
     WORKSPACES_DIR = Path.home() / ".devs" / "workspaces"
     BRIDGE_DIR = Path.home() / ".devs" / "bridge"
     CLAUDE_CONFIG_DIR = Path.home() / ".devs" / "claudeconfig"
     CODEX_CONFIG_DIR = Path.home() / ".devs" / "codexconfig"
+
+    @property
+    def container_labels(self) -> Dict[str, str]:
+        """Standard labels applied to containers created by CLI."""
+        labels = super().container_labels
+        labels["devs.source"] = "cli"
+        return labels
 
     def __init__(self) -> None:
         """Initialize configuration with environment variable overrides."""

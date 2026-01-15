@@ -448,23 +448,25 @@ def test(prompt: str, repo: str, host: str, port: int, username: str, password: 
 
 
 @cli.command()
-@click.option('--all', 'cleanup_all', is_flag=True, help='Clean up all managed containers (not just idle ones)')
+@click.option('--all', 'cleanup_all', is_flag=True, help='Clean up all webhook containers (not just idle ones)')
 @click.option('--max-age-hours', default=None, type=int, help='Override max age threshold (default: from config or 10)')
 @click.option('--idle-minutes', default=None, type=int, help='Override idle timeout (default: from config or 60)')
 @click.option('--dry-run', is_flag=True, help='Show what would be cleaned up without actually doing it')
 def cleanup(cleanup_all: bool, max_age_hours: int, idle_minutes: int, dry_run: bool):
-    """Clean up idle and old containers.
+    """Clean up idle and old webhook containers.
 
-    This command finds containers managed by devs-webhook and cleans up those that
+    This command finds containers created by devs-webhook and cleans up those that
     are idle (exited, or running but not processing) and either:
     - Idle for longer than the idle timeout
     - Older than the max age threshold
+
+    Only cleans up webhook-created containers (not CLI-created ones).
 
     Use this after burst mode processing completes, or via cron for periodic cleanup.
 
     Examples:
         devs-webhook cleanup                    # Clean up idle containers exceeding thresholds
-        devs-webhook cleanup --all              # Clean up ALL managed containers
+        devs-webhook cleanup --all              # Clean up ALL webhook containers
         devs-webhook cleanup --dry-run          # Show what would be cleaned up
         devs-webhook cleanup --max-age-hours 2  # Override max age to 2 hours
     """
@@ -487,7 +489,7 @@ def cleanup(cleanup_all: bool, max_age_hours: int, idle_minutes: int, dry_run: b
     click.echo(f"   Max age: {max_age.total_seconds() / 3600:.1f} hours")
     click.echo(f"   Idle timeout: {idle_timeout.total_seconds() / 60:.0f} minutes")
     if cleanup_all:
-        click.echo("   Mode: Clean ALL managed containers")
+        click.echo("   Mode: Clean ALL webhook containers")
     if dry_run:
         click.echo("   Mode: DRY RUN (no changes will be made)")
     click.echo()
@@ -498,18 +500,21 @@ def cleanup(cleanup_all: bool, max_age_hours: int, idle_minutes: int, dry_run: b
         click.echo(f"❌ Failed to connect to Docker: {e}")
         return
 
-    # Find all devs-managed containers
+    # Find webhook-created containers only
     try:
-        containers = docker.find_containers_by_labels({"devs.managed": "true"})
+        containers = docker.find_containers_by_labels({
+            "devs.managed": "true",
+            "devs.source": "webhook"
+        })
     except Exception as e:
         click.echo(f"❌ Failed to list containers: {e}")
         return
 
     if not containers:
-        click.echo("✅ No managed containers found")
+        click.echo("✅ No webhook containers found")
         return
 
-    click.echo(f"Found {len(containers)} managed container(s)")
+    click.echo(f"Found {len(containers)} webhook container(s)")
 
     now = datetime.now(tz=timezone.utc)
     cleaned = 0

@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 from functools import lru_cache
-from typing import List, Optional
+from typing import Dict, List, Optional
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
@@ -181,7 +181,14 @@ class WebhookConfig(BaseSettings, BaseConfig):
             if self.log_format == "json":
                 self.log_format = "console"
         return self
-    
+
+    @property
+    def container_labels(self) -> Dict[str, str]:
+        """Standard labels applied to containers created by webhook."""
+        labels = super().container_labels
+        labels["devs.source"] = "webhook"
+        return labels
+
     # Configuration for Pydantic Settings
     # Note: .env files are optional - environment variables are the primary source
     if SettingsConfigDict:
