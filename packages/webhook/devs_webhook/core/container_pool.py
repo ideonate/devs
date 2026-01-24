@@ -1211,6 +1211,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                     "idle_timeout_minutes": self.config.container_timeout_minutes,
                     "max_age_hours": self.config.container_max_age_hours,
                     "check_interval_seconds": self.config.cleanup_check_interval_seconds,
+                    "cleanup_mode": self.config.cleanup_mode,
                 },
             }
 
@@ -1369,7 +1370,11 @@ Please check the webhook handler logs for more details, or try mentioning me aga
     
     async def _cleanup_container(self, dev_name: str, repo_path: Path) -> None:
         """Clean up a container after use.
-        
+
+        The cleanup behavior depends on the cleanup_mode config:
+        - 'full': Stop container AND remove workspace
+        - 'stop_only': Stop container but keep workspace for faster reuse
+
         Args:
             dev_name: Name of container to clean up
             repo_path: Path to repository on host
@@ -1377,26 +1382,35 @@ Please check the webhook handler logs for more details, or try mentioning me aga
         try:
             # Create project and managers for cleanup
             project = Project(repo_path)
-            
+
             # Use the same config as the rest of the webhook handler
             workspace_manager = WorkspaceManager(project, self.config)
             container_manager = ContainerManager(project, self.config)
-            
+
             # Stop container
-            logger.info("Starting container stop", container=dev_name)
+            logger.info("Starting container stop",
+                       container=dev_name,
+                       cleanup_mode=self.config.cleanup_mode)
             stop_success = container_manager.stop_container(dev_name)
             logger.info("Container stop result", container=dev_name, success=stop_success)
-            
-            # Remove workspace
-            logger.info("Starting workspace removal", container=dev_name)
-            workspace_success = workspace_manager.remove_workspace(dev_name)
-            logger.info("Workspace removal result", container=dev_name, success=workspace_success)
-            
-            logger.info("Container cleanup complete", 
+
+            # Remove workspace only if cleanup_mode is 'full'
+            workspace_success = True
+            if self.config.should_remove_workspace_on_cleanup():
+                logger.info("Starting workspace removal", container=dev_name)
+                workspace_success = workspace_manager.remove_workspace(dev_name)
+                logger.info("Workspace removal result", container=dev_name, success=workspace_success)
+            else:
+                logger.info("Keeping workspace (cleanup_mode=stop_only)",
+                           container=dev_name,
+                           workspace_path=str(workspace_manager.get_workspace_path(dev_name)))
+
+            logger.info("Container cleanup complete",
                        container=dev_name,
                        container_stopped=stop_success,
-                       workspace_removed=workspace_success)
-            
+                       workspace_removed=workspace_success if self.config.should_remove_workspace_on_cleanup() else "skipped",
+                       cleanup_mode=self.config.cleanup_mode)
+
         except Exception as e:
             logger.error("Container cleanup failed",
                         container=dev_name,

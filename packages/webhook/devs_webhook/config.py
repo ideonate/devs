@@ -84,6 +84,11 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default=60,
         description="How often to check for idle/old containers (in seconds)"
     )
+    cleanup_mode: str = Field(
+        default="full",
+        description="Cleanup mode for idle containers: 'full' (stop container and remove workspace) "
+                    "or 'stop_only' (stop container but keep workspace for faster reuse)"
+    )
     max_concurrent_tasks: int = Field(default=3, description="Maximum concurrent tasks")
     
     # Repository settings
@@ -180,7 +185,18 @@ class WebhookConfig(BaseSettings, BaseConfig):
                 self.webhook_host = "127.0.0.1"
             if self.log_format == "json":
                 self.log_format = "console"
+        # Validate cleanup_mode
+        if self.cleanup_mode not in ("full", "stop_only"):
+            raise ValueError(f"cleanup_mode must be 'full' or 'stop_only', got '{self.cleanup_mode}'")
         return self
+
+    def should_remove_workspace_on_cleanup(self) -> bool:
+        """Check if workspaces should be removed during cleanup.
+
+        Returns:
+            True if cleanup_mode is 'full', False if 'stop_only'
+        """
+        return self.cleanup_mode == "full"
 
     @property
     def container_labels(self) -> Dict[str, str]:
