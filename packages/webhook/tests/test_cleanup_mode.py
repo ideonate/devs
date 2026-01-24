@@ -1,8 +1,11 @@
 """Tests for container cleanup behavior.
 
-The cleanup behavior always keeps the workspace for faster reuse -
-only the container is stopped. This allows subsequent tasks on the
-same repository to start faster without re-copying files.
+The cleanup behavior supports two modes:
+- remove_workspace=True (default): Full cleanup - stops container AND removes workspace
+- remove_workspace=False: Stop-only cleanup - stops container but keeps workspace for faster reuse
+
+The stop-only mode is useful for the stop-after-task workflow where containers are
+stopped after each task but need to restart quickly for the next task on the same repository.
 """
 
 import asyncio
@@ -36,8 +39,37 @@ class TestCleanupContainerPool:
     """Tests for cleanup behavior in ContainerPool."""
 
     @pytest.mark.asyncio
-    async def test_cleanup_stops_container_keeps_workspace(self, mock_config):
-        """Test that _cleanup_container stops container but keeps workspace."""
+    async def test_cleanup_default_removes_workspace(self, mock_config):
+        """Test that _cleanup_container by default stops container AND removes workspace."""
+        with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
+            pool = ContainerPool()
+
+            # Cancel workers to avoid background task issues
+            for worker in pool.container_workers.values():
+                worker.cancel()
+            if pool.cleanup_worker:
+                pool.cleanup_worker.cancel()
+
+            # Mock the managers
+            mock_container_manager = MagicMock()
+            mock_container_manager.stop_container.return_value = True
+            mock_workspace_manager = MagicMock()
+            mock_workspace_manager.remove_workspace.return_value = True
+
+            with patch('devs_webhook.core.container_pool.ContainerManager', return_value=mock_container_manager), \
+                 patch('devs_webhook.core.container_pool.WorkspaceManager', return_value=mock_workspace_manager), \
+                 patch('devs_webhook.core.container_pool.Project'):
+
+                await pool._cleanup_container("eamonn", Path("/tmp/test-repo"))
+
+                # Verify container was stopped
+                mock_container_manager.stop_container.assert_called_once_with("eamonn")
+                # Verify workspace WAS removed (default behavior)
+                mock_workspace_manager.remove_workspace.assert_called_once_with("eamonn")
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stop_only_keeps_workspace(self, mock_config):
+        """Test that _cleanup_container with remove_workspace=False keeps workspace."""
         with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
             pool = ContainerPool()
 
@@ -57,7 +89,7 @@ class TestCleanupContainerPool:
                  patch('devs_webhook.core.container_pool.WorkspaceManager', return_value=mock_workspace_manager), \
                  patch('devs_webhook.core.container_pool.Project'):
 
-                await pool._cleanup_container("eamonn", Path("/tmp/test-repo"))
+                await pool._cleanup_container("eamonn", Path("/tmp/test-repo"), remove_workspace=False)
 
                 # Verify container was stopped
                 mock_container_manager.stop_container.assert_called_once_with("eamonn")
@@ -68,7 +100,7 @@ class TestCleanupContainerPool:
 
     @pytest.mark.asyncio
     async def test_cleanup_preserves_workspace_for_reuse(self, mock_config):
-        """Test that workspace is preserved across multiple cleanups for reuse."""
+        """Test that workspace is preserved across multiple cleanups when remove_workspace=False."""
         with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
             pool = ContainerPool()
 
@@ -91,8 +123,8 @@ class TestCleanupContainerPool:
                  patch('devs_webhook.core.container_pool.WorkspaceManager', return_value=mock_workspace_manager), \
                  patch('devs_webhook.core.container_pool.Project'):
 
-                # First cleanup
-                await pool._cleanup_container(dev_name, repo_path)
+                # First cleanup with stop-only
+                await pool._cleanup_container(dev_name, repo_path, remove_workspace=False)
 
                 # Verify container stopped but workspace kept
                 assert mock_container_manager.stop_container.call_count == 1
@@ -103,7 +135,7 @@ class TestCleanupContainerPool:
                 mock_workspace_manager.reset_mock()
 
                 # Second cleanup (simulating another task on same container)
-                await pool._cleanup_container(dev_name, repo_path)
+                await pool._cleanup_container(dev_name, repo_path, remove_workspace=False)
 
                 # Again, container stopped but workspace still kept
                 assert mock_container_manager.stop_container.call_count == 1

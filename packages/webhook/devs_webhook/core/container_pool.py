@@ -1367,18 +1367,20 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                 logger.error("Error in idle cleanup worker", error=str(e))
     
     
-    async def _cleanup_container(self, dev_name: str, repo_path: Path) -> None:
+    async def _cleanup_container(
+        self,
+        dev_name: str,
+        repo_path: Path,
+        remove_workspace: bool = True
+    ) -> None:
         """Clean up a container after use.
-
-        Stops the container but keeps the workspace for faster reuse on subsequent
-        tasks for the same repository. The workspace can be reused because:
-        - ensure_container_running checks if rebuild is needed before recreating
-        - If no rebuild is needed, the existing workspace is reused
-        - This saves time copying files for repeated tasks on the same repo
 
         Args:
             dev_name: Name of container to clean up
             repo_path: Path to repository on host
+            remove_workspace: If True (default), also remove the workspace.
+                If False, only stop the container but keep the workspace
+                for faster reuse on restart.
         """
         try:
             # Create project and managers for cleanup
@@ -1388,16 +1390,26 @@ Please check the webhook handler logs for more details, or try mentioning me aga
             workspace_manager = WorkspaceManager(project, self.config)
             container_manager = ContainerManager(project, self.config)
 
-            # Stop container (but keep workspace for faster reuse)
-            logger.info("Stopping container (keeping workspace for reuse)",
-                       container=dev_name,
-                       workspace_path=str(workspace_manager.get_workspace_path(dev_name)))
+            # Stop container
+            logger.info("Starting container stop", container=dev_name)
             stop_success = container_manager.stop_container(dev_name)
+            logger.info("Container stop result", container=dev_name, success=stop_success)
+
+            # Remove workspace only if requested
+            workspace_success = True
+            if remove_workspace:
+                logger.info("Starting workspace removal", container=dev_name)
+                workspace_success = workspace_manager.remove_workspace(dev_name)
+                logger.info("Workspace removal result", container=dev_name, success=workspace_success)
+            else:
+                logger.info("Keeping workspace for faster reuse",
+                           container=dev_name,
+                           workspace_path=str(workspace_manager.get_workspace_path(dev_name)))
 
             logger.info("Container cleanup complete",
                        container=dev_name,
                        container_stopped=stop_success,
-                       workspace_kept=True)
+                       workspace_removed=workspace_success if remove_workspace else "skipped")
 
         except Exception as e:
             logger.error("Container cleanup failed",
