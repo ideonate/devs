@@ -776,10 +776,12 @@ class ContainerManager:
             ContainerError: If Claude execution fails
         """
         # Simply delegate to exec_command with the Claude command and prompt as stdin
+        # Use --resume no to ensure each task starts with a fresh conversation
+        # (important when container is stopped but not removed between tasks)
         return self.exec_command(
             dev_name=dev_name,
             workspace_dir=workspace_dir,
-            command="claude --dangerously-skip-permissions -p",
+            command="claude --dangerously-skip-permissions --resume no -p",
             stdin_input=prompt,
             debug=debug,
             stream=stream,
