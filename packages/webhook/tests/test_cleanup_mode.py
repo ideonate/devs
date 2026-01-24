@@ -62,14 +62,14 @@ class TestCleanupContainerPool:
 
                 await pool._cleanup_container("eamonn", Path("/tmp/test-repo"))
 
-                # Verify container was stopped
-                mock_container_manager.stop_container.assert_called_once_with("eamonn")
+                # Verify container was stopped AND removed (default: remove=True)
+                mock_container_manager.stop_container.assert_called_once_with("eamonn", remove=True)
                 # Verify workspace WAS removed (default behavior)
                 mock_workspace_manager.remove_workspace.assert_called_once_with("eamonn")
 
     @pytest.mark.asyncio
     async def test_cleanup_stop_only_keeps_workspace(self, mock_config):
-        """Test that _cleanup_container with remove_workspace=False keeps workspace."""
+        """Test that _cleanup_container with remove_workspace=False and remove_container=False keeps both."""
         with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
             pool = ContainerPool()
 
@@ -89,10 +89,10 @@ class TestCleanupContainerPool:
                  patch('devs_webhook.core.container_pool.WorkspaceManager', return_value=mock_workspace_manager), \
                  patch('devs_webhook.core.container_pool.Project'):
 
-                await pool._cleanup_container("eamonn", Path("/tmp/test-repo"), remove_workspace=False)
+                await pool._cleanup_container("eamonn", Path("/tmp/test-repo"), remove_workspace=False, remove_container=False)
 
-                # Verify container was stopped
-                mock_container_manager.stop_container.assert_called_once_with("eamonn")
+                # Verify container was stopped but NOT removed (remove=False)
+                mock_container_manager.stop_container.assert_called_once_with("eamonn", remove=False)
                 # Verify workspace was NOT removed (kept for reuse)
                 mock_workspace_manager.remove_workspace.assert_not_called()
                 # Verify get_workspace_path was called for logging
@@ -100,7 +100,7 @@ class TestCleanupContainerPool:
 
     @pytest.mark.asyncio
     async def test_cleanup_preserves_workspace_for_reuse(self, mock_config):
-        """Test that workspace is preserved across multiple cleanups when remove_workspace=False."""
+        """Test that workspace and container are preserved across multiple cleanups with stop-only mode."""
         with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
             pool = ContainerPool()
 
@@ -123,10 +123,11 @@ class TestCleanupContainerPool:
                  patch('devs_webhook.core.container_pool.WorkspaceManager', return_value=mock_workspace_manager), \
                  patch('devs_webhook.core.container_pool.Project'):
 
-                # First cleanup with stop-only
-                await pool._cleanup_container(dev_name, repo_path, remove_workspace=False)
+                # First cleanup with stop-only (don't remove container or workspace)
+                await pool._cleanup_container(dev_name, repo_path, remove_workspace=False, remove_container=False)
 
-                # Verify container stopped but workspace kept
+                # Verify container stopped (but not removed) and workspace kept
+                mock_container_manager.stop_container.assert_called_with(dev_name, remove=False)
                 assert mock_container_manager.stop_container.call_count == 1
                 assert mock_workspace_manager.remove_workspace.call_count == 0
 
@@ -135,9 +136,10 @@ class TestCleanupContainerPool:
                 mock_workspace_manager.reset_mock()
 
                 # Second cleanup (simulating another task on same container)
-                await pool._cleanup_container(dev_name, repo_path, remove_workspace=False)
+                await pool._cleanup_container(dev_name, repo_path, remove_workspace=False, remove_container=False)
 
-                # Again, container stopped but workspace still kept
+                # Again, container stopped (not removed) and workspace still kept
+                mock_container_manager.stop_container.assert_called_with(dev_name, remove=False)
                 assert mock_container_manager.stop_container.call_count == 1
                 assert mock_workspace_manager.remove_workspace.call_count == 0
 

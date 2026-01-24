@@ -843,13 +843,19 @@ class ContainerPool:
                     if self.config.stop_container_after_task:
                         # Stop container immediately after task completes
                         # This ensures only one running container per dev name queue
+                        # Don't remove the container or workspace - just stop it so it can restart quickly
                         info = self.running_containers[dev_name]
                         logger.info("Stopping container after task completion",
                                    container=dev_name,
                                    repo_path=str(info["repo_path"]),
                                    stop_container_after_task=True)
                         try:
-                            await self._cleanup_container(dev_name, info["repo_path"])
+                            await self._cleanup_container(
+                                dev_name,
+                                info["repo_path"],
+                                remove_workspace=False,
+                                remove_container=False
+                            )
                             del self.running_containers[dev_name]
                             logger.info("Container stopped successfully after task",
                                        container=dev_name)
@@ -1391,7 +1397,8 @@ Please check the webhook handler logs for more details, or try mentioning me aga
         self,
         dev_name: str,
         repo_path: Path,
-        remove_workspace: bool = True
+        remove_workspace: bool = True,
+        remove_container: bool = True
     ) -> None:
         """Clean up a container after use.
 
@@ -1401,6 +1408,8 @@ Please check the webhook handler logs for more details, or try mentioning me aga
             remove_workspace: If True (default), also remove the workspace.
                 If False, only stop the container but keep the workspace
                 for faster reuse on restart.
+            remove_container: If True (default), remove the container after stopping.
+                If False, only stop the container (it can be restarted quickly).
         """
         try:
             # Create project and managers for cleanup
@@ -1410,10 +1419,10 @@ Please check the webhook handler logs for more details, or try mentioning me aga
             workspace_manager = WorkspaceManager(project, self.config)
             container_manager = ContainerManager(project, self.config)
 
-            # Stop container
-            logger.info("Starting container stop", container=dev_name)
-            stop_success = container_manager.stop_container(dev_name)
-            logger.info("Container stop result", container=dev_name, success=stop_success)
+            # Stop container (and optionally remove it)
+            logger.info("Starting container stop", container=dev_name, remove=remove_container)
+            stop_success = container_manager.stop_container(dev_name, remove=remove_container)
+            logger.info("Container stop result", container=dev_name, success=stop_success, removed=remove_container)
 
             # Remove workspace only if requested
             workspace_success = True
@@ -1429,6 +1438,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
             logger.info("Container cleanup complete",
                        container=dev_name,
                        container_stopped=stop_success,
+                       container_removed=remove_container,
                        workspace_removed=workspace_success if remove_workspace else "skipped")
 
         except Exception as e:

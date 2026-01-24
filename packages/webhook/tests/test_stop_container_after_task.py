@@ -161,11 +161,20 @@ async def test_container_stopped_after_task_when_enabled(mock_config_stop_after_
             if dev_name in pool.running_containers:
                 if pool.config.stop_container_after_task:
                     info = pool.running_containers[dev_name]
-                    await pool._cleanup_container(dev_name, info["repo_path"])
+                    # When stop_container_after_task=True, we stop but don't remove
+                    # container or workspace for faster restart
+                    await pool._cleanup_container(
+                        dev_name,
+                        info["repo_path"],
+                        remove_workspace=False,
+                        remove_container=False
+                    )
                     del pool.running_containers[dev_name]
 
-        # Verify cleanup was called
-        pool._cleanup_container.assert_called_once_with(dev_name, repo_path)
+        # Verify cleanup was called with stop-only parameters
+        pool._cleanup_container.assert_called_once_with(
+            dev_name, repo_path, remove_workspace=False, remove_container=False
+        )
         # Verify container was removed from tracking
         assert dev_name not in pool.running_containers
 
@@ -248,12 +257,19 @@ async def test_only_one_running_container_per_dev_name(mock_config_stop_after_ta
         # Simulate first task completing (with stop after task)
         async with pool._lock:
             if dev_name in pool.running_containers and pool.config.stop_container_after_task:
-                await pool._cleanup_container(dev_name, pool.running_containers[dev_name]["repo_path"])
+                await pool._cleanup_container(
+                    dev_name,
+                    pool.running_containers[dev_name]["repo_path"],
+                    remove_workspace=False,
+                    remove_container=False
+                )
                 del pool.running_containers[dev_name]
 
         # Container should be stopped
         assert dev_name not in pool.running_containers
-        pool._cleanup_container.assert_called_once_with(dev_name, repo_path_1)
+        pool._cleanup_container.assert_called_once_with(
+            dev_name, repo_path_1, remove_workspace=False, remove_container=False
+        )
 
         # Reset mock
         pool._cleanup_container.reset_mock()
@@ -269,12 +285,19 @@ async def test_only_one_running_container_per_dev_name(mock_config_stop_after_ta
         # Simulate second task completing
         async with pool._lock:
             if dev_name in pool.running_containers and pool.config.stop_container_after_task:
-                await pool._cleanup_container(dev_name, pool.running_containers[dev_name]["repo_path"])
+                await pool._cleanup_container(
+                    dev_name,
+                    pool.running_containers[dev_name]["repo_path"],
+                    remove_workspace=False,
+                    remove_container=False
+                )
                 del pool.running_containers[dev_name]
 
         # Container should be stopped again
         assert dev_name not in pool.running_containers
-        pool._cleanup_container.assert_called_once_with(dev_name, repo_path_2)
+        pool._cleanup_container.assert_called_once_with(
+            dev_name, repo_path_2, remove_workspace=False, remove_container=False
+        )
 
 
 @pytest.mark.asyncio
@@ -308,7 +331,12 @@ async def test_cleanup_error_handling(mock_config_stop_after_task):
                     if pool.config.stop_container_after_task:
                         info = pool.running_containers[dev_name]
                         try:
-                            await pool._cleanup_container(dev_name, info["repo_path"])
+                            await pool._cleanup_container(
+                                dev_name,
+                                info["repo_path"],
+                                remove_workspace=False,
+                                remove_container=False
+                            )
                             del pool.running_containers[dev_name]
                         except Exception:
                             # Error is logged but not re-raised
