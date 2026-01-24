@@ -77,6 +77,42 @@ def get_git_root(directory: Path) -> Optional[Path]:
         return None
 
 
+def reset_git_state(repo_dir: Path, checkout_branch: Optional[str] = None) -> bool:
+    """Reset git repository to clean state.
+
+    Discards uncommitted changes and removes untracked files.
+    Optionally checks out a specific branch.
+
+    Args:
+        repo_dir: Repository directory path
+        checkout_branch: Optional branch to checkout (with -f to discard changes)
+
+    Returns:
+        True if reset was successful, False otherwise
+    """
+    try:
+        repo = Repo(repo_dir)
+
+        if checkout_branch:
+            # Force checkout branch (discards local modifications)
+            try:
+                repo.git.checkout('-f', checkout_branch)
+            except GitCommandError:
+                # Branch might not exist, that's OK
+                return False
+        else:
+            # Reset to HEAD (discard uncommitted changes to tracked files)
+            repo.git.reset('--hard', 'HEAD')
+
+        # Remove untracked files and directories (but not ignored files)
+        repo.git.clean('-fd')
+
+        return True
+
+    except (InvalidGitRepositoryError, GitCommandError) as e:
+        return False
+
+
 def is_devcontainer_gitignored(repo_dir: Path) -> bool:
     """Check if .devcontainer/ folder is gitignored in the repository.
     

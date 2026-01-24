@@ -13,7 +13,7 @@ from ..utils.file_utils import (
     safe_remove_directory,
     is_directory_empty
 )
-from ..utils.git_utils import get_tracked_files, is_devcontainer_gitignored
+from ..utils.git_utils import get_tracked_files, is_devcontainer_gitignored, reset_git_state
 from ..utils.devcontainer_template import get_template_dir
 from ..utils.console import get_console
 from .project import Project
@@ -417,23 +417,29 @@ class WorkspaceManager:
             console.print(f"❌ Error during cross-project workspace cleanup: {e}")
             return 0
     
-    def sync_workspace(self, dev_name: str, files_to_sync: Optional[List[str]] = None) -> bool:
+    def sync_workspace(self, dev_name: str, files_to_sync: Optional[List[str]] = None, clean_untracked: bool = True) -> bool:
         """Sync specific files from project to workspace.
-        
+
         Args:
             dev_name: Development environment name
             files_to_sync: List of files to sync, or None for git-tracked files
-            
+            clean_untracked: If True (default), remove untracked files/dirs from workspace
+                before syncing. Important when reusing workspaces between tasks.
+
         Returns:
             True if sync was successful
         """
         workspace_dir = self.get_workspace_dir(dev_name)
-        
+
         if not self.workspace_exists(dev_name):
             console.print(f"   ❌ Workspace for {dev_name} does not exist")
             return False
-        
+
         try:
+            # Clean up workspace git state before syncing (important for reused workspaces)
+            if clean_untracked and self.project.info.is_git_repo:
+                self._reset_workspace_git_state(workspace_dir)
+
             if files_to_sync is None:
                 # Sync git-tracked files
                 if self.project.info.is_git_repo:
@@ -456,10 +462,28 @@ class WorkspaceManager:
                     file_list=file_paths,
                     preserve_permissions=True
                 )
-            
+
             console.print(f"   ✅ Synced workspace for {dev_name}")
             return True
-            
+
         except Exception as e:
             console.print(f"   ❌ Failed to sync workspace for {dev_name}: {e}")
             return False
+
+    def _reset_workspace_git_state(self, workspace_dir: Path) -> None:
+        """Reset workspace git state to clean state.
+
+        Removes untracked files and resets any uncommitted changes.
+        Important for reusing workspaces between tasks.
+
+        Args:
+            workspace_dir: Path to workspace directory
+        """
+        git_dir = workspace_dir / ".git"
+        if not git_dir.exists():
+            return
+
+        if reset_git_state(workspace_dir):
+            console.print(f"   🧹 Reset workspace git state")
+        else:
+            console.print(f"   ⚠️  Could not reset workspace git state")

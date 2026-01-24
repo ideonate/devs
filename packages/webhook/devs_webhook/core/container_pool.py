@@ -901,6 +901,8 @@ class ContainerPool:
             logger.info("Checked out default branch",
                        repo=repo_name,
                        branch=default_branch)
+            # Clean untracked files after checkout
+            await self._clean_untracked_files(repo_path)
         elif default_branch == "dev":
             # dev branch doesn't exist, try main
             logger.info("Branch 'dev' not found, trying 'main'",
@@ -916,6 +918,8 @@ class ContainerPool:
             if process.returncode == 0:
                 logger.info("Checked out main branch",
                            repo=repo_name)
+                # Clean untracked files after checkout
+                await self._clean_untracked_files(repo_path)
             else:
                 # Both failed, stay on current branch (probably master or main after clone)
                 logger.warning("Could not checkout dev or main branch, staying on current branch",
@@ -926,6 +930,31 @@ class ContainerPool:
             logger.warning("Could not checkout branch, staying on current branch",
                           repo=repo_name,
                           branch=default_branch,
+                          stderr=stderr.decode()[:200] if stderr else "")
+
+    async def _clean_untracked_files(self, repo_path: Path) -> None:
+        """Remove untracked files and directories from repository.
+
+        Important for reusing repocache between tasks to avoid leftover files
+        from previous runs affecting the next task.
+
+        Args:
+            repo_path: Path to the repository
+        """
+        clean_cmd = ["git", "-C", str(repo_path), "clean", "-fd"]
+        process = await asyncio.create_subprocess_exec(
+            *clean_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            logger.info("Cleaned untracked files from repository",
+                       repo_path=str(repo_path))
+        else:
+            logger.warning("Could not clean untracked files",
+                          repo_path=str(repo_path),
                           stderr=stderr.decode()[:200] if stderr else "")
 
     async def _ensure_repository_cloned(
