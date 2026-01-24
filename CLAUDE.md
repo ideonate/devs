@@ -327,7 +327,6 @@ devs start eamonn --env DEBUG=false --env NEW_VAR=test
 - `CONTAINER_TIMEOUT_MINUTES`: Idle timeout for containers in minutes (default: 60)
 - `CONTAINER_MAX_AGE_HOURS`: Maximum container age in hours - containers older than this are cleaned up when idle (default: 10)
 - `CLEANUP_CHECK_INTERVAL_SECONDS`: How often to check for idle/old containers (default: 60)
-- `CLEANUP_MODE`: What to clean up when containers become idle: `full` (default) stops the container and removes the workspace, `stop_only` stops the container but keeps the workspace for faster reuse on subsequent tasks for the same repo
 - `MAX_CONCURRENT_TASKS`: Maximum parallel tasks (default: 3)
 
 **Access Control**:
@@ -495,10 +494,6 @@ Containers are automatically managed with cleanup based on idle time and age:
 3. **Graceful Shutdown**: On server shutdown (SIGTERM/SIGINT), all running containers are cleaned up
 4. **Manual Stop**: Admin can force-stop containers via `POST /container/{name}/stop` endpoint
 
-**Cleanup Modes** (`CLEANUP_MODE`):
-- `full` (default): Stops the container AND removes the workspace. Use this when disk space is a concern.
-- `stop_only`: Stops the container but keeps the workspace. This frees RAM immediately while allowing faster reuse on subsequent tasks for the same repo (no need to re-copy files).
-
 **Key behaviors**:
 - Containers currently processing tasks are never interrupted by age-based cleanup
 - Age-based cleanup only triggers when a container is idle (not actively processing)
@@ -509,7 +504,6 @@ Containers are automatically managed with cleanup based on idle time and age:
 - `last_used`: Last task completion time
 - `age_hours`: How long container has been running
 - `idle_minutes`: How long since last task completed
-- `cleanup_mode`: Current cleanup mode setting
 
 **Burst Mode Considerations**:
 In SQS burst mode (`--burst`), the background cleanup worker is disabled since:
