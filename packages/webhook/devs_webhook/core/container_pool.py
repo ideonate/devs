@@ -837,10 +837,29 @@ class ContainerPool:
             # Task execution failed, but we've logged it - don't re-raise
 
         finally:
-            # Update last_used timestamp after task completes (success or failure)
+            # Handle container cleanup after task completes (success or failure)
             async with self._lock:
                 if dev_name in self.running_containers:
-                    self.running_containers[dev_name]["last_used"] = datetime.now(tz=timezone.utc)
+                    if self.config.stop_container_after_task:
+                        # Stop container immediately after task completes
+                        # This ensures only one running container per dev name queue
+                        info = self.running_containers[dev_name]
+                        logger.info("Stopping container after task completion",
+                                   container=dev_name,
+                                   repo_path=str(info["repo_path"]),
+                                   stop_container_after_task=True)
+                        try:
+                            await self._cleanup_container(dev_name, info["repo_path"])
+                            del self.running_containers[dev_name]
+                            logger.info("Container stopped successfully after task",
+                                       container=dev_name)
+                        except Exception as cleanup_error:
+                            logger.error("Failed to stop container after task",
+                                        container=dev_name,
+                                        error=str(cleanup_error))
+                    else:
+                        # Just update last_used timestamp (legacy behavior)
+                        self.running_containers[dev_name]["last_used"] = datetime.now(tz=timezone.utc)
 
     async def _checkout_default_branch(self, repo_name: str, repo_path: Path) -> None:
         """Checkout the default branch to ensure devcontainer files are from the right branch.
@@ -1211,6 +1230,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                     "idle_timeout_minutes": self.config.container_timeout_minutes,
                     "max_age_hours": self.config.container_max_age_hours,
                     "check_interval_seconds": self.config.cleanup_check_interval_seconds,
+                    "stop_container_after_task": self.config.stop_container_after_task,
                 },
             }
 
