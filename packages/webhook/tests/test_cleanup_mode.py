@@ -83,7 +83,7 @@ class TestCleanupContainerPool:
             mock_container_manager = MagicMock()
             mock_container_manager.stop_container.return_value = True
             mock_workspace_manager = MagicMock()
-            mock_workspace_manager.get_workspace_path.return_value = Path("/tmp/workspace/eamonn")
+            mock_workspace_manager.get_workspace_dir.return_value = Path("/tmp/workspace/eamonn")
 
             with patch('devs_webhook.core.container_pool.ContainerManager', return_value=mock_container_manager), \
                  patch('devs_webhook.core.container_pool.WorkspaceManager', return_value=mock_workspace_manager), \
@@ -95,8 +95,8 @@ class TestCleanupContainerPool:
                 mock_container_manager.stop_container.assert_called_once_with("eamonn", remove=False)
                 # Verify workspace was NOT removed (kept for reuse)
                 mock_workspace_manager.remove_workspace.assert_not_called()
-                # Verify get_workspace_path was called for logging
-                mock_workspace_manager.get_workspace_path.assert_called_once_with("eamonn")
+                # Verify get_workspace_dir was called for logging
+                mock_workspace_manager.get_workspace_dir.assert_called_once_with("eamonn")
 
     @pytest.mark.asyncio
     async def test_cleanup_preserves_workspace_for_reuse(self, mock_config):
@@ -117,7 +117,7 @@ class TestCleanupContainerPool:
             mock_container_manager = MagicMock()
             mock_container_manager.stop_container.return_value = True
             mock_workspace_manager = MagicMock()
-            mock_workspace_manager.get_workspace_path.return_value = Path("/tmp/workspace/eamonn")
+            mock_workspace_manager.get_workspace_dir.return_value = Path("/tmp/workspace/eamonn")
 
             with patch('devs_webhook.core.container_pool.ContainerManager', return_value=mock_container_manager), \
                  patch('devs_webhook.core.container_pool.WorkspaceManager', return_value=mock_workspace_manager), \

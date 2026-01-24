@@ -1433,7 +1433,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
             else:
                 logger.info("Keeping workspace for faster reuse",
                            container=dev_name,
-                           workspace_path=str(workspace_manager.get_workspace_path(dev_name)))
+                           workspace_path=str(workspace_manager.get_workspace_dir(dev_name)))
 
             logger.info("Container cleanup complete",
                        container=dev_name,
