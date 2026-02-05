@@ -779,6 +779,92 @@ def runtests(dev_name: str, reset_workspace: bool, live: bool, env: tuple, debug
 
 
 @cli.command()
+@click.argument('dev_name')
+@click.option('--status', is_flag=True, help='Check tunnel status instead of starting')
+@click.option('--kill', 'kill_tunnel', is_flag=True, help='Kill running tunnel')
+@click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
+@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
+@debug_option
+def tunnel(dev_name: str, status: bool, kill_tunnel: bool, live: bool, env: tuple, debug: bool) -> None:
+    """Start a VS Code tunnel in devcontainer.
+
+    VS Code tunnels allow you to connect VS Code directly to the container
+    without SSH - the container initiates an outbound connection to Microsoft's
+    tunnel service, and your local VS Code connects through that.
+
+    This is useful for:
+    - Connecting to containers on remote servers without port forwarding
+    - Working through firewalls (only outbound connections needed)
+    - Avoiding the "double-hop" of SSH + container attach
+
+    DEV_NAME: Development environment name
+
+    Example: devs tunnel sally           # Start tunnel (interactive)
+    Example: devs tunnel sally --status  # Check tunnel status
+    Example: devs tunnel sally --kill    # Stop running tunnel
+    Example: devs tunnel sally --live    # Start with current directory mounted
+    """
+    check_dependencies()
+    project = get_project()
+
+    # Load environment variables from DEVS.yml and merge with CLI --env flags
+    devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
+    cli_env = parse_env_vars(env) if env else {}
+    extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
+
+    if extra_env:
+        console.print(f"Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
+
+    container_manager = ContainerManager(project, config)
+    workspace_manager = WorkspaceManager(project, config)
+
+    try:
+        # Ensure workspace exists (handles live mode internally)
+        workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
+
+        if status:
+            # Check tunnel status
+            is_running, status_msg = container_manager.get_tunnel_status(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                debug=debug,
+                live=live,
+                extra_env=extra_env
+            )
+            if is_running:
+                console.print(f"Tunnel status for {dev_name}:")
+                console.print(status_msg)
+            else:
+                console.print(f"No tunnel running in {dev_name}")
+                console.print(f"   {status_msg}")
+
+        elif kill_tunnel:
+            # Kill the tunnel
+            console.print(f"Stopping tunnel in {dev_name}...")
+            container_manager.kill_tunnel(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                debug=debug,
+                live=live,
+                extra_env=extra_env
+            )
+
+        else:
+            # Start the tunnel (interactive)
+            container_manager.start_tunnel(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                debug=debug,
+                live=live,
+                extra_env=extra_env
+            )
+
+    except (ContainerError, WorkspaceError) as e:
+        console.print(f"Error with tunnel for {dev_name}: {e}")
+        sys.exit(1)
+
+
+@cli.command()
 @click.option('--all-projects', is_flag=True, help='List containers for all projects')
 def list(all_projects: bool) -> None:
     """List active devcontainers for current project."""

@@ -810,3 +810,152 @@ class ContainerManager:
             live=live,
             extra_env=extra_env
         )
+
+    def start_tunnel(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> None:
+        """Start a VS Code tunnel in the container.
+
+        This runs an interactive tunnel that allows VS Code to connect directly
+        to the container without SSH. The tunnel process will run in the foreground
+        and can be stopped with Ctrl+C.
+
+        First-time usage requires authentication via a device code flow.
+
+        Args:
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            debug: Show debug output for devcontainer operations
+            live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
+
+        Raises:
+            ContainerError: If tunnel startup fails
+        """
+        try:
+            # Prepare container for execution
+            container_name, container_workspace_dir = self._prepare_container_exec(
+                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env
+            )
+
+            # Create a tunnel name from the container's devcontainer name
+            # This will be the name that appears in VS Code Remote Explorer
+            project_prefix = self.config.project_prefix if self.config else "dev"
+            tunnel_name = f"{project_prefix}-{self.project.info.name}-{dev_name}"
+            # Sanitize: tunnel names can only contain alphanumeric, dash, underscore
+            tunnel_name = tunnel_name.replace(".", "-").replace("_", "-")
+
+            console.print(f"[bold cyan]Starting VS Code tunnel for: {dev_name}[/bold cyan]")
+            console.print(f"   Container: {container_name}")
+            console.print(f"   Tunnel name: {tunnel_name}")
+            console.print("")
+            console.print("[yellow]First-time usage requires authentication:[/yellow]")
+            console.print("   1. A URL and code will be displayed")
+            console.print("   2. Open the URL in your browser")
+            console.print("   3. Enter the code to authenticate with GitHub/Microsoft")
+            console.print("")
+            console.print("[dim]Press Ctrl+C to stop the tunnel[/dim]")
+            console.print("")
+
+            # Start the tunnel interactively
+            # The code CLI binary is installed at /usr/local/bin/code in the container
+            cmd = [
+                'docker', 'exec', '-it',
+                container_name,
+                '/usr/local/bin/code', 'tunnel',
+                '--accept-server-license-terms',
+                '--name', tunnel_name
+            ]
+
+            if debug:
+                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+
+            # Run interactively so user can see auth prompts and tunnel status
+            subprocess.run(cmd, check=False)
+
+        except (DockerError, subprocess.SubprocessError) as e:
+            raise ContainerError(f"Failed to start tunnel in {dev_name}: {e}")
+
+    def get_tunnel_status(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str]:
+        """Get VS Code tunnel status in the container.
+
+        Args:
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            debug: Show debug output for devcontainer operations
+            live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
+
+        Returns:
+            Tuple of (is_running, status_message)
+
+        Raises:
+            ContainerError: If status check fails
+        """
+        try:
+            # Prepare container for execution
+            container_name, container_workspace_dir = self._prepare_container_exec(
+                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env
+            )
+
+            # Check tunnel status
+            cmd = [
+                'docker', 'exec',
+                container_name,
+                '/usr/local/bin/code', 'tunnel', 'status'
+            ]
+
+            if debug:
+                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                return True, result.stdout.strip()
+            else:
+                return False, result.stderr.strip() if result.stderr else "No tunnel running"
+
+        except (DockerError, subprocess.SubprocessError) as e:
+            raise ContainerError(f"Failed to get tunnel status in {dev_name}: {e}")
+
+    def kill_tunnel(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> bool:
+        """Kill a running VS Code tunnel in the container.
+
+        Args:
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            debug: Show debug output for devcontainer operations
+            live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
+
+        Returns:
+            True if tunnel was killed successfully
+
+        Raises:
+            ContainerError: If tunnel kill fails
+        """
+        try:
+            # Prepare container for execution
+            container_name, container_workspace_dir = self._prepare_container_exec(
+                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env
+            )
+
+            # Kill the tunnel
+            cmd = [
+                'docker', 'exec',
+                container_name,
+                '/usr/local/bin/code', 'tunnel', 'kill'
+            ]
+
+            if debug:
+                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                console.print(f"   Tunnel killed in: {dev_name}")
+                return True
+            else:
+                console.print(f"   No tunnel to kill in: {dev_name}")
+                return False
+
+        except (DockerError, subprocess.SubprocessError) as e:
+            raise ContainerError(f"Failed to kill tunnel in {dev_name}: {e}")
