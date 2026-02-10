@@ -236,15 +236,22 @@ Always remember to PUSH your work to origin!
                 pr_closing_instruction = ""
                 if not is_pr:
                     pr_closing_instruction = " (mention that it closes an issue number if it does)"
-                
+
+                # Add draft PR instruction if enabled in DEVS.yml
+                draft_pr_instruction = ""
+                if devs_options and devs_options.draft_prs:
+                    draft_pr_instruction = """
+IMPORTANT: Create pull requests as DRAFTS using `gh pr create --draft`. Keep PRs in draft status until the user explicitly instructs you to mark them ready for review.
+"""
+
                 # Build unified prompt with variable parts
-                prompt = f"""You are an AI developer helping build a software project in a GitHub repository. 
+                prompt = f"""You are an AI developer helping build a software project in a GitHub repository.
 You have been mentioned in a {event_type_full} and need to take action.
 
-You should ensure you're on the latest commits in the repo's default branch. 
-Generally work on feature branches for changes. 
+You should ensure you're on the latest commits in the repo's default branch.
+Generally work on feature branches for changes.
 Submit any changes as a pull request when done{pr_closing_instruction}.
-
+{draft_pr_instruction}
 IMPORTANT: Do not close the issue unless the user explicitly instructs you to do so. Even if you implement a solution, leave the issue open for the user to review and close when they're satisfied.
 
 If you need to ask for clarification, or if only asked for your thoughts, please respond with a comment on the {event_type}.

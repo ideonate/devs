@@ -346,7 +346,10 @@ default_branch: develop  # Override default branch (default: main)
 prompt_extra: |          # Additional Claude instructions
   This project uses specific coding standards...
 single_queue: true       # Process all events sequentially in same container (default: false)
+draft_prs: true          # Instruct Claude to create PRs as drafts until told otherwise (default: false)
 ```
+
+**Note on CI and Draft PRs**: When `ci_enabled: true`, CI/test runs are automatically skipped for draft PRs. This prevents unnecessary test runs while work is still in progress. Tests will run automatically when the PR is marked ready for review.
 
 ### DevContainer Support
 

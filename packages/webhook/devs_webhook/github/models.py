@@ -61,6 +61,7 @@ class GitHubPullRequest(BaseModel):
     title: str
     body: Optional[str] = None
     state: str
+    draft: bool = False
     user: GitHubUser
     assignee: Optional[GitHubUser] = None
     html_url: str
