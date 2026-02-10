@@ -290,15 +290,22 @@ class WebhookParser:
         
         # Handle pull request events for CI
         if isinstance(event, PullRequestEvent):
+            # Skip draft PRs - they shouldn't trigger CI runs
+            if event.pull_request.draft:
+                logger.info("Skipping CI for draft PR",
+                           pr_number=event.pull_request.number,
+                           repo=event.repository.full_name)
+                return False
+
             # Process PR opened, synchronize (new commits), reopened
             ci_pr_actions = ["opened", "synchronize", "reopened"]
             should_process = event.action in ci_pr_actions
-            
+
             logger.info("PR event CI check",
                        action=event.action,
                        ci_pr_actions=ci_pr_actions,
                        should_process=should_process)
-            
+
             return should_process
         
         # Handle push events for CI

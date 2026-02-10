@@ -23,6 +23,7 @@ class DevsOptions(BaseModel):
     ci_enabled: bool = False  # Enable CI mode for this repository
     ci_test_command: str = "./runtests.sh"  # Command to run for CI tests
     ci_branches: List[str] = ["main", "master"]  # Branches to run CI on for push events
+    draft_prs: bool = False  # When enabled, instruct Claude to create/maintain PRs as drafts
     env_vars: Dict[str, Dict[str, str]] = Field(default_factory=dict)  # Environment variables
     
     def get_env_vars(self, container_name: Optional[str] = None) -> Dict[str, str]:
