@@ -122,6 +122,18 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 # Install Claude CLI and OpenAI Codex CLI
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
+# Install VS Code CLI for tunnel support
+# Using the standalone CLI which supports the 'tunnel' command
+RUN ARCH=$(dpkg --print-architecture) && \
+  if [ "$ARCH" = "amd64" ]; then \
+    curl -Lk 'https://code.visualstudio.com/sha/download?build=stable&os=cli-linux-x64' -o /tmp/vscode-cli.tar.gz; \
+  elif [ "$ARCH" = "arm64" ]; then \
+    curl -Lk 'https://code.visualstudio.com/sha/download?build=stable&os=cli-linux-arm64' -o /tmp/vscode-cli.tar.gz; \
+  fi && \
+  tar -xf /tmp/vscode-cli.tar.gz -C /usr/local/bin && \
+  rm /tmp/vscode-cli.tar.gz && \
+  chmod +x /usr/local/bin/code
+
 # Set up environment variables and aliases for Claude and Codex
 USER root
 RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \

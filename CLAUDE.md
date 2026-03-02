@@ -156,6 +156,7 @@ The `--live` flag mounts the current directory directly into the container witho
 
 - `devs start <name...>` - Start named devcontainers
 - `devs vscode <name...>` - Open devcontainers in VS Code
+- `devs tunnel <name>` - Start VS Code tunnel for remote access (see VS Code Tunnels below)
 - `devs stop <name...>` - Stop and remove devcontainers
 - `devs shell <name>` - Open shell in devcontainer
 - `devs list` - List active devcontainers for current project
@@ -177,6 +178,46 @@ Both Claude (Anthropic) and Codex (OpenAI) are supported with similar interfaces
 - `devs codex --auth --api-key <KEY>` - Set up Codex with API key
 
 Both commands support `--reset-workspace`, `--live`, and `--env` options.
+
+### VS Code Tunnels
+
+VS Code tunnels allow you to connect VS Code directly to a devcontainer without SSH. The container initiates an outbound connection to Microsoft's tunnel service, and your local VS Code connects through that tunnel.
+
+**Use cases:**
+- Connecting to containers on remote servers without port forwarding
+- Working through firewalls (only outbound connections needed)
+- Avoiding the "double-hop" of SSH to host + docker attach to container
+
+**Commands:**
+- `devs tunnel <name>` - Start a tunnel (interactive, runs in foreground)
+- `devs tunnel <name> --status` - Check if a tunnel is running
+- `devs tunnel <name> --kill` - Stop a running tunnel
+
+**First-time setup:**
+1. Run `devs tunnel <name>`
+2. A URL and device code will be displayed
+3. Open the URL in your browser (usually github.com/login/device)
+4. Enter the code to authenticate
+5. After authentication, the tunnel is ready
+
+**Connecting with VS Code:**
+1. After starting a tunnel, VS Code will show connection instructions
+2. In VS Code, open the Remote Explorer (sidebar)
+3. Look for "Tunnels" section
+4. Your tunnel will appear with the name `dev-<org>-<repo>-<devname>`
+5. Click to connect
+
+**Example workflow:**
+```bash
+# Start a container
+devs start mydev
+
+# Start a tunnel (keep this terminal open)
+devs tunnel mydev
+
+# In another terminal or on a different machine:
+# Open VS Code and connect via Remote Explorer > Tunnels
+```
 
 ### Example Workflow
 
