@@ -84,6 +84,12 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default=60,
         description="How often to check for idle/old containers (in seconds)"
     )
+    stop_container_after_task: bool = Field(
+        default=True,
+        description="Stop container after each task completes. "
+                    "This ensures only one running container per dev name at any time, "
+                    "reducing RAM usage when multiple repos are in play."
+    )
     max_concurrent_tasks: int = Field(default=3, description="Maximum concurrent tasks")
     
     # Repository settings

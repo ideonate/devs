@@ -324,9 +324,10 @@ devs start eamonn --env DEBUG=false --env NEW_VAR=test
 **Container Pool**:
 - `CONTAINER_POOL`: Comma-separated container names for Claude tasks (default: eamonn,harry,darren)
 - `CI_CONTAINER_POOL`: Optional comma-separated container names for CI/test tasks only. If not specified, CI tasks use the main `CONTAINER_POOL`. If specified, the main `CONTAINER_POOL` is used only for Claude tasks, and this pool is used exclusively for tests. The pools can overlap (share container names) if desired.
-- `CONTAINER_TIMEOUT_MINUTES`: Idle timeout for containers in minutes (default: 60)
-- `CONTAINER_MAX_AGE_HOURS`: Maximum container age in hours - containers older than this are cleaned up when idle (default: 10)
-- `CLEANUP_CHECK_INTERVAL_SECONDS`: How often to check for idle/old containers (default: 60)
+- `STOP_CONTAINER_AFTER_TASK`: Stop container after each task completes (default: true). This ensures only one running container per dev name at any time, reducing RAM usage when multiple repos are in play.
+- `CONTAINER_TIMEOUT_MINUTES`: Idle timeout for containers in minutes (default: 60). Only applies when `STOP_CONTAINER_AFTER_TASK` is false.
+- `CONTAINER_MAX_AGE_HOURS`: Maximum container age in hours - containers older than this are cleaned up when idle (default: 10). Only applies when `STOP_CONTAINER_AFTER_TASK` is false.
+- `CLEANUP_CHECK_INTERVAL_SECONDS`: How often to check for idle/old containers (default: 60). Only applies when `STOP_CONTAINER_AFTER_TASK` is false.
 - `MAX_CONCURRENT_TASKS`: Maximum parallel tasks (default: 3)
 
 **Access Control**:
@@ -490,14 +491,22 @@ devs-webhook-worker --container-name eamonn --task-json-stdin < task.json
 
 ### Container Lifecycle Management
 
-Containers are automatically managed with cleanup based on idle time and age:
+By default, containers are stopped immediately after each task completes (`STOP_CONTAINER_AFTER_TASK=true`). This ensures only one running container per dev name (queue) at any time, significantly reducing RAM usage when multiple repositories are in play.
 
-1. **Idle Cleanup**: Containers idle for longer than `CONTAINER_TIMEOUT_MINUTES` (default: 60 min) are stopped and cleaned up
-2. **Age-Based Cleanup**: Containers older than `CONTAINER_MAX_AGE_HOURS` (default: 10 hours) are cleaned up when they become idle
+**Default Behavior (stop after task)**:
+- Container is started when a task begins
+- Container is stopped and cleaned up immediately after the task completes
+- Next task on the same queue starts a fresh container
+- Only one running container per dev name at any time
+
+**Legacy Behavior** (`STOP_CONTAINER_AFTER_TASK=false`):
+Containers remain running and are cleaned up based on idle time and age:
+1. **Idle Cleanup**: Containers idle for longer than `CONTAINER_TIMEOUT_MINUTES` (default: 60 min) are stopped
+2. **Age-Based Cleanup**: Containers older than `CONTAINER_MAX_AGE_HOURS` (default: 10 hours) are cleaned up when idle
 3. **Graceful Shutdown**: On server shutdown (SIGTERM/SIGINT), all running containers are cleaned up
 4. **Manual Stop**: Admin can force-stop containers via `POST /container/{name}/stop` endpoint
 
-**Key behaviors**:
+**Legacy key behaviors** (only when `STOP_CONTAINER_AFTER_TASK=false`):
 - Containers currently processing tasks are never interrupted by age-based cleanup
 - Age-based cleanup only triggers when a container is idle (not actively processing)
 - The cleanup check runs every `CLEANUP_CHECK_INTERVAL_SECONDS` (default: 60 seconds)
@@ -507,6 +516,7 @@ Containers are automatically managed with cleanup based on idle time and age:
 - `last_used`: Last task completion time
 - `age_hours`: How long container has been running
 - `idle_minutes`: How long since last task completed
+- `stop_container_after_task`: Whether containers are stopped after each task
 
 **Burst Mode Considerations**:
 In SQS burst mode (`--burst`), the background cleanup worker is disabled since:

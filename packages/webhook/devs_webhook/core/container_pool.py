@@ -837,10 +837,35 @@ class ContainerPool:
             # Task execution failed, but we've logged it - don't re-raise
 
         finally:
-            # Update last_used timestamp after task completes (success or failure)
+            # Handle container cleanup after task completes (success or failure)
             async with self._lock:
                 if dev_name in self.running_containers:
-                    self.running_containers[dev_name]["last_used"] = datetime.now(tz=timezone.utc)
+                    if self.config.stop_container_after_task:
+                        # Stop container immediately after task completes
+                        # This ensures only one running container per dev name queue
+                        # Don't remove the container or workspace - just stop it so it can restart quickly
+                        info = self.running_containers[dev_name]
+                        logger.info("Stopping container after task completion",
+                                   container=dev_name,
+                                   repo_path=str(info["repo_path"]),
+                                   stop_container_after_task=True)
+                        try:
+                            await self._cleanup_container(
+                                dev_name,
+                                info["repo_path"],
+                                remove_workspace=False,
+                                remove_container=False
+                            )
+                            del self.running_containers[dev_name]
+                            logger.info("Container stopped successfully after task",
+                                       container=dev_name)
+                        except Exception as cleanup_error:
+                            logger.error("Failed to stop container after task",
+                                        container=dev_name,
+                                        error=str(cleanup_error))
+                    else:
+                        # Just update last_used timestamp (legacy behavior)
+                        self.running_containers[dev_name]["last_used"] = datetime.now(tz=timezone.utc)
 
     async def _checkout_default_branch(self, repo_name: str, repo_path: Path) -> None:
         """Checkout the default branch to ensure devcontainer files are from the right branch.
@@ -876,6 +901,8 @@ class ContainerPool:
             logger.info("Checked out default branch",
                        repo=repo_name,
                        branch=default_branch)
+            # Clean untracked files after checkout
+            await self._clean_untracked_files(repo_path)
         elif default_branch == "dev":
             # dev branch doesn't exist, try main
             logger.info("Branch 'dev' not found, trying 'main'",
@@ -891,6 +918,8 @@ class ContainerPool:
             if process.returncode == 0:
                 logger.info("Checked out main branch",
                            repo=repo_name)
+                # Clean untracked files after checkout
+                await self._clean_untracked_files(repo_path)
             else:
                 # Both failed, stay on current branch (probably master or main after clone)
                 logger.warning("Could not checkout dev or main branch, staying on current branch",
@@ -901,6 +930,31 @@ class ContainerPool:
             logger.warning("Could not checkout branch, staying on current branch",
                           repo=repo_name,
                           branch=default_branch,
+                          stderr=stderr.decode()[:200] if stderr else "")
+
+    async def _clean_untracked_files(self, repo_path: Path) -> None:
+        """Remove untracked files and directories from repository.
+
+        Important for reusing repocache between tasks to avoid leftover files
+        from previous runs affecting the next task.
+
+        Args:
+            repo_path: Path to the repository
+        """
+        clean_cmd = ["git", "-C", str(repo_path), "clean", "-fd"]
+        process = await asyncio.create_subprocess_exec(
+            *clean_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            logger.info("Cleaned untracked files from repository",
+                       repo_path=str(repo_path))
+        else:
+            logger.warning("Could not clean untracked files",
+                          repo_path=str(repo_path),
                           stderr=stderr.decode()[:200] if stderr else "")
 
     async def _ensure_repository_cloned(
@@ -1211,6 +1265,7 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                     "idle_timeout_minutes": self.config.container_timeout_minutes,
                     "max_age_hours": self.config.container_max_age_hours,
                     "check_interval_seconds": self.config.cleanup_check_interval_seconds,
+                    "stop_container_after_task": self.config.stop_container_after_task,
                 },
             }
 
@@ -1367,36 +1422,54 @@ Please check the webhook handler logs for more details, or try mentioning me aga
                 logger.error("Error in idle cleanup worker", error=str(e))
     
     
-    async def _cleanup_container(self, dev_name: str, repo_path: Path) -> None:
+    async def _cleanup_container(
+        self,
+        dev_name: str,
+        repo_path: Path,
+        remove_workspace: bool = True,
+        remove_container: bool = True
+    ) -> None:
         """Clean up a container after use.
-        
+
         Args:
             dev_name: Name of container to clean up
             repo_path: Path to repository on host
+            remove_workspace: If True (default), also remove the workspace.
+                If False, only stop the container but keep the workspace
+                for faster reuse on restart.
+            remove_container: If True (default), remove the container after stopping.
+                If False, only stop the container (it can be restarted quickly).
         """
         try:
             # Create project and managers for cleanup
             project = Project(repo_path)
-            
+
             # Use the same config as the rest of the webhook handler
             workspace_manager = WorkspaceManager(project, self.config)
             container_manager = ContainerManager(project, self.config)
-            
-            # Stop container
-            logger.info("Starting container stop", container=dev_name)
-            stop_success = container_manager.stop_container(dev_name)
-            logger.info("Container stop result", container=dev_name, success=stop_success)
-            
-            # Remove workspace
-            logger.info("Starting workspace removal", container=dev_name)
-            workspace_success = workspace_manager.remove_workspace(dev_name)
-            logger.info("Workspace removal result", container=dev_name, success=workspace_success)
-            
-            logger.info("Container cleanup complete", 
+
+            # Stop container (and optionally remove it)
+            logger.info("Starting container stop", container=dev_name, remove=remove_container)
+            stop_success = container_manager.stop_container(dev_name, remove=remove_container)
+            logger.info("Container stop result", container=dev_name, success=stop_success, removed=remove_container)
+
+            # Remove workspace only if requested
+            workspace_success = True
+            if remove_workspace:
+                logger.info("Starting workspace removal", container=dev_name)
+                workspace_success = workspace_manager.remove_workspace(dev_name)
+                logger.info("Workspace removal result", container=dev_name, success=workspace_success)
+            else:
+                logger.info("Keeping workspace for faster reuse",
+                           container=dev_name,
+                           workspace_path=str(workspace_manager.get_workspace_dir(dev_name)))
+
+            logger.info("Container cleanup complete",
                        container=dev_name,
                        container_stopped=stop_success,
-                       workspace_removed=workspace_success)
-            
+                       container_removed=remove_container,
+                       workspace_removed=workspace_success if remove_workspace else "skipped")
+
         except Exception as e:
             logger.error("Container cleanup failed",
                         container=dev_name,
