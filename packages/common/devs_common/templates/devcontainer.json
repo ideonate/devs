@@ -83,7 +83,8 @@
     // "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-extensions,target=/home/node/.vscode-server/extensions,type=volume",
     // .vscode-server includes extension state which we don't want to keep
     // "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-data,target=/home/node/.vscode-server,type=volume",
-    "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-downloads,target=/home/node/.vscode-extensions-cache-volume,type=volume"
+    "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-downloads,target=/home/node/.vscode-extensions-cache-volume,type=volume",
+    "source=devs-vscode-cli-tunnel,target=/home/node/.vscode/cli,type=volume"
   ],
   "remoteEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",

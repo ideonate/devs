@@ -795,29 +795,30 @@ def runtests(dev_name: str, reset_workspace: bool, live: bool, env: tuple, debug
 
 @cli.command()
 @click.argument('dev_name')
+@click.option('--auth', is_flag=True, help='Set up tunnel authentication (interactive, one-time setup)')
 @click.option('--status', is_flag=True, help='Check tunnel status instead of starting')
 @click.option('--kill', 'kill_tunnel', is_flag=True, help='Kill running tunnel')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
 @click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
 @debug_option
-def tunnel(dev_name: str, status: bool, kill_tunnel: bool, live: bool, env: tuple, debug: bool) -> None:
+def tunnel(dev_name: str, auth: bool, status: bool, kill_tunnel: bool, live: bool, env: tuple, debug: bool) -> None:
     """Start a VS Code tunnel in devcontainer.
 
     VS Code tunnels allow you to connect VS Code directly to the container
     without SSH - the container initiates an outbound connection to Microsoft's
     tunnel service, and your local VS Code connects through that.
 
-    This is useful for:
-    - Connecting to containers on remote servers without port forwarding
-    - Working through firewalls (only outbound connections needed)
-    - Avoiding the "double-hop" of SSH + container attach
+    First-time setup requires authentication:
+      devs tunnel <name> --auth
+
+    After that, tunnels run in the background automatically.
 
     DEV_NAME: Development environment name
 
-    Example: devs tunnel sally           # Start tunnel (interactive)
+    Example: devs tunnel sally --auth    # One-time auth setup
+    Example: devs tunnel sally           # Start tunnel (background)
     Example: devs tunnel sally --status  # Check tunnel status
     Example: devs tunnel sally --kill    # Stop running tunnel
-    Example: devs tunnel sally --live    # Start with current directory mounted
     """
     check_dependencies()
     project = get_project()
@@ -837,7 +838,17 @@ def tunnel(dev_name: str, status: bool, kill_tunnel: bool, live: bool, env: tupl
         # Ensure workspace exists (handles live mode internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
 
-        if status:
+        if auth:
+            # Interactive authentication
+            container_manager.tunnel_auth(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                debug=debug,
+                live=live,
+                extra_env=extra_env
+            )
+
+        elif status:
             # Check tunnel status
             is_running, status_msg = container_manager.get_tunnel_status(
                 dev_name=dev_name,
@@ -865,7 +876,7 @@ def tunnel(dev_name: str, status: bool, kill_tunnel: bool, live: bool, env: tupl
             )
 
         else:
-            # Start the tunnel (interactive)
+            # Start the tunnel (background)
             container_manager.start_tunnel(
                 dev_name=dev_name,
                 workspace_dir=workspace_dir,

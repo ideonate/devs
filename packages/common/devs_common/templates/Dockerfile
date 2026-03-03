@@ -87,9 +87,9 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 ENV DEVCONTAINER=true
 
 # Create workspace and config directories and set permissions
-RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/codexconfig /home/node/.vscode-server/extensions && \
+RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/codexconfig /home/node/.vscode-server/extensions /home/node/.vscode/cli && \
   echo '[]' > /home/node/.vscode-server/extensions/extensions.json && \
-  chown -R node:node /workspaces /home/node /home/node/.vscode-server && \
+  chown -R node:node /workspaces /home/node /home/node/.vscode-server /home/node/.vscode && \
   chmod 755 /workspaces
 
 WORKDIR /workspaces
