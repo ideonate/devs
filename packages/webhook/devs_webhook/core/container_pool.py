@@ -901,6 +901,8 @@ class ContainerPool:
             logger.info("Checked out default branch",
                        repo=repo_name,
                        branch=default_branch)
+            # Reset to match remote branch so we pick up fetched changes
+            await self._reset_to_remote(repo_path, default_branch)
             # Clean untracked files after checkout
             await self._clean_untracked_files(repo_path)
         elif default_branch == "dev":
@@ -918,6 +920,8 @@ class ContainerPool:
             if process.returncode == 0:
                 logger.info("Checked out main branch",
                            repo=repo_name)
+                # Reset to match remote branch so we pick up fetched changes
+                await self._reset_to_remote(repo_path, "main")
                 # Clean untracked files after checkout
                 await self._clean_untracked_files(repo_path)
             else:
@@ -930,6 +934,34 @@ class ContainerPool:
             logger.warning("Could not checkout branch, staying on current branch",
                           repo=repo_name,
                           branch=default_branch,
+                          stderr=stderr.decode()[:200] if stderr else "")
+
+    async def _reset_to_remote(self, repo_path: Path, branch: str) -> None:
+        """Reset local branch to match the remote tracking branch.
+
+        After 'git fetch --all', the local branch may still be behind origin.
+        This ensures the working tree matches the latest fetched remote state.
+
+        Args:
+            repo_path: Path to the repository
+            branch: Branch name to reset (e.g. "main")
+        """
+        reset_cmd = ["git", "-C", str(repo_path), "reset", "--hard", f"origin/{branch}"]
+        process = await asyncio.create_subprocess_exec(
+            *reset_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            logger.info("Reset branch to match remote",
+                       repo_path=str(repo_path),
+                       branch=branch)
+        else:
+            logger.warning("Could not reset to remote branch",
+                          repo_path=str(repo_path),
+                          branch=branch,
                           stderr=stderr.decode()[:200] if stderr else "")
 
     async def _clean_untracked_files(self, repo_path: Path) -> None:
