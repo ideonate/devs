@@ -4,6 +4,7 @@ import os
 import sys
 import subprocess
 from functools import wraps
+from importlib.metadata import version, PackageNotFoundError
 
 import click
 from rich.console import Console
@@ -114,13 +115,27 @@ def get_project() -> Project:
         sys.exit(1)
 
 
+def _get_version(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Print version info for devs-cli and installed dependencies."""
+    if not value or ctx.resilient_parsing:
+        return
+    parts = []
+    for pkg, label in [("devs-cli", "devs-cli"), ("devs-common", "devs-common"), ("devs-webhook", "devs-webhook")]:
+        try:
+            parts.append(f"{label} {version(pkg)}")
+        except PackageNotFoundError:
+            pass
+    click.echo("\n".join(parts) if parts else "devs-cli (unknown version)")
+    ctx.exit()
+
+
 @click.group()
-@click.version_option(version="0.1.0", prog_name="devs")
+@click.option('--version', is_flag=True, callback=_get_version, expose_value=False, is_eager=True, help='Show version and exit.')
 @click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
 @click.pass_context
 def cli(ctx, debug: bool) -> None:
     """DevContainer Management Tool
-    
+
     Manage multiple named devcontainers for any project.
     """
     ctx.ensure_object(dict)
