@@ -126,9 +126,9 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex
 # Using the standalone CLI which supports the 'tunnel' command
 RUN ARCH=$(dpkg --print-architecture) && \
   if [ "$ARCH" = "amd64" ]; then \
-    curl -Lk 'https://code.visualstudio.com/sha/download?build=stable&os=cli-linux-x64' -o /tmp/vscode-cli.tar.gz; \
+    curl -fSL 'https://update.code.visualstudio.com/latest/cli-linux-x64/stable' -o /tmp/vscode-cli.tar.gz; \
   elif [ "$ARCH" = "arm64" ]; then \
-    curl -Lk 'https://code.visualstudio.com/sha/download?build=stable&os=cli-linux-arm64' -o /tmp/vscode-cli.tar.gz; \
+    curl -fSL 'https://update.code.visualstudio.com/latest/cli-linux-arm64/stable' -o /tmp/vscode-cli.tar.gz; \
   fi && \
   tar -xf /tmp/vscode-cli.tar.gz -C /usr/local/bin && \
   rm /tmp/vscode-cli.tar.gz && \
