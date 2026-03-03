@@ -844,10 +844,24 @@ class ContainerManager:
 
             # Create a tunnel name from the container's devcontainer name
             # This will be the name that appears in VS Code Remote Explorer
+            # VS Code tunnel names have a 20 character limit
             project_prefix = self.config.project_prefix if self.config else "dev"
             tunnel_name = f"{project_prefix}-{self.project.info.name}-{dev_name}"
             # Sanitize: tunnel names can only contain alphanumeric, dash, underscore
             tunnel_name = tunnel_name.replace(".", "-").replace("_", "-")
+
+            # Truncate to 20 chars if needed (VS Code tunnel limit)
+            if len(tunnel_name) > 20:
+                # Keep the dev name suffix, shorten the project part
+                suffix = f"-{dev_name}"
+                prefix_budget = 20 - len(suffix)
+                if prefix_budget >= 3:
+                    project_part = f"{project_prefix}-{self.project.info.name}"
+                    project_part = project_part[:prefix_budget].rstrip("-")
+                    tunnel_name = f"{project_part}{suffix}"
+                else:
+                    # Dev name itself is very long, just truncate the whole thing
+                    tunnel_name = tunnel_name[:20]
 
             console.print(f"[bold cyan]Starting VS Code tunnel for: {dev_name}[/bold cyan]")
             console.print(f"   Container: {container_name}")
