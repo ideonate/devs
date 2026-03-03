@@ -841,64 +841,6 @@ class ContainerManager:
 
         return tunnel_name
 
-    def tunnel_auth(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> None:
-        """Authenticate VS Code tunnel (interactive, one-time setup).
-
-        Runs the device code flow interactively. Auth is stored in a shared
-        Docker volume so it persists across containers and recreations.
-
-        Args:
-            dev_name: Development environment name
-            workspace_dir: Workspace directory path
-            debug: Show debug output for devcontainer operations
-            live: Whether the container is in live mode
-            extra_env: Additional environment variables to pass to container
-
-        Raises:
-            ContainerError: If authentication fails
-        """
-        try:
-            container_name, container_workspace_dir = self._prepare_container_exec(
-                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env
-            )
-
-            tunnel_name = self._get_tunnel_name(dev_name)
-
-            console.print("[bold cyan]Setting up VS Code tunnel authentication...[/bold cyan]")
-            console.print(f"   Container: {container_name}")
-            console.print("")
-            console.print("[yellow]Follow the prompts to authenticate:[/yellow]")
-            console.print("   1. A URL and code will be displayed")
-            console.print("   2. Open the URL in your browser")
-            console.print("   3. Enter the code to authenticate with GitHub/Microsoft")
-            console.print("")
-
-            cmd = [
-                'docker', 'exec', '-it',
-                container_name,
-                '/usr/local/bin/code', 'tunnel', 'user', 'login',
-                '--provider', 'github'
-            ]
-
-            if debug:
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-
-            result = subprocess.run(cmd, check=False)
-
-            if result.returncode == 0:
-                console.print("")
-                console.print("[bold green]Authentication successful![/bold green]")
-                console.print("   Auth is shared across all containers on this machine.")
-                console.print("")
-                console.print(f"   Start a tunnel:  devs tunnel {dev_name}")
-                console.print(f"   Then connect:    code --remote tunnel+{tunnel_name} {container_workspace_dir}")
-            else:
-                console.print("")
-                console.print("[yellow]Authentication was cancelled or failed.[/yellow]")
-
-        except (DockerError, subprocess.SubprocessError) as e:
-            raise ContainerError(f"Failed to authenticate tunnel in {dev_name}: {e}")
-
     def start_tunnel(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> None:
         """Start a VS Code tunnel in the background.
 

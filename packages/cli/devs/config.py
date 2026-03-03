@@ -16,6 +16,7 @@ class Config(BaseConfig):
     BRIDGE_DIR = Path.home() / ".devs" / "bridge"
     CLAUDE_CONFIG_DIR = Path.home() / ".devs" / "claudeconfig"
     CODEX_CONFIG_DIR = Path.home() / ".devs" / "codexconfig"
+    VSCODE_CLI_DIR = Path.home() / ".devs" / "vscode-cli"
 
     @property
     def container_labels(self) -> Dict[str, str]:
@@ -40,6 +41,12 @@ class Config(BaseConfig):
             self.codex_config_dir = Path(codex_config_env)
         else:
             self.codex_config_dir = self.CODEX_CONFIG_DIR
+
+        vscode_cli_env = os.getenv("DEVS_VSCODE_CLI_DIR")
+        if vscode_cli_env:
+            self.vscode_cli_dir = Path(vscode_cli_env)
+        else:
+            self.vscode_cli_dir = self.VSCODE_CLI_DIR
     
     def get_default_workspaces_dir(self) -> Path:
         """Get default workspaces directory for CLI package."""
@@ -58,6 +65,7 @@ class Config(BaseConfig):
         super().ensure_directories()
         self.claude_config_dir.mkdir(parents=True, exist_ok=True)
         self.codex_config_dir.mkdir(parents=True, exist_ok=True)
+        self.vscode_cli_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Global config instance
