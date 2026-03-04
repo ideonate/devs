@@ -819,7 +819,8 @@ def runtests(dev_name: str, reset_workspace: bool, live: bool, env: tuple, debug
 
 @cli.command()
 @click.argument('dev_name')
-@click.option('--auth', is_flag=True, help='Set up tunnel authentication (interactive, one-time setup)')
+@click.option('--auth', is_flag=True, help='Set up tunnel authentication (per-container, persists across restarts)')
+
 @click.option('--status', is_flag=True, help='Check tunnel status instead of starting')
 @click.option('--kill', 'kill_tunnel', is_flag=True, help='Kill running tunnel')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
@@ -832,11 +833,11 @@ def tunnel(dev_name: str, auth: bool, status: bool, kill_tunnel: bool, live: boo
     without SSH - the container initiates an outbound connection to Microsoft's
     tunnel service, and your local VS Code connects through that.
 
-    First-time setup requires authentication:
+    First-time setup requires authentication per container:
       devs tunnel <name> --auth
 
-    Auth is stored in a bind-mounted directory so it persists across
-    all containers on this machine.
+    Auth is stored in the container and persists across stop/restart
+    cycles (but not container removal).
 
     DEV_NAME: Development environment name
 

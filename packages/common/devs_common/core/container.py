@@ -878,11 +878,11 @@ class ContainerManager:
         return tunnel_name
 
     def tunnel_auth(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> None:
-        """Authenticate VS Code tunnel (interactive, one-time setup).
+        """Authenticate VS Code tunnel (interactive, per-container setup).
 
         Runs the device code flow interactively inside the container. Auth is
-        stored in a bind-mounted directory (~/.devs/vscode-cli/) so it persists
-        across container recreations and is shared across all containers.
+        stored in the container's filesystem and persists across stop/restart
+        cycles (but not container removal/recreation).
 
         Args:
             dev_name: Development environment name
@@ -925,7 +925,7 @@ class ContainerManager:
             if result.returncode == 0:
                 console.print("")
                 console.print("[bold green]Authentication successful![/bold green]")
-                console.print("   Auth is shared across all containers on this machine.")
+                console.print("   Auth persists across container stop/restart cycles.")
                 console.print("")
                 console.print(f"   Start a tunnel:  devs tunnel {dev_name}")
                 console.print(f"   Then connect:    code --remote tunnel+{tunnel_name} {container_workspace_dir}")
@@ -972,7 +972,7 @@ class ContainerManager:
                 'docker', 'exec', '-d',
                 container_name,
                 '/bin/sh', '-c',
-                f'VSCODE_CLI_DATA_DIR=/home/node/.vscode/cli {tunnel_cmd} > {log_file} 2>&1'
+                f'{tunnel_cmd} > {log_file} 2>&1'
             ]
 
             if debug:

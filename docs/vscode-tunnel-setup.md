@@ -4,7 +4,7 @@ This documents the changes needed to enable `devs tunnel` support in a devcontai
 
 ## How Authentication Works
 
-Authentication runs inside a container via `devs tunnel <name> --auth`. The credentials are stored in `~/.devs/vscode-cli/` on the host, which is bind-mounted into all containers at `/home/node/.vscode/cli`. This means you authenticate once in any container and every other container picks it up automatically.
+Authentication runs inside a container via `devs tunnel <name> --auth`. The credentials are stored in the container's own filesystem and persist across stop/restart cycles (but not container removal/recreation). Each container authenticates independently.
 
 ## Dockerfile Changes
 
@@ -28,34 +28,6 @@ RUN ARCH=$(dpkg --print-architecture) && \
 
 Remember to switch back to your non-root user afterwards if needed (`USER node`).
 
-### 2. Create the auth directory with correct ownership
-
-The VS Code CLI stores tunnel state at `~/.vscode/cli/`. Create it in the Dockerfile so the bind mount has correct permissions:
-
-```dockerfile
-RUN mkdir -p /home/node/.vscode/cli && \
-  chown -R node:node /home/node/.vscode
-```
-
-In the devs template, this is part of the existing `mkdir` block.
-
-## devcontainer.json Changes
-
-### 3. Bind-mount the host auth directory
-
-Bind-mount `~/.devs/vscode-cli/` from the host into the container. This is where `devs tunnel --auth` stores credentials on the host.
-
-```json
-"mounts": [
-  "source=${localEnv:HOME}/.devs/vscode-cli,target=/home/node/.vscode/cli,type=bind"
-]
-```
-
-Key points:
-- **Bind mount from host**: `~/.devs/vscode-cli/` on the host maps to `/home/node/.vscode/cli` in the container.
-- **Shared across all containers**: every container on the host sees the same auth tokens.
-- **Same pattern as Claude/Codex**: mirrors how `~/.devs/claudeconfig` and `~/.devs/codexconfig` are bind-mounted.
-
 ## Tunnel Name Limit
 
 VS Code tunnel names have a **20 character limit**. The devs CLI generates names from `{prefix}-{project}-{devname}` and truncates to fit, keeping the dev name suffix intact. If you're setting tunnel names manually, keep this limit in mind.
@@ -63,7 +35,7 @@ VS Code tunnel names have a **20 character limit**. The devs CLI generates names
 ## Usage
 
 ```bash
-# One-time auth (run from a project directory with a running container)
+# One-time auth per container (run from a project directory with a running container)
 devs tunnel <name> --auth
 
 # Start tunnel in background
@@ -82,6 +54,5 @@ devs tunnel <name> --kill
 If you want tunnel support in a standalone devcontainer (without devs CLI), the minimum changes are:
 
 1. **Dockerfile**: Install the VS Code CLI (step 1 above)
-2. **devcontainer.json**: Add the bind mount (step 3 above)
-3. **Auth**: Run `code tunnel user login --provider github` inside a container
-4. **Start the tunnel**: `code tunnel --accept-server-license-terms --name <name>`
+2. **Auth**: Run `code tunnel user login --provider github` inside the container
+3. **Start the tunnel**: `code tunnel --accept-server-license-terms --name <name>`

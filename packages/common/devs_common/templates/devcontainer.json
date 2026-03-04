@@ -83,8 +83,7 @@
     // "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-extensions,target=/home/node/.vscode-server/extensions,type=volume",
     // .vscode-server includes extension state which we don't want to keep
     // "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-data,target=/home/node/.vscode-server,type=volume",
-    "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-downloads,target=/home/node/.vscode-extensions-cache-volume,type=volume",
-    "source=${localEnv:HOME}/.devs/vscode-cli,target=/home/node/.vscode/cli,type=bind"
+    "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-downloads,target=/home/node/.vscode-extensions-cache-volume,type=volume"
   ],
   "remoteEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",
@@ -96,8 +95,7 @@
     "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}",
     "DEVS_LIVE_MODE": "${localEnv:DEVS_LIVE_MODE}",
     "DEVS_ENV_MOUNT_PATH": "${localEnv:DEVS_ENV_MOUNT_PATH}",
-    "DEVS_BRIDGE_MOUNT_PATH": "${localEnv:DEVS_BRIDGE_MOUNT_PATH}",
-    "VSCODE_CLI_DATA_DIR": "/home/node/.vscode/cli"
+    "DEVS_BRIDGE_MOUNT_PATH": "${localEnv:DEVS_BRIDGE_MOUNT_PATH}"
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
   "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh",

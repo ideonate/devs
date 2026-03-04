@@ -87,9 +87,9 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 ENV DEVCONTAINER=true
 
 # Create workspace and config directories and set permissions
-RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/codexconfig /home/node/.vscode-server/extensions /home/node/.vscode/cli && \
+RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/codexconfig /home/node/.vscode-server/extensions && \
   echo '[]' > /home/node/.vscode-server/extensions/extensions.json && \
-  chown -R node:node /workspaces /home/node /home/node/.vscode-server /home/node/.vscode && \
+  chown -R node:node /workspaces /home/node /home/node/.vscode-server && \
   chmod 755 /workspaces
 
 WORKDIR /workspaces
@@ -142,7 +142,6 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
   echo "export CODEX_CONFIG_HOME=\"/home/node/codexconfig\"" >> "$shell_rc" && \
-  echo "export VSCODE_CLI_DATA_DIR=\"/home/node/.vscode/cli\"" >> "$shell_rc" && \
   echo "export PATH=\"/home/node/.local/bin:\$PATH\"" >> "$shell_rc" && \
   echo "alias claude=\"claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
   echo "alias codex=\"/usr/local/share/npm-global/bin/codex --full-auto\"" >> "$shell_rc" && \

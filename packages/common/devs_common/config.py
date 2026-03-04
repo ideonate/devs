@@ -12,7 +12,6 @@ class BaseConfig(ABC):
     # Default directories shared across CLI and webhook
     CLAUDE_CONFIG_DIR = Path.home() / ".devs" / "claudeconfig"
     CODEX_CONFIG_DIR = Path.home() / ".devs" / "codexconfig"
-    VSCODE_CLI_DIR = Path.home() / ".devs" / "vscode-cli"
 
     def __init__(self) -> None:
         """Initialize base configuration."""
@@ -26,9 +25,6 @@ class BaseConfig(ABC):
         codex_config_env = os.getenv("DEVS_CODEX_CONFIG_DIR")
         self.codex_config_dir = Path(codex_config_env) if codex_config_env else self.CODEX_CONFIG_DIR
 
-        vscode_cli_env = os.getenv("DEVS_VSCODE_CLI_DIR")
-        self.vscode_cli_dir = Path(vscode_cli_env) if vscode_cli_env else self.VSCODE_CLI_DIR
-    
     @property
     def workspaces_dir(self) -> Path:
         """Get workspaces directory."""
@@ -104,4 +100,3 @@ class BaseConfig(ABC):
         self.bridge_dir.mkdir(parents=True, exist_ok=True)
         self.claude_config_dir.mkdir(parents=True, exist_ok=True)
         self.codex_config_dir.mkdir(parents=True, exist_ok=True)
-        self.vscode_cli_dir.mkdir(parents=True, exist_ok=True)
