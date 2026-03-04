@@ -17,6 +17,7 @@ class Config(BaseConfig):
     CLAUDE_CONFIG_DIR = Path.home() / ".devs" / "claudeconfig"
     CODEX_CONFIG_DIR = Path.home() / ".devs" / "codexconfig"
     VSCODE_CLI_DIR = Path.home() / ".devs" / "vscode-cli"
+    REPO_CACHE_DIR = Path.home() / ".devs" / "repocache"
 
     @property
     def container_labels(self) -> Dict[str, str]:
@@ -47,6 +48,12 @@ class Config(BaseConfig):
             self.vscode_cli_dir = Path(vscode_cli_env)
         else:
             self.vscode_cli_dir = self.VSCODE_CLI_DIR
+
+        repo_cache_env = os.getenv("DEVS_REPO_CACHE_DIR")
+        if repo_cache_env:
+            self.repo_cache_dir = Path(repo_cache_env)
+        else:
+            self.repo_cache_dir = self.REPO_CACHE_DIR
     
     def get_default_workspaces_dir(self) -> Path:
         """Get default workspaces directory for CLI package."""

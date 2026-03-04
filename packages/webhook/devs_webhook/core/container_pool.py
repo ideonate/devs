@@ -15,6 +15,7 @@ from devs_common.core.container import ContainerManager
 from devs_common.core.workspace import WorkspaceManager
 from devs_common.devs_config import DevsConfigLoader, DevsOptions
 from devs_common.utils.config_hash import compute_env_config_hash
+from devs_common.utils.repo_cache import RepoCache
 
 from ..config import get_config
 from ..github.models import WebhookEvent, IssueEvent, PullRequestEvent, CommentEvent
@@ -76,6 +77,9 @@ class ContainerPool:
         # Start worker tasks for each container
         self._start_workers()
 
+        # Shared RepoCache instance for all git clone/update operations
+        self.repo_cache = self._build_repo_cache()
+
         # Start the idle container cleanup task (optional - disabled for burst mode)
         self._cleanup_worker_enabled = enable_cleanup_worker
         if enable_cleanup_worker:
@@ -129,7 +133,30 @@ class ContainerPool:
             return None
 
         return devs_options
-    
+
+    def _build_repo_cache(self, default_branch: Optional[str] = None) -> RepoCache:
+        """Create a RepoCache configured for this webhook's settings.
+
+        Args:
+            default_branch: Optional explicit default branch (from DEVS.yml).
+                When set, this branch is tried first.
+
+        Returns:
+            A RepoCache instance.
+        """
+        # Build branch preference list
+        if default_branch:
+            branches = [default_branch]
+        else:
+            branches = ["dev", "main", "master"]
+
+        return RepoCache(
+            cache_dir=self.config.repo_cache_dir,
+            token=self.config.github_token or None,
+            default_branches=branches,
+            clean=True,
+        )
+
     async def ensure_repo_config(self, repo_name: str) -> DevsOptions:
         """Ensure repository configuration is loaded and cached.
         
@@ -265,10 +292,12 @@ class ContainerPool:
     
     async def _ensure_repository_files_available(self, repo_name: str, repo_path: Path) -> None:
         """Ensure repository files are available locally without re-reading config.
-        
+
         This is used when we already have the DEVS.yml config cached but need
         to ensure the actual repository files are available for the worker.
-        
+
+        Delegates to the shared RepoCache for all git operations.
+
         Args:
             repo_name: Repository name (owner/repo)
             repo_path: Path where repository should be cloned
@@ -277,99 +306,15 @@ class ContainerPool:
                    repo=repo_name,
                    repo_path=str(repo_path),
                    exists=repo_path.exists())
-        
-        if repo_path.exists():
-            # Repository already exists, try to pull latest changes
-            try:
-                logger.info("Repository exists, fetching latest changes",
-                           repo=repo_name,
-                           repo_path=str(repo_path))
-                
-                # Set up authentication for private repos
-                if self.config.github_token:
-                    set_remote_cmd = ["git", "-C", str(repo_path), "remote", "set-url", "origin",
-                                    f"https://x-access-token:{self.config.github_token}@github.com/{repo_name}.git"]
-                    
-                    process = await asyncio.create_subprocess_exec(*set_remote_cmd)
-                    await process.wait()
-                
-                # Fetch all branches to ensure we have all commits
-                fetch_cmd = ["git", "-C", str(repo_path), "fetch", "--all"]
-                process = await asyncio.create_subprocess_exec(
-                    *fetch_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await process.communicate()
 
-                if process.returncode != 0:
-                    error_msg = stderr.decode('utf-8', errors='replace') if stderr else "Unknown error"
-                    logger.warning("Failed to fetch repository, will try fresh clone",
-                                  repo=repo_name,
-                                  error=error_msg)
+        # Determine branch preference from user config
+        user_config = self._try_load_user_config(repo_name)
+        default_branch = user_config.default_branch if user_config and user_config.default_branch else None
 
-                    # Remove the directory and fall through to fresh clone
-                    import shutil
-                    shutil.rmtree(repo_path)
-                else:
-                    logger.info("Repository fetch successful",
-                               repo=repo_name)
+        cache = self._build_repo_cache(default_branch=default_branch)
+        await asyncio.to_thread(cache.ensure_repo, repo_name)
 
-                    # Checkout the default branch to ensure devcontainer files are from the right branch
-                    await self._checkout_default_branch(repo_name, repo_path)
-
-                    return  # Success, repository is up to date
-                    
-            except Exception as e:
-                logger.warning("Error during repository pull, will try fresh clone",
-                              repo=repo_name,
-                              error=str(e))
-                # Remove the directory and fall through to fresh clone
-                import shutil
-                if repo_path.exists():
-                    shutil.rmtree(repo_path)
-        
-        # Clone repository fresh (either first time or after failed pull)
-        try:
-            logger.info("Cloning repository",
-                       repo=repo_name,
-                       repo_path=str(repo_path))
-            
-            # Ensure parent directory exists
-            repo_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Clone with authentication if we have a token
-            if self.config.github_token:
-                clone_url = f"https://x-access-token:{self.config.github_token}@github.com/{repo_name}.git"
-            else:
-                clone_url = f"https://github.com/{repo_name}.git"
-            
-            clone_cmd = ["git", "clone", clone_url, str(repo_path)]
-            process = await asyncio.create_subprocess_exec(
-                *clone_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
-                logger.info("Repository cloned successfully",
-                           repo=repo_name)
-
-                # Checkout the default branch to ensure devcontainer files are from the right branch
-                await self._checkout_default_branch(repo_name, repo_path)
-            else:
-                error_msg = stderr.decode('utf-8', errors='replace') if stderr else stdout.decode('utf-8', errors='replace')
-                logger.error("Git clone failed",
-                            repo=repo_name,
-                            error=error_msg)
-                raise Exception(f"Git clone failed: {error_msg}")
-
-        except Exception as e:
-            logger.error("Repository cloning failed",
-                        repo=repo_name,
-                        error=str(e))
-            raise
+        logger.info("Repository files available", repo=repo_name)
 
     def _get_pool_for_task_type(self, task_type: str) -> list[str]:
         """Get the appropriate container pool for a task type.
@@ -867,275 +812,36 @@ class ContainerPool:
                         # Just update last_used timestamp (legacy behavior)
                         self.running_containers[dev_name]["last_used"] = datetime.now(tz=timezone.utc)
 
-    async def _checkout_default_branch(self, repo_name: str, repo_path: Path) -> None:
-        """Checkout the default branch to ensure devcontainer files are from the right branch.
-
-        Uses the default_branch from user-specific DEVS.yml config if available,
-        otherwise tries "dev", then "main".
-
-        Args:
-            repo_name: Repository name (owner/repo)
-            repo_path: Path to the cloned repository
-        """
-        # Try to get default_branch from user config (no need to read repo config yet)
-        user_config = self._try_load_user_config(repo_name)
-        if user_config and user_config.default_branch:
-            default_branch = user_config.default_branch
-        else:
-            default_branch = "dev"  # Try dev first, fall back to main
-
-        logger.info("Checking out default branch for devcontainer",
-                   repo=repo_name,
-                   branch=default_branch)
-
-        # Try to checkout the branch (use -f to discard local modifications from previous runs)
-        checkout_cmd = ["git", "-C", str(repo_path), "checkout", "-f", default_branch]
-        process = await asyncio.create_subprocess_exec(
-            *checkout_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode == 0:
-            logger.info("Checked out default branch",
-                       repo=repo_name,
-                       branch=default_branch)
-            # Reset to match remote branch so we pick up fetched changes
-            await self._reset_to_remote(repo_path, default_branch)
-            # Clean untracked files after checkout
-            await self._clean_untracked_files(repo_path)
-        elif default_branch == "dev":
-            # dev branch doesn't exist, try main
-            logger.info("Branch 'dev' not found, trying 'main'",
-                       repo=repo_name)
-            checkout_cmd = ["git", "-C", str(repo_path), "checkout", "-f", "main"]
-            process = await asyncio.create_subprocess_exec(
-                *checkout_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-
-            if process.returncode == 0:
-                logger.info("Checked out main branch",
-                           repo=repo_name)
-                # Reset to match remote branch so we pick up fetched changes
-                await self._reset_to_remote(repo_path, "main")
-                # Clean untracked files after checkout
-                await self._clean_untracked_files(repo_path)
-            else:
-                # Both failed, stay on current branch (probably master or main after clone)
-                logger.warning("Could not checkout dev or main branch, staying on current branch",
-                              repo=repo_name,
-                              stderr=stderr.decode()[:200] if stderr else "")
-        else:
-            # Specified branch doesn't exist
-            logger.warning("Could not checkout branch, staying on current branch",
-                          repo=repo_name,
-                          branch=default_branch,
-                          stderr=stderr.decode()[:200] if stderr else "")
-
-    async def _reset_to_remote(self, repo_path: Path, branch: str) -> None:
-        """Reset local branch to match the remote tracking branch.
-
-        After 'git fetch --all', the local branch may still be behind origin.
-        This ensures the working tree matches the latest fetched remote state.
-
-        Args:
-            repo_path: Path to the repository
-            branch: Branch name to reset (e.g. "main")
-        """
-        reset_cmd = ["git", "-C", str(repo_path), "reset", "--hard", f"origin/{branch}"]
-        process = await asyncio.create_subprocess_exec(
-            *reset_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode == 0:
-            logger.info("Reset branch to match remote",
-                       repo_path=str(repo_path),
-                       branch=branch)
-        else:
-            logger.warning("Could not reset to remote branch",
-                          repo_path=str(repo_path),
-                          branch=branch,
-                          stderr=stderr.decode()[:200] if stderr else "")
-
-    async def _clean_untracked_files(self, repo_path: Path) -> None:
-        """Remove untracked files and directories from repository.
-
-        Important for reusing repocache between tasks to avoid leftover files
-        from previous runs affecting the next task.
-
-        Args:
-            repo_path: Path to the repository
-        """
-        clean_cmd = ["git", "-C", str(repo_path), "clean", "-fd"]
-        process = await asyncio.create_subprocess_exec(
-            *clean_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode == 0:
-            logger.info("Cleaned untracked files from repository",
-                       repo_path=str(repo_path))
-        else:
-            logger.warning("Could not clean untracked files",
-                          repo_path=str(repo_path),
-                          stderr=stderr.decode()[:200] if stderr else "")
-
     async def _ensure_repository_cloned(
         self,
         repo_name: str,
         repo_path: Path
     ) -> DevsOptions:
         """Ensure repository is cloned to the workspace directory.
-        
-        Uses a simple strategy: if repository exists but pull fails,
-        remove it and do a fresh clone.
-        
+
+        Delegates git clone/fetch/checkout to the shared RepoCache, then reads
+        DEVS.yml configuration.
+
         Args:
             repo_name: Repository name (owner/repo)
             repo_path: Path where repository should be cloned
-            
+
         Returns:
             DevsOptions parsed from DEVS.yml or defaults
         """
-        logger.info("Checking repository status",
+        logger.info("Ensuring repository is cloned",
                    repo=repo_name,
-                   repo_path=str(repo_path),
-                   exists=repo_path.exists())
-        
-        if repo_path.exists():
-            # Repository already exists, try to pull latest changes
-            try:
-                logger.info("Repository exists, fetching latest changes",
-                           repo=repo_name,
-                           repo_path=str(repo_path))
-                
-                # Set up authentication for private repos
-                if self.config.github_token:
-                    # Configure the token for this specific repo
-                    remote_url = f"https://{self.config.github_token}@github.com/{repo_name}.git"
-                    set_remote_cmd = ["git", "-C", str(repo_path), "remote", "set-url", "origin", remote_url]
-                    await asyncio.create_subprocess_exec(*set_remote_cmd)
-                
-                # Fetch all branches to ensure we have all commits
-                cmd = ["git", "-C", str(repo_path), "fetch", "--all"]
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await process.communicate()
+                   repo_path=str(repo_path))
 
-                if process.returncode == 0:
-                    logger.info("Git fetch succeeded",
-                               repo=repo_name,
-                               stdout=stdout.decode()[:200] if stdout else "")
+        # Determine branch preference from user config
+        user_config = self._try_load_user_config(repo_name)
+        default_branch = user_config.default_branch if user_config and user_config.default_branch else None
 
-                    # Checkout the default branch to ensure devcontainer files are from the right branch
-                    await self._checkout_default_branch(repo_name, repo_path)
+        cache = self._build_repo_cache(default_branch=default_branch)
+        await asyncio.to_thread(cache.ensure_repo, repo_name)
 
-                    logger.info("Repository updated", repo=repo_name, path=str(repo_path))
-                else:
-                    # Fetch failed - remove and re-clone
-                    logger.warning("Git fetch failed, removing and re-cloning",
-                                  repo=repo_name,
-                                  return_code=process.returncode,
-                                  stderr=stderr.decode()[:200] if stderr else "")
-                    
-                    # Remove the existing directory
-                    logger.info("Removing existing repository directory",
-                               repo=repo_name,
-                               repo_path=str(repo_path))
-                    shutil.rmtree(repo_path)
-                    
-                    # Now fall through to clone logic
-                    
-            except Exception as e:
-                logger.warning("Failed to update repository, removing and re-cloning",
-                              repo=repo_name,
-                              error=str(e),
-                              error_type=type(e).__name__)
-                
-                # Remove the existing directory
-                try:
-                    shutil.rmtree(repo_path)
-                    logger.info("Removed existing repository directory",
-                               repo=repo_name,
-                               repo_path=str(repo_path))
-                except Exception as rm_error:
-                    logger.error("Failed to remove repository directory",
-                                repo=repo_name,
-                                repo_path=str(repo_path),
-                                error=str(rm_error))
-                    raise
-        
-        # If we get here, either the repo didn't exist or we removed it
-        if not repo_path.exists():
-            # Clone the repository
-            try:
-                logger.info("Repository does not exist, cloning",
-                           repo=repo_name,
-                           repo_path=str(repo_path))
-                
-                repo_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Use GitHub token for authentication
-                if self.config.github_token:
-                    clone_url = f"https://{self.config.github_token}@github.com/{repo_name}.git"
-                else:
-                    clone_url = f"https://github.com/{repo_name}.git"
-                
-                cmd = ["git", "clone", clone_url, str(repo_path)]
-                
-                # Don't log the token!
-                safe_url = f"https://github.com/{repo_name}.git"
-                logger.info("Starting git clone",
-                           repo=repo_name,
-                           clone_url=safe_url,
-                           target_path=str(repo_path))
-                
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                stdout, stderr = await process.communicate()
-                
-                logger.info("Git clone completed",
-                           repo=repo_name,
-                           return_code=process.returncode,
-                           stdout=stdout.decode()[:200] if stdout else "",
-                           stderr=stderr.decode()[:200] if stderr else "")
-                
-                if process.returncode == 0:
-                    logger.info("Repository cloned successfully",
-                               repo=repo_name,
-                               path=str(repo_path))
+        logger.info("Repository ready", repo=repo_name, path=str(repo_path))
 
-                    # Checkout the default branch to ensure devcontainer files are from the right branch
-                    await self._checkout_default_branch(repo_name, repo_path)
-                else:
-                    error_msg = stderr.decode('utf-8', errors='replace')
-                    logger.error("Failed to clone repository",
-                                repo=repo_name,
-                                error=error_msg)
-                    raise Exception(f"Git clone failed: {error_msg}")
-                    
-            except Exception as e:
-                logger.error("Repository cloning failed",
-                            repo=repo_name,
-                            error=str(e))
-                raise
-        
         # Read DEVS.yml configuration using shared method
         devs_options = self._read_devs_options(repo_path, repo_name)
         return devs_options
