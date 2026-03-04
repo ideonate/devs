@@ -16,10 +16,11 @@ from .git_utils import (
 
 from .docker_client import DockerClient
 from .devcontainer import DevContainerCLI
+from .repo_cache import RepoCache
 
 __all__ = [
     "copy_file_list",
-    "copy_directory_tree", 
+    "copy_directory_tree",
     "safe_remove_directory",
     "ensure_directory_exists",
     "get_directory_size",
@@ -27,5 +28,6 @@ __all__ = [
     "get_tracked_files",
     "is_git_repository",
     "DockerClient",
-    "DevContainerCLI"
+    "DevContainerCLI",
+    "RepoCache",
 ]

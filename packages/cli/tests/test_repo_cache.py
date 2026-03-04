@@ -28,13 +28,24 @@ class TestRepoCache:
         monkeypatch.setenv("GH_TOKEN", "tok123")
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         cache = RepoCache()
-        assert cache._build_clone_url("org/repo") == "https://tok123@github.com/org/repo.git"
+        assert cache._build_clone_url("org/repo") == "https://x-access-token:tok123@github.com/org/repo.git"
 
     def test_build_clone_url_with_github_token(self, monkeypatch):
         monkeypatch.delenv("GH_TOKEN", raising=False)
         monkeypatch.setenv("GITHUB_TOKEN", "tok456")
         cache = RepoCache()
-        assert cache._build_clone_url("org/repo") == "https://tok456@github.com/org/repo.git"
+        assert cache._build_clone_url("org/repo") == "https://x-access-token:tok456@github.com/org/repo.git"
+
+    def test_build_clone_url_with_explicit_token(self, monkeypatch):
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        cache = RepoCache(token="mytoken")
+        assert cache._build_clone_url("org/repo") == "https://x-access-token:mytoken@github.com/org/repo.git"
+
+    def test_explicit_token_takes_priority(self, monkeypatch):
+        monkeypatch.setenv("GH_TOKEN", "envtoken")
+        cache = RepoCache(token="explicit")
+        assert cache._build_clone_url("org/repo") == "https://x-access-token:explicit@github.com/org/repo.git"
 
     @patch("devs_common.utils.repo_cache.subprocess.run")
     def test_ensure_repo_clones_when_missing(self, mock_run, tmp_path):
@@ -89,6 +100,40 @@ class TestRepoCache:
 
         with pytest.raises(DevsError, match="Failed to clone"):
             cache.ensure_repo("bad/repo")
+
+    def test_get_repo_path(self, tmp_path):
+        cache = RepoCache(cache_dir=tmp_path)
+        assert cache.get_repo_path("ideonate/devs") == tmp_path / "ideonate-devs"
+
+    @patch("devs_common.utils.repo_cache.subprocess.run")
+    def test_default_branches_preference(self, mock_run, tmp_path):
+        """When default_branches is set, those branches are tried in order."""
+        cache = RepoCache(cache_dir=tmp_path, default_branches=["dev", "main"])
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        cache.ensure_repo("org/repo")
+
+        # After clone, should try checkout of first preferred branch (dev)
+        checkout_calls = [
+            c for c in mock_run.call_args_list
+            if len(c[0][0]) >= 2 and c[0][0][:2] == ["git", "checkout"]
+        ]
+        assert len(checkout_calls) >= 1
+        assert "dev" in checkout_calls[0][0][0]
+
+    @patch("devs_common.utils.repo_cache.subprocess.run")
+    def test_clean_runs_git_clean(self, mock_run, tmp_path):
+        """When clean=True, git clean -fd is run after checkout."""
+        cache = RepoCache(cache_dir=tmp_path, clean=True, default_branches=["main"])
+        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+
+        cache.ensure_repo("org/repo")
+
+        clean_calls = [
+            c for c in mock_run.call_args_list
+            if len(c[0][0]) >= 2 and c[0][0][:2] == ["git", "clean"]
+        ]
+        assert len(clean_calls) >= 1
 
 
 class TestRepoCliOption:
