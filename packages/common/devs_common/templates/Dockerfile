@@ -139,6 +139,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
   echo "export CODEX_CONFIG_HOME=\"/home/node/codexconfig\"" >> "$shell_rc" && \
+  echo "export VSCODE_CLI_DATA_DIR=\"/home/node/.vscode/cli\"" >> "$shell_rc" && \
   echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
   echo "alias codex=\"/usr/local/share/npm-global/bin/codex --full-auto\"" >> "$shell_rc" && \
   echo "" >> "$shell_rc" && \

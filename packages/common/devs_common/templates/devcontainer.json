@@ -96,7 +96,8 @@
     "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}",
     "DEVS_LIVE_MODE": "${localEnv:DEVS_LIVE_MODE}",
     "DEVS_ENV_MOUNT_PATH": "${localEnv:DEVS_ENV_MOUNT_PATH}",
-    "DEVS_BRIDGE_MOUNT_PATH": "${localEnv:DEVS_BRIDGE_MOUNT_PATH}"
+    "DEVS_BRIDGE_MOUNT_PATH": "${localEnv:DEVS_BRIDGE_MOUNT_PATH}",
+    "VSCODE_CLI_DATA_DIR": "/home/node/.vscode/cli"
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
   "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh",

@@ -794,7 +794,7 @@ def runtests(dev_name: str, reset_workspace: bool, live: bool, env: tuple, debug
 
 
 @cli.command()
-@click.argument('dev_name', required=False)
+@click.argument('dev_name')
 @click.option('--auth', is_flag=True, help='Set up tunnel authentication (interactive, one-time setup)')
 @click.option('--status', is_flag=True, help='Check tunnel status instead of starting')
 @click.option('--kill', 'kill_tunnel', is_flag=True, help='Kill running tunnel')
@@ -809,26 +809,18 @@ def tunnel(dev_name: str, auth: bool, status: bool, kill_tunnel: bool, live: boo
     tunnel service, and your local VS Code connects through that.
 
     First-time setup requires authentication:
-      devs tunnel --auth
+      devs tunnel <name> --auth
 
-    After that, tunnels run in the background automatically.
+    Auth is stored in a bind-mounted directory so it persists across
+    all containers on this machine.
 
     DEV_NAME: Development environment name
 
-    Example: devs tunnel --auth          # One-time auth setup (no project needed)
+    Example: devs tunnel sally --auth    # One-time auth setup
     Example: devs tunnel sally           # Start tunnel (background)
     Example: devs tunnel sally --status  # Check tunnel status
     Example: devs tunnel sally --kill    # Stop running tunnel
     """
-    # Handle authentication mode - no project or dev_name needed
-    if auth:
-        _handle_tunnel_auth(debug=debug)
-        return
-
-    # All other modes require dev_name
-    if not dev_name:
-        raise click.UsageError("DEV_NAME is required unless using --auth")
-
     check_dependencies()
     project = get_project()
 
@@ -847,7 +839,17 @@ def tunnel(dev_name: str, auth: bool, status: bool, kill_tunnel: bool, live: boo
         # Ensure workspace exists (handles live mode internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
 
-        if status:
+        if auth:
+            # Interactive authentication inside the container
+            container_manager.tunnel_auth(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                debug=debug,
+                live=live,
+                extra_env=extra_env
+            )
+
+        elif status:
             # Check tunnel status
             is_running, status_msg = container_manager.get_tunnel_status(
                 dev_name=dev_name,
@@ -888,63 +890,6 @@ def tunnel(dev_name: str, auth: bool, status: bool, kill_tunnel: bool, live: boo
         console.print(f"Error with tunnel for {dev_name}: {e}")
         sys.exit(1)
 
-
-def _handle_tunnel_auth(debug: bool) -> None:
-    """Handle VS Code tunnel authentication.
-
-    Runs the VS Code CLI on the host to authenticate. Auth is stored
-    in ~/.devs/vscode-cli/ and bind-mounted into containers.
-    """
-    try:
-        config.ensure_directories()
-
-        console.print("🔐 Setting up VS Code tunnel authentication...")
-        console.print(f"   Configuration will be saved to: {config.vscode_cli_dir}")
-        console.print("")
-        console.print("   Starting interactive authentication...")
-        console.print("   Follow the prompts to authenticate with GitHub")
-        console.print("")
-
-        env = os.environ.copy()
-        env['VSCODE_CLI_DATA_DIR'] = str(config.vscode_cli_dir)
-
-        cmd = ['code', 'tunnel', 'user', 'login', '--provider', 'github']
-
-        if debug:
-            console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-            console.print(f"[dim]VSCODE_CLI_DATA_DIR: {config.vscode_cli_dir}[/dim]")
-
-        result = subprocess.run(cmd, env=env, check=False)
-
-        if result.returncode == 0:
-            console.print("")
-            console.print("✅ Tunnel authentication configured successfully!")
-            console.print(f"   Configuration saved to: {config.vscode_cli_dir}")
-            console.print("   This authentication will be shared across all devcontainers")
-            console.print("")
-            console.print("💡 You can now start tunnels from any project:")
-            console.print("   devs tunnel <name>")
-        else:
-            console.print("")
-            console.print("[yellow]Authentication was cancelled or failed.[/yellow]")
-
-    except FileNotFoundError:
-        console.print("❌ VS Code CLI not found on host machine")
-        console.print("")
-        console.print("Please install VS Code CLI first:")
-        console.print("   https://code.visualstudio.com/docs/editor/command-line")
-        console.print("")
-        console.print("Or install the standalone CLI:")
-        console.print("   curl -fSL 'https://update.code.visualstudio.com/latest/cli-linux-x64/stable' -o /tmp/vscode-cli.tar.gz")
-        console.print("   sudo tar -xf /tmp/vscode-cli.tar.gz -C /usr/local/bin")
-        sys.exit(1)
-
-    except Exception as e:
-        console.print(f"❌ Failed to configure tunnel authentication: {e}")
-        if debug:
-            import traceback
-            console.print(traceback.format_exc())
-        sys.exit(1)
 
 
 @cli.command()

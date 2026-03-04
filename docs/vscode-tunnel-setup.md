@@ -4,7 +4,7 @@ This documents the changes needed to enable `devs tunnel` support in a devcontai
 
 ## How Authentication Works
 
-Authentication is handled on the **host machine**, not inside containers. The `devs tunnel --auth` command runs the VS Code CLI on the host and stores credentials in `~/.devs/vscode-cli/`. This directory is bind-mounted into all containers, so you authenticate once and every container picks it up — same pattern as `devs claude --auth`.
+Authentication runs inside a container via `devs tunnel <name> --auth`. The credentials are stored in `~/.devs/vscode-cli/` on the host, which is bind-mounted into all containers at `/home/node/.vscode/cli`. This means you authenticate once in any container and every other container picks it up automatically.
 
 ## Dockerfile Changes
 
@@ -63,10 +63,10 @@ VS Code tunnel names have a **20 character limit**. The devs CLI generates names
 ## Usage
 
 ```bash
-# One-time auth on the host (no project/container needed)
-devs tunnel --auth
+# One-time auth (run from a project directory with a running container)
+devs tunnel <name> --auth
 
-# Start tunnel in background (from within a project directory)
+# Start tunnel in background
 devs tunnel <name>
 
 # Connect from your local machine (command shown in tunnel output)
@@ -83,5 +83,5 @@ If you want tunnel support in a standalone devcontainer (without devs CLI), the 
 
 1. **Dockerfile**: Install the VS Code CLI (step 1 above)
 2. **devcontainer.json**: Add the bind mount (step 3 above)
-3. **Host setup**: Create `~/.devs/vscode-cli/` and run `VSCODE_CLI_DATA_DIR=~/.devs/vscode-cli code tunnel user login --provider github`
+3. **Auth**: Run `code tunnel user login --provider github` inside a container
 4. **Start the tunnel**: `code tunnel --accept-server-license-terms --name <name>`
