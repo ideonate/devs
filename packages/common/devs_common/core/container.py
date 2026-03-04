@@ -588,24 +588,24 @@ class ContainerManager:
     
     def _prepare_container_exec(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> Tuple[str, str]:
         """Prepare container for exec operations (shared by exec_shell and exec_command).
-        
+
         Args:
             dev_name: Development environment name
             workspace_dir: Workspace directory path
             debug: Show debug output for devcontainer operations
             live: Whether the container is in live mode
             extra_env: Additional environment variables to pass to container
-            
+
         Returns:
             Tuple of (container_name, container_workspace_dir)
-            
+
         Raises:
             ContainerError: If container preparation fails
         """
         # Get initial container info (may be updated based on existing container mode)
         workspace_info = self._get_container_info(dev_name, live)
         container_name = workspace_info["container_name"]
-        
+
         # Check if container already exists and detect its mode
         project_labels = self._get_project_labels(dev_name)
         existing_containers = self.docker.find_containers_by_labels(project_labels)
@@ -615,18 +615,18 @@ class ContainerManager:
             existing_is_live = existing_labels.get('devs.live') == 'true'
             # Use the existing container's mode
             live = existing_is_live
-        
+
         # In live mode, use the host folder name; otherwise use constructed name
         if live:
             workspace_name = workspace_dir.name
         else:
             workspace_name = workspace_info["workspace_name"]
         container_workspace_dir = f"/workspaces/{workspace_name}"
-        
+
         # Ensure container is running
         if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
             raise ContainerError(f"Failed to start container for {dev_name}")
-        
+
         return container_name, container_workspace_dir
     
     def exec_shell(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False) -> None:
@@ -646,7 +646,7 @@ class ContainerManager:
             container_name, container_workspace_dir = self._prepare_container_exec(
                 dev_name, workspace_dir, debug=debug, live=live
             )
-            
+
             console.print(f"🐚 Opening shell in: {dev_name} (container: {container_name})")
             console.print(f"   Workspace: {container_workspace_dir}")
             

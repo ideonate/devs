@@ -348,17 +348,8 @@ def shell(dev_name: str, live: bool, env: tuple, debug: bool) -> None:
     try:
         # Ensure workspace exists (handles live mode internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
-        # Ensure container is running
-        container_manager.ensure_container_running(
-            dev_name=dev_name, 
-            workspace_dir=workspace_dir, 
-            force_rebuild=False, 
-            debug=debug, 
-            live=live, 
-            extra_env=extra_env
-        )
-        
-        # Open shell
+
+        # Open shell (ensure_container_running is called internally)
         container_manager.exec_shell(dev_name, workspace_dir, debug=debug, live=live)
         
     except (ContainerError, WorkspaceError) as e:
@@ -414,17 +405,8 @@ def claude(dev_name: str, prompt: str, auth: bool, api_key: str, reset_workspace
     try:
         # Ensure workspace exists (handles live mode and reset internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
-        # Ensure container is running
-        container_manager.ensure_container_running(
-            dev_name=dev_name,
-            workspace_dir=workspace_dir,
-            force_rebuild=False,
-            debug=debug,
-            live=live,
-            extra_env=extra_env
-        )
 
-        # Execute Claude
+        # Execute Claude (ensure_container_running is called internally)
         console.print(f"🤖 Executing Claude in {dev_name}...")
         if reset_workspace and not live:
             console.print("🗑️  Workspace contents reset")
@@ -596,17 +578,8 @@ def codex(dev_name: str, prompt: str, auth: bool, api_key: str, reset_workspace:
     try:
         # Ensure workspace exists (handles live mode and reset internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
-        # Ensure container is running
-        container_manager.ensure_container_running(
-            dev_name=dev_name,
-            workspace_dir=workspace_dir,
-            force_rebuild=False,
-            debug=debug,
-            live=live,
-            extra_env=extra_env
-        )
 
-        # Execute Codex
+        # Execute Codex (ensure_container_running is called internally)
         console.print(f"🤖 Executing Codex in {dev_name}...")
         if reset_workspace and not live:
             console.print("🗑️  Workspace contents reset")
@@ -774,17 +747,8 @@ def runtests(dev_name: str, reset_workspace: bool, live: bool, env: tuple, debug
     try:
         # Ensure workspace exists (handles live mode and reset internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
-        # Ensure container is running
-        container_manager.ensure_container_running(
-            dev_name=dev_name, 
-            workspace_dir=workspace_dir, 
-            force_rebuild=False, 
-            debug=debug, 
-            live=live, 
-            extra_env=extra_env
-        )
-        
-        # Execute test command
+
+        # Execute test command (ensure_container_running is called internally)
         console.print(f"🧪 Running tests in {dev_name}...")
         if reset_workspace and not live:
             console.print("🗑️  Workspace contents reset")
