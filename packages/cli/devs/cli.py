@@ -15,6 +15,7 @@ from pathlib import Path
 from .core import Project, ContainerManager, WorkspaceManager
 from .core.integration import VSCodeIntegration, ExternalToolIntegration
 from devs_common.devs_config import DevsConfigLoader
+from devs_common.utils.repo_cache import RepoCache
 from .exceptions import (
     DevsError,
     ProjectNotFoundError,
@@ -87,7 +88,12 @@ def debug_option(f):
 
 def check_dependencies() -> None:
     """Check and report on dependencies."""
-    integration = ExternalToolIntegration(Project())
+    try:
+        project = Project()
+    except Exception:
+        # Outside a git repo (e.g. using --repo), use a dummy project
+        project = None
+    integration = ExternalToolIntegration(project)
     missing = integration.get_missing_dependencies()
     
     if missing:
@@ -104,13 +110,29 @@ def check_dependencies() -> None:
 
 
 def get_project() -> Project:
-    """Get project instance with error handling."""
+    """Get project instance with error handling.
+
+    If the CLI was invoked with --repo, the repo is cloned/updated
+    into the local cache and the Project is created from that path.
+    Otherwise, the current working directory is used.
+    """
+    # Check for --repo from the CLI group context
+    repo = None
     try:
-        project = Project()
-        # No longer require devcontainer config upfront - 
-        # WorkspaceManager will provide default template if needed
+        ctx = click.get_current_context()
+        repo = ctx.obj.get('REPO') if ctx.obj else None
+    except RuntimeError:
+        pass
+
+    try:
+        if repo:
+            repo_cache = RepoCache(cache_dir=config.repo_cache_dir)
+            repo_path = repo_cache.ensure_repo(repo)
+            project = Project(project_dir=repo_path)
+        else:
+            project = Project()
         return project
-    except ProjectNotFoundError as e:
+    except (ProjectNotFoundError, DevsError) as e:
         console.print(f"❌ {e}")
         sys.exit(1)
 
@@ -132,14 +154,16 @@ def _get_version(ctx: click.Context, param: click.Parameter, value: bool) -> Non
 @click.group()
 @click.option('--version', is_flag=True, callback=_get_version, expose_value=False, is_eager=True, help='Show version and exit.')
 @click.option('--debug', is_flag=True, help='Show debug tracebacks on error')
+@click.option('--repo', default=None, help='GitHub org/repo (e.g. "ideonate/devs") to clone into cache instead of using CWD')
 @click.pass_context
-def cli(ctx, debug: bool) -> None:
+def cli(ctx, debug: bool, repo: str) -> None:
     """DevContainer Management Tool
 
     Manage multiple named devcontainers for any project.
     """
     ctx.ensure_object(dict)
     ctx.obj['DEBUG'] = debug
+    ctx.obj['REPO'] = repo
 
 
 @cli.command()
@@ -983,7 +1007,7 @@ def list(all_projects: bool) -> None:
 def status() -> None:
     """Show project and dependency status."""
     try:
-        project = Project()
+        project = get_project()
         
         console.print(f"📁 Project: {project.info.name}")
         console.print(f"   Directory: {project.info.directory}")
