@@ -467,7 +467,41 @@ class ContainerManager:
             
         except DockerError as e:
             raise ContainerError(f"Failed to list containers: {e}")
-    
+
+    @staticmethod
+    def list_all_containers() -> List[ContainerInfo]:
+        """List all devs-managed containers across all projects.
+
+        Returns:
+            List of ContainerInfo objects sorted by project name then dev name
+        """
+        try:
+            docker_client = DockerClient()
+            containers = docker_client.find_containers_by_labels({"devs.managed": "true"})
+
+            result = []
+            for container_data in containers:
+                dev_name = container_data['labels'].get('devs.dev', 'unknown')
+                project_name = container_data['labels'].get('devs.project', 'unknown')
+
+                container_info = ContainerInfo(
+                    name=container_data['name'],
+                    dev_name=dev_name,
+                    project_name=project_name,
+                    status=container_data['status'],
+                    container_id=container_data['id'],
+                    created=_parse_docker_timestamp(container_data['created']),
+                    labels=container_data['labels']
+                )
+
+                result.append(container_info)
+
+            result.sort(key=lambda c: (c.project_name, c.dev_name))
+            return result
+
+        except DockerError as e:
+            raise ContainerError(f"Failed to list containers: {e}")
+
     def find_aborted_containers(self, all_projects: bool = False) -> List[ContainerInfo]:
         """Find aborted devs containers that failed during setup.
         

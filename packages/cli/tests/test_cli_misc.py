@@ -69,21 +69,50 @@ class TestListCommand:
             assert result.exit_code == 0
             assert "No active devcontainers found" in result.output
     
-    @patch('devs.cli.Project')
-    def test_list_all_containers(self, mock_project_class, cli_runner, temp_project):
-        """Test listing all devs containers - --all-projects not yet implemented."""
-        # Setup mocks
-        mock_project = Mock()
-        mock_project.path = temp_project
-        mock_project.info.name = "test-org-test-repo"
-        mock_project_class.return_value = mock_project
+    @patch('devs.cli.ContainerManager')
+    def test_list_all_projects(self, mock_container_manager_class, cli_runner, temp_project):
+        """Test listing containers across all projects."""
+        mock_container_manager_class.list_all_containers.return_value = [
+            MockContainer("/dev-org-a-repo-a-alice", "running", {
+                "devs.project": "org-a-repo-a",
+                "devs.name": "alice",
+                "devs.managed": "true"
+            }),
+            MockContainer("/dev-org-a-repo-a-bob", "exited", {
+                "devs.project": "org-a-repo-a",
+                "devs.name": "bob",
+                "devs.managed": "true"
+            }),
+            MockContainer("/dev-org-b-repo-b-charlie", "running", {
+                "devs.project": "org-b-repo-b",
+                "devs.name": "charlie",
+                "devs.managed": "true"
+            }),
+        ]
 
-        # Run command with --all-projects (not --all)
         result = cli_runner.invoke(cli, ['list', '--all-projects'])
 
-        # --all-projects is not implemented yet, verify the output message
         assert result.exit_code == 0
-        assert "--all-projects not implemented yet" in result.output
+        assert "All devcontainers" in result.output
+        assert "org-a-repo-a" in result.output
+        assert "org-b-repo-b" in result.output
+        assert "alice" in result.output
+        assert "bob" in result.output
+        assert "charlie" in result.output
+        assert "running" in result.output
+        assert "exited" in result.output
+        # Should include Project column
+        mock_container_manager_class.list_all_containers.assert_called_once()
+
+    @patch('devs.cli.ContainerManager')
+    def test_list_all_projects_no_containers(self, mock_container_manager_class, cli_runner, temp_project):
+        """Test --all-projects when no containers exist."""
+        mock_container_manager_class.list_all_containers.return_value = []
+
+        result = cli_runner.invoke(cli, ['list', '--all-projects'])
+
+        assert result.exit_code == 0
+        assert "No active devcontainers found" in result.output
 
 
 class TestStatusCommand:
