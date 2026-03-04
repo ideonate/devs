@@ -119,8 +119,11 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
   -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
   -x
 
-# Install Claude CLI and OpenAI Codex CLI
-RUN npm install -g @anthropic-ai/claude-code @openai/codex
+# Install Claude CLI via native installer
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# Install OpenAI Codex CLI
+RUN npm install -g @openai/codex
 
 # Install VS Code CLI for tunnel support (needs root for /usr/local/bin)
 # Using the standalone CLI which supports the 'tunnel' command
@@ -140,7 +143,8 @@ RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
   echo "export CODEX_CONFIG_HOME=\"/home/node/codexconfig\"" >> "$shell_rc" && \
   echo "export VSCODE_CLI_DATA_DIR=\"/home/node/.vscode/cli\"" >> "$shell_rc" && \
-  echo "alias claude=\"/usr/local/share/npm-global/bin/claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
+  echo "export PATH=\"/home/node/.local/bin:\$PATH\"" >> "$shell_rc" && \
+  echo "alias claude=\"claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
   echo "alias codex=\"/usr/local/share/npm-global/bin/codex --full-auto\"" >> "$shell_rc" && \
   echo "" >> "$shell_rc" && \
   echo "# Auto-activate Python venv if it exists" >> "$shell_rc" && \
