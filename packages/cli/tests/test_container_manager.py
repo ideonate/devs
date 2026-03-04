@@ -125,6 +125,77 @@ class TestContainerManager:
                 assert all(isinstance(c, ContainerInfo) for c in containers)
                 assert {c.dev_name for c in containers} == {"alice", "bob"}
 
+    def test_list_all_containers(self):
+        """Test listing all devs-managed containers across all projects."""
+        with patch('devs_common.core.container.DockerClient') as mock_docker_client_class:
+            mock_docker_instance = MagicMock()
+            mock_docker_client_class.return_value = mock_docker_instance
+
+            mock_docker_instance.find_containers_by_labels.return_value = [
+                {
+                    'name': 'dev-org-a-repo-a-alice',
+                    'id': 'abc123',
+                    'status': 'running',
+                    'labels': {
+                        'devs.managed': 'true',
+                        'devs.project': 'org-a-repo-a',
+                        'devs.dev': 'alice'
+                    },
+                    'created': '2025-01-01T00:00:00.000000Z'
+                },
+                {
+                    'name': 'dev-org-b-repo-b-bob',
+                    'id': 'def456',
+                    'status': 'exited',
+                    'labels': {
+                        'devs.managed': 'true',
+                        'devs.project': 'org-b-repo-b',
+                        'devs.dev': 'bob'
+                    },
+                    'created': '2025-01-02T00:00:00.000000Z'
+                },
+                {
+                    'name': 'dev-org-a-repo-a-charlie',
+                    'id': 'ghi789',
+                    'status': 'running',
+                    'labels': {
+                        'devs.managed': 'true',
+                        'devs.project': 'org-a-repo-a',
+                        'devs.dev': 'charlie'
+                    },
+                    'created': '2025-01-03T00:00:00.000000Z'
+                },
+            ]
+
+            containers = ContainerManager.list_all_containers()
+
+            # Verify it searched with devs.managed label
+            mock_docker_instance.find_containers_by_labels.assert_called_once_with(
+                {"devs.managed": "true"}
+            )
+
+            assert len(containers) == 3
+            assert all(isinstance(c, ContainerInfo) for c in containers)
+
+            # Verify sorted by project name then dev name
+            assert containers[0].project_name == "org-a-repo-a"
+            assert containers[0].dev_name == "alice"
+            assert containers[1].project_name == "org-a-repo-a"
+            assert containers[1].dev_name == "charlie"
+            assert containers[2].project_name == "org-b-repo-b"
+            assert containers[2].dev_name == "bob"
+
+    def test_list_all_containers_empty(self):
+        """Test listing all containers when none exist."""
+        with patch('devs_common.core.container.DockerClient') as mock_docker_client_class:
+            mock_docker_instance = MagicMock()
+            mock_docker_client_class.return_value = mock_docker_instance
+            mock_docker_instance.find_containers_by_labels.return_value = []
+
+            containers = ContainerManager.list_all_containers()
+
+            assert len(containers) == 0
+
     def test_stop_container_success(self, mock_project):
         """Test successful container stop."""
         with patch('devs_common.utils.docker_client.docker') as mock_docker:

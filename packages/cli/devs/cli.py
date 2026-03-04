@@ -900,25 +900,56 @@ def list(all_projects: bool) -> None:
     
     if all_projects:
         console.print("📋 All devcontainers:")
-        # This would require a more complex implementation
-        console.print("   --all-projects not implemented yet")
+        console.print("")
+
+        try:
+            containers = ContainerManager.list_all_containers()
+
+            if not containers:
+                console.print("   No active devcontainers found")
+                return
+
+            table = Table()
+            table.add_column("Project", style="magenta")
+            table.add_column("Name", style="cyan")
+            table.add_column("Mode", style="yellow")
+            table.add_column("Status", style="green")
+            table.add_column("Container", style="dim")
+            table.add_column("Created", style="dim")
+
+            for container in containers:
+                created_str = container.created.strftime("%Y-%m-%d %H:%M") if container.created else "unknown"
+                mode = "live" if container.labels.get('devs.live') == 'true' else "copy"
+                table.add_row(
+                    container.project_name,
+                    container.dev_name,
+                    mode,
+                    container.status,
+                    container.name,
+                    created_str
+                )
+
+            console.print(table)
+
+        except ContainerError as e:
+            console.print(f"❌ Error listing containers: {e}")
         return
-    
+
     project = get_project()
     container_manager = ContainerManager(project, config)
-    
+
     console.print(f"📋 Active devcontainers for project: {project.info.name}")
     console.print("")
-    
+
     try:
         containers = container_manager.list_containers()
-        
+
         if not containers:
             console.print("   No active devcontainers found")
             console.print("")
             console.print("💡 Start some with: devs start <dev-name>")
             return
-        
+
         # Create a table
         table = Table()
         table.add_column("Name", style="cyan")
@@ -926,7 +957,7 @@ def list(all_projects: bool) -> None:
         table.add_column("Status", style="green")
         table.add_column("Container", style="dim")
         table.add_column("Created", style="dim")
-        
+
         for container in containers:
             created_str = container.created.strftime("%Y-%m-%d %H:%M") if container.created else "unknown"
             mode = "live" if container.labels.get('devs.live') == 'true' else "copy"
@@ -937,13 +968,13 @@ def list(all_projects: bool) -> None:
                 container.name,
                 created_str
             )
-        
+
         console.print(table)
         console.print("")
         console.print("💡 Open with: devs vscode <dev-name>")
         console.print("💡 Shell into: devs shell <dev-name>")
         console.print("💡 Stop with: devs stop <dev-name>")
-        
+
     except ContainerError as e:
         console.print(f"❌ Error listing containers: {e}")
 
