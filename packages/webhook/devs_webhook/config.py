@@ -259,10 +259,6 @@ class WebhookConfig(BaseSettings, BaseConfig):
         super().ensure_directories()
         # Create webhook-specific directories
         self.repo_cache_dir.mkdir(parents=True, exist_ok=True)
-        # Claude config directory for container mounts
-        self.claude_config_dir.mkdir(parents=True, exist_ok=True)
-        # Codex config directory for container mounts
-        self.codex_config_dir.mkdir(parents=True, exist_ok=True)
         # Container logs directory (if enabled)
         if self.container_logs_enabled:
             self.container_logs_dir.mkdir(parents=True, exist_ok=True)

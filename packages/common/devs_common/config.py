@@ -9,11 +9,25 @@ from abc import ABC, abstractmethod
 class BaseConfig(ABC):
     """Base configuration class for devs ecosystem packages."""
     
+    # Default directories shared across CLI and webhook
+    CLAUDE_CONFIG_DIR = Path.home() / ".devs" / "claudeconfig"
+    CODEX_CONFIG_DIR = Path.home() / ".devs" / "codexconfig"
+    VSCODE_CLI_DIR = Path.home() / ".devs" / "vscode-cli"
+
     def __init__(self) -> None:
         """Initialize base configuration."""
         self._workspaces_dir: Optional[Path] = None
         self._bridge_dir: Optional[Path] = None
         self._project_prefix: Optional[str] = None
+
+        claude_config_env = os.getenv("DEVS_CLAUDE_CONFIG_DIR")
+        self.claude_config_dir = Path(claude_config_env) if claude_config_env else self.CLAUDE_CONFIG_DIR
+
+        codex_config_env = os.getenv("DEVS_CODEX_CONFIG_DIR")
+        self.codex_config_dir = Path(codex_config_env) if codex_config_env else self.CODEX_CONFIG_DIR
+
+        vscode_cli_env = os.getenv("DEVS_VSCODE_CLI_DIR")
+        self.vscode_cli_dir = Path(vscode_cli_env) if vscode_cli_env else self.VSCODE_CLI_DIR
     
     @property
     def workspaces_dir(self) -> Path:
@@ -88,3 +102,6 @@ class BaseConfig(ABC):
         """Ensure required directories exist."""
         self.workspaces_dir.mkdir(parents=True, exist_ok=True)
         self.bridge_dir.mkdir(parents=True, exist_ok=True)
+        self.claude_config_dir.mkdir(parents=True, exist_ok=True)
+        self.codex_config_dir.mkdir(parents=True, exist_ok=True)
+        self.vscode_cli_dir.mkdir(parents=True, exist_ok=True)

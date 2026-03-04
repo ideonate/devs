@@ -14,9 +14,6 @@ class Config(BaseConfig):
     PROJECT_PREFIX = "dev"
     WORKSPACES_DIR = Path.home() / ".devs" / "workspaces"
     BRIDGE_DIR = Path.home() / ".devs" / "bridge"
-    CLAUDE_CONFIG_DIR = Path.home() / ".devs" / "claudeconfig"
-    CODEX_CONFIG_DIR = Path.home() / ".devs" / "codexconfig"
-    VSCODE_CLI_DIR = Path.home() / ".devs" / "vscode-cli"
     REPO_CACHE_DIR = Path.home() / ".devs" / "repocache"
 
     @property
@@ -31,24 +28,6 @@ class Config(BaseConfig):
         super().__init__()
 
         # CLI-specific configuration
-        claude_config_env = os.getenv("DEVS_CLAUDE_CONFIG_DIR")
-        if claude_config_env:
-            self.claude_config_dir = Path(claude_config_env)
-        else:
-            self.claude_config_dir = self.CLAUDE_CONFIG_DIR
-
-        codex_config_env = os.getenv("DEVS_CODEX_CONFIG_DIR")
-        if codex_config_env:
-            self.codex_config_dir = Path(codex_config_env)
-        else:
-            self.codex_config_dir = self.CODEX_CONFIG_DIR
-
-        vscode_cli_env = os.getenv("DEVS_VSCODE_CLI_DIR")
-        if vscode_cli_env:
-            self.vscode_cli_dir = Path(vscode_cli_env)
-        else:
-            self.vscode_cli_dir = self.VSCODE_CLI_DIR
-
         repo_cache_env = os.getenv("DEVS_REPO_CACHE_DIR")
         if repo_cache_env:
             self.repo_cache_dir = Path(repo_cache_env)
@@ -67,13 +46,6 @@ class Config(BaseConfig):
         """Get default project prefix for CLI package."""
         return self.PROJECT_PREFIX
     
-    def ensure_directories(self) -> None:
-        """Ensure required directories exist."""
-        super().ensure_directories()
-        self.claude_config_dir.mkdir(parents=True, exist_ok=True)
-        self.codex_config_dir.mkdir(parents=True, exist_ok=True)
-        self.vscode_cli_dir.mkdir(parents=True, exist_ok=True)
-
 
 # Global config instance
 config = Config()
