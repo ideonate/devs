@@ -81,6 +81,21 @@ class DockerClient:
         except DockerException as e:
             raise DockerError(f"Error checking container status {name}: {e}")
     
+    def start_container(self, name: str) -> None:
+        """Start a stopped container.
+
+        Args:
+            name: Container name
+
+        Raises:
+            DockerError: If starting fails
+        """
+        try:
+            container = self.client.containers.get(name)
+            container.start()
+        except DockerException as e:
+            raise DockerError(f"Error starting container {name}: {e}")
+
     def stop_container(self, name: str) -> None:
         """Stop a container.
         

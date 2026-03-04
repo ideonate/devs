@@ -293,9 +293,11 @@ class ContainerManager:
                     self.docker.stop_container(existing_container['name'])
                     self.docker.remove_container(existing_container['name'], force=True)
                 else:
-                    # Container exists but not running, remove it
-                    console.print(f"   🗑️  Container exists but not running, removing...")
-                    self.docker.remove_container(existing_container['name'], force=True)
+                    # Container exists but not running with matching config, just restart it
+                    console.print(f"   🔄 Restarting stopped container...")
+                    self.docker.start_container(existing_container['name'])
+                    console.print(f"   ✅ Container restarted successfully")
+                    return True
             else:
                 if rebuild_needed or force_rebuild:
                     console.print(f"   🔨 Rebuild needed (devcontainer files changed or force_rebuild)")
