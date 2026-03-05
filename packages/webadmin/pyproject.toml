@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "devs-webadmin"
+version = "2.0.11"
+description = "Web admin UI for managing devcontainers on a server"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [
+    {name = "Dan Lester"},
+]
+keywords = ["devcontainer", "docker", "webadmin", "management"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+]
+
+dependencies = [
+    "fastapi>=0.68.0",
+    "uvicorn[standard]>=0.15.0",
+    "click>=8.0.0",
+    "devs-common>=0.1.0",
+    "structlog>=21.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "pytest-asyncio",
+    "black",
+    "mypy",
+    "flake8",
+    "httpx",
+    "build>=0.10.0",
+    "twine>=4.0.0",
+]
+
+[project.scripts]
+devs-webadmin = "devs_webadmin.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ideonate/devs"
+Repository = "https://github.com/ideonate/devs"
+Issues = "https://github.com/ideonate/devs/issues"
+Documentation = "https://github.com/ideonate/devs/tree/main/packages/webadmin"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["devs_webadmin*"]
+
+[tool.setuptools.package-data]
+devs_webadmin = ["static/**/*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"

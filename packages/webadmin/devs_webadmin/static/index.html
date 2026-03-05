@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Devs Web Admin</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        .app {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .refresh-btn {
+            background: none;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .refresh-btn:hover { border-color: #64748b; color: #e2e8f0; }
+
+        /* Start form */
+        .start-form {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+            flex: 1;
+            min-width: 180px;
+        }
+
+        .field label {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .field input {
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+        .field input:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+        .field input::placeholder { color: #475569; }
+
+        .btn {
+            padding: 0.5rem 1.25rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-primary { background: #3b82f6; color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: #2563eb; }
+
+        .btn-danger { background: #ef4444; color: #fff; }
+        .btn-danger:hover:not(:disabled) { background: #dc2626; }
+
+        .btn-warning { background: #f59e0b; color: #000; }
+        .btn-warning:hover:not(:disabled) { background: #d97706; }
+
+        .btn-sm {
+            padding: 0.3rem 0.7rem;
+            font-size: 0.8rem;
+        }
+
+        /* Container list */
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .count-badge {
+            background: #334155;
+            padding: 0.15rem 0.5rem;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 400;
+        }
+
+        .container-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .container-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .container-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .container-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .container-meta {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.3rem;
+        }
+        .status-running { background: #22c55e; }
+        .status-exited { background: #ef4444; }
+        .status-other { background: #f59e0b; }
+
+        .container-actions {
+            display: flex;
+            gap: 0.4rem;
+            flex-shrink: 0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #64748b;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            padding: 0.75rem 1.25rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            z-index: 100;
+            animation: slideIn 0.2s ease;
+        }
+        .toast-success { background: #166534; color: #bbf7d0; }
+        .toast-error { background: #991b1b; color: #fecaca; }
+
+        @keyframes slideIn {
+            from { transform: translateY(1rem); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            vertical-align: middle;
+            margin-right: 0.3rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="app">
+        <header>
+            <h1>Devs Web Admin</h1>
+            <button class="refresh-btn" @click="loadContainers" :disabled="loading">
+                {{ loading ? 'Loading...' : 'Refresh' }}
+            </button>
+        </header>
+
+        <!-- Start container form -->
+        <div class="start-form">
+            <div class="field">
+                <label>Repository (org/repo)</label>
+                <input v-model="startRepo" placeholder="e.g. ideonate/devs"
+                       @keydown.enter="startContainer">
+            </div>
+            <div class="field">
+                <label>Dev Name</label>
+                <input v-model="startDevName" placeholder="e.g. sally"
+                       @keydown.enter="startContainer">
+            </div>
+            <button class="btn btn-primary" @click="startContainer"
+                    :disabled="!startRepo || !startDevName || starting">
+                <span v-if="starting" class="spinner"></span>
+                {{ starting ? 'Starting...' : 'Start' }}
+            </button>
+        </div>
+
+        <!-- Container list -->
+        <div class="section-title">
+            Containers
+            <span class="count-badge">{{ containers.length }}</span>
+        </div>
+
+        <div v-if="containers.length === 0 && !loading" class="empty-state">
+            No containers running. Start one above.
+        </div>
+
+        <div class="container-list">
+            <div v-for="c in containers" :key="c.container_id" class="container-card">
+                <div class="container-info">
+                    <div class="container-name">
+                        <span class="status-dot"
+                              :class="c.status === 'running' ? 'status-running' : c.status === 'exited' ? 'status-exited' : 'status-other'">
+                        </span>
+                        {{ c.dev_name }}
+                    </div>
+                    <div class="container-meta">
+                        <span>{{ c.project_name }}</span>
+                        <span>{{ c.status }}</span>
+                        <span>{{ c.mode }}</span>
+                        <span v-if="c.created">{{ formatDate(c.created) }}</span>
+                    </div>
+                </div>
+                <div class="container-actions">
+                    <button class="btn btn-warning btn-sm"
+                            @click="stopContainer(c)"
+                            :disabled="actionInProgress[c.container_id]">
+                        Stop
+                    </button>
+                    <button class="btn btn-danger btn-sm"
+                            @click="cleanContainer(c)"
+                            :disabled="actionInProgress[c.container_id]">
+                        Clean
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast -->
+        <div v-if="toast" class="toast" :class="'toast-' + toast.type">
+            {{ toast.message }}
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, onMounted } = Vue;
+
+createApp({
+    setup() {
+        const containers = ref([]);
+        const loading = ref(false);
+        const starting = ref(false);
+        const startRepo = ref('');
+        const startDevName = ref('');
+        const toast = ref(null);
+        const actionInProgress = reactive({});
+
+        let toastTimer = null;
+
+        function showToast(message, type = 'success') {
+            if (toastTimer) clearTimeout(toastTimer);
+            toast.value = { message, type };
+            toastTimer = setTimeout(() => { toast.value = null; }, 3000);
+        }
+
+        async function loadContainers() {
+            loading.value = true;
+            try {
+                const res = await fetch('/api/containers');
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                containers.value = data.containers;
+            } catch (e) {
+                showToast('Failed to load containers: ' + e.message, 'error');
+            } finally {
+                loading.value = false;
+            }
+        }
+
+        async function startContainer() {
+            if (!startRepo.value || !startDevName.value) return;
+            starting.value = true;
+            try {
+                const res = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        repo: startRepo.value,
+                        dev_name: startDevName.value,
+                    }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Start failed');
+                }
+                showToast(`Started ${startDevName.value} for ${startRepo.value}`);
+                startDevName.value = '';
+                await loadContainers();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                starting.value = false;
+            }
+        }
+
+        async function stopContainer(c) {
+            actionInProgress[c.container_id] = true;
+            try {
+                const res = await fetch('/api/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ container_name: c.name }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Stop failed');
+                }
+                showToast(`Stopped ${c.dev_name}`);
+                await loadContainers();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                delete actionInProgress[c.container_id];
+            }
+        }
+
+        async function cleanContainer(c) {
+            actionInProgress[c.container_id] = true;
+            try {
+                const res = await fetch('/api/clean', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ container_name: c.name }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Clean failed');
+                }
+                showToast(`Cleaned ${c.dev_name}`);
+                await loadContainers();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                delete actionInProgress[c.container_id];
+            }
+        }
+
+        function formatDate(iso) {
+            if (!iso) return '';
+            const d = new Date(iso);
+            return d.toLocaleString();
+        }
+
+        onMounted(() => { loadContainers(); });
+
+        return {
+            containers, loading, starting,
+            startRepo, startDevName,
+            toast, actionInProgress,
+            loadContainers, startContainer,
+            stopContainer, cleanContainer, formatDate,
+        };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
