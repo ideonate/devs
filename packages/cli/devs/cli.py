@@ -299,22 +299,24 @@ def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, debug: bool) 
 @cli.command()
 @click.argument('dev_names', nargs=-1, required=True) 
 def stop(dev_names: tuple) -> None:
-    """Stop and remove devcontainers.
-    
+    """Stop devcontainers (preserves container state for restart).
+
+    Use 'devs clean' to remove containers entirely.
+
     DEV_NAMES: One or more development environment names to stop
-    
+
     Example: devs stop sally
     """
     check_dependencies()
     project = get_project()
-    
+
     console.print(f"🛑 Stopping devcontainers for project: {project.info.name}")
-    
+
     container_manager = ContainerManager(project, config)
-    
+
     for dev_name in dev_names:
         console.print(f"   Stopping: {dev_name}")
-        container_manager.stop_container(dev_name)
+        container_manager.stop_container(dev_name, remove=False)
 
 
 @cli.command()

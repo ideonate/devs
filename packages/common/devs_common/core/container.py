@@ -399,27 +399,20 @@ class ContainerManager:
         project_labels = self._get_project_labels(dev_name)
 
         try:
-            console.print(f"   🔍 Looking for containers with labels: {project_labels}")
             existing_containers = self.docker.find_containers_by_labels(project_labels)
-            console.print(f"   📋 Found {len(existing_containers)} containers")
 
             if existing_containers:
                 for container_info in existing_containers:
                     container_name = container_info['name']
-                    container_status = container_info['status']
 
-                    console.print(f"   🛑 Stopping container: {container_name} (status: {container_status})")
                     try:
-                        stop_result = self.docker.stop_container(container_name)
-                        console.print(f"   📋 Stop result: {stop_result}")
+                        self.docker.stop_container(container_name)
                     except DockerError as stop_e:
                         console.print(f"   ⚠️  Stop failed for {container_name}: {stop_e}")
 
                     if remove:
-                        console.print(f"   🗑️  Removing container: {container_name}")
                         try:
-                            remove_result = self.docker.remove_container(container_name)
-                            console.print(f"   📋 Remove result: {remove_result}")
+                            self.docker.remove_container(container_name)
                         except DockerError as remove_e:
                             console.print(f"   ⚠️  Remove failed for {container_name}: {remove_e}")
 
@@ -586,7 +579,7 @@ class ContainerManager:
         
         return removed_count
     
-    def _prepare_container_exec(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> Tuple[str, str]:
+    def _prepare_container_exec(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None, reuse_existing: bool = False) -> Tuple[str, str]:
         """Prepare container for exec operations (shared by exec_shell and exec_command).
 
         Args:
@@ -595,6 +588,10 @@ class ContainerManager:
             debug: Show debug output for devcontainer operations
             live: Whether the container is in live mode
             extra_env: Additional environment variables to pass to container
+            reuse_existing: If True, use existing container as-is (starting
+                it if stopped) without rebuilding. Only creates a new
+                container if none exists. Used by tunnel commands to
+                avoid accidentally destroying work in the container.
 
         Returns:
             Tuple of (container_name, container_workspace_dir)
@@ -623,9 +620,17 @@ class ContainerManager:
             workspace_name = workspace_info["workspace_name"]
         container_workspace_dir = f"/workspaces/{workspace_name}"
 
-        # Ensure container is running
-        if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
-            raise ContainerError(f"Failed to start container for {dev_name}")
+        if reuse_existing and existing_containers:
+            # Use existing container as-is (start if stopped, but never rebuild)
+            status = existing_containers[0].get('status', '')
+            if status != 'running':
+                container_id = existing_containers[0].get('name', container_name)
+                console.print(f"   ▶️  Starting stopped container: {container_id}")
+                self.docker.start_container(container_id)
+        else:
+            # Ensure container is running (may create/restart as needed)
+            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
+                raise ContainerError(f"Failed to start container for {dev_name}")
 
         return container_name, container_workspace_dir
     
@@ -896,7 +901,7 @@ class ContainerManager:
         """
         try:
             container_name, container_workspace_dir = self._prepare_container_exec(
-                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env
+                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
             )
 
             tunnel_name = self._get_tunnel_name(dev_name)
@@ -954,7 +959,7 @@ class ContainerManager:
         """
         try:
             container_name, container_workspace_dir = self._prepare_container_exec(
-                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env
+                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
             )
 
             tunnel_name = self._get_tunnel_name(dev_name)
@@ -1049,7 +1054,7 @@ class ContainerManager:
         try:
             # Prepare container for execution
             container_name, container_workspace_dir = self._prepare_container_exec(
-                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env
+                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
             )
 
             # Check tunnel status
@@ -1091,7 +1096,7 @@ class ContainerManager:
         try:
             # Prepare container for execution
             container_name, container_workspace_dir = self._prepare_container_exec(
-                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env
+                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
             )
 
             # Kill the tunnel
