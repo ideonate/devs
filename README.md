@@ -25,9 +25,19 @@ devs vscode frontend backend
 
 GitHub webhook handler for automated devcontainer operations in response to @mentions in issues and PRs.
 
+### 🌐 [Web Admin](packages/webadmin/) - `devs-webadmin`
+
+A web-based admin UI for managing devcontainers on a server. Start/stop containers, manage VS Code tunnels, all from a browser.
+
+```bash
+pip install devs-webadmin
+devs-webadmin serve
+# Open http://localhost:8080
+```
+
 ### 🛠️ [Common Utilities](packages/common/)
 
-Shared utilities between CLI and webhook packages including container management, workspace handling, and devcontainer templates.
+Shared utilities between all packages including container management, workspace handling, and devcontainer templates.
 
 ## Quick Start
 
@@ -136,6 +146,7 @@ devs/
 ├── packages/
 │   ├── cli/                    # Main CLI tool
 │   ├── webhook/               # GitHub webhook handler
+│   ├── webadmin/              # Web admin UI
 │   └── common/                # Shared utilities
 ├── docs/                      # Documentation
 ├── scripts/                   # Development scripts
@@ -176,8 +187,8 @@ python scripts/bump-and-publish.py major
 ```
 
 The script will:
-- Update version numbers in all three package `pyproject.toml` files
-- Build packages in dependency order (common → cli → webhook)
+- Update version numbers in all package `pyproject.toml` files
+- Build packages in dependency order (common → cli → webhook → webadmin)
 - Upload to PyPI using `twine`
 
 **Prerequisites:**

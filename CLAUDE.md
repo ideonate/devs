@@ -15,7 +15,8 @@ devs/
 ├── packages/
 │   ├── cli/                    # Main CLI tool (Python package)
 │   ├── webhook/               # GitHub webhook handler (fully implemented)
-│   └── common/                # Shared utilities between CLI and webhook
+│   ├── webadmin/              # Web admin UI for managing containers from a browser
+│   └── common/                # Shared utilities between all packages
 ├── docs/                      # Documentation
 ├── scripts/                   # Development scripts
 ├── devs                       # Legacy zsh script (to be removed)
@@ -87,13 +88,60 @@ packages/cli/
 - Docker Compose for containerized deployment
 - Standalone Flask application
 
+### Web Admin Package (`packages/webadmin/`)
+
+**Installation**: `pip install devs-webadmin` (when published) or `pip install -e packages/webadmin/` (development)
+
+**Package Structure**:
+
+```
+packages/webadmin/
+├── devs_webadmin/
+│   ├── __init__.py             # Package initialization
+│   ├── app.py                  # FastAPI application + static file serving
+│   ├── cli.py                  # Click-based CLI (devs-webadmin serve)
+│   ├── config.py               # WebAdminConfig (extends BaseConfig)
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── routes.py           # REST API endpoints
+│   └── static/
+│       └── index.html          # Vue 3 SPA (loaded via CDN, no build step)
+├── pyproject.toml
+└── README.md
+```
+
+**Key Design Decisions**:
+
+- **Frontend**: Vue 3 via CDN in a single `index.html` -- no npm, no build step, ships inside the pip package as a static file
+- **Backend**: FastAPI + Uvicorn (same stack as webhook)
+- **Repo-based**: Uses `RepoCache` to clone/update repos by `org/repo` name (no CWD dependency)
+- **Container operations by name**: Stop/clean use the Docker container name directly (no repo cloning needed for these)
+- **Tunnel auth via device flow**: Runs `code tunnel user login` non-interactively, captures the GitHub device URL + code, returns them to the browser, and polls for completion
+
+**API Endpoints**:
+
+- `GET /api/containers` -- List containers (optional `?repo=org/repo` filter)
+- `POST /api/start` -- Start container `{ repo, dev_name }`
+- `POST /api/stop` -- Stop container `{ container_name }`
+- `POST /api/clean` -- Remove container + workspace `{ container_name }`
+- `GET /api/tunnel/status` -- Tunnel status `?container_name=X`
+- `POST /api/tunnel/start` -- Start tunnel `{ container_name }`
+- `POST /api/tunnel/kill` -- Kill tunnel `{ container_name }`
+- `POST /api/tunnel/auth` -- Start device flow auth `{ container_name }`
+- `GET /api/tunnel/auth/status` -- Poll auth completion `?container_name=X`
+
+**Environment Variables**:
+
+- `WEBADMIN_HOST`: Server bind address (default: `0.0.0.0`)
+- `WEBADMIN_PORT`: Server port (default: `8080`)
+
 ### Common Package (`packages/common/`)
 
 **Shared Components**:
 
 - **Core Classes**: Project, WorkspaceManager, ContainerManager
 - **Templates**: Devcontainer templates with post-creation scripts
-- **Configuration**: Base configuration classes for both packages
+- **Configuration**: Base configuration classes for all packages
 - **Utilities**: Shared git, Docker, and file operations
 
 ## Architecture
