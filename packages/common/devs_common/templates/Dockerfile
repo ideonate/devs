@@ -125,9 +125,14 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # Install OpenAI Codex CLI
 RUN npm install -g @openai/codex
 
+# Install cloudflared for tunnel support (proxies all HTTP methods correctly)
 # Install VS Code CLI for tunnel support (needs root for /usr/local/bin)
 # Using the standalone CLI which supports the 'tunnel' command
 USER root
+RUN ARCH=$(dpkg --print-architecture) && \
+  curl -fSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}" -o /usr/local/bin/cloudflared && \
+  chmod +x /usr/local/bin/cloudflared
+
 RUN ARCH=$(dpkg --print-architecture) && \
   if [ "$ARCH" = "amd64" ]; then \
     curl -fSL 'https://update.code.visualstudio.com/latest/cli-linux-x64/stable' -o /tmp/vscode-cli.tar.gz; \
