@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to bump version numbers of all three devs packages and publish to PyPI.
+Script to bump version numbers of all devs packages and publish to PyPI.
 
 Usage:
     python scripts/bump-and-publish.py [patch|minor|major]
@@ -18,8 +18,9 @@ from typing import Tuple
 # Package directories
 PACKAGES = [
     "packages/common",
-    "packages/cli", 
-    "packages/webhook"
+    "packages/cli",
+    "packages/webhook",
+    "packages/webadmin"
 ]
 
 def parse_version(version_str: str) -> Tuple[int, int, int]:
@@ -148,7 +149,7 @@ def main():
         return
 
     # Step 3: Build and upload packages in dependency order (common first)
-    upload_order = ["packages/common", "packages/cli", "packages/webhook"]
+    upload_order = ["packages/common", "packages/cli", "packages/webhook", "packages/webadmin"]
     
     for package_dir in upload_order:
         pkg_path = project_root / package_dir
