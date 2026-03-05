@@ -106,6 +106,16 @@
         .btn-warning { background: #f59e0b; color: #000; }
         .btn-warning:hover:not(:disabled) { background: #d97706; }
 
+        .btn-secondary { background: #6366f1; color: #fff; }
+        .btn-secondary:hover:not(:disabled) { background: #4f46e5; }
+
+        .btn-outline {
+            background: none;
+            border: 1px solid #475569;
+            color: #94a3b8;
+        }
+        .btn-outline:hover:not(:disabled) { border-color: #94a3b8; color: #e2e8f0; }
+
         .btn-sm {
             padding: 0.3rem 0.7rem;
             font-size: 0.8rem;
@@ -140,6 +150,9 @@
             border: 1px solid #334155;
             border-radius: 8px;
             padding: 1rem 1.25rem;
+        }
+
+        .container-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -188,6 +201,85 @@
             text-align: center;
             padding: 3rem;
             color: #64748b;
+        }
+
+        /* Tunnel panel */
+        .tunnel-panel {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid #334155;
+        }
+
+        .tunnel-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .tunnel-status {
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+
+        .tunnel-link {
+            font-size: 0.8rem;
+            color: #60a5fa;
+            text-decoration: none;
+        }
+        .tunnel-link:hover { text-decoration: underline; }
+
+        /* Auth modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+
+        .modal {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 480px;
+            width: 90%;
+        }
+
+        .modal h2 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+        }
+
+        .modal p {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-bottom: 0.75rem;
+            line-height: 1.5;
+        }
+
+        .device-code {
+            font-family: monospace;
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: #f0abfc;
+            background: #0f172a;
+            padding: 0.75rem 1.25rem;
+            border-radius: 8px;
+            text-align: center;
+            margin: 1rem 0;
+            user-select: all;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1.25rem;
+            justify-content: flex-end;
         }
 
         /* Toast */
@@ -264,31 +356,112 @@
 
         <div class="container-list">
             <div v-for="c in containers" :key="c.container_id" class="container-card">
-                <div class="container-info">
-                    <div class="container-name">
-                        <span class="status-dot"
-                              :class="c.status === 'running' ? 'status-running' : c.status === 'exited' ? 'status-exited' : 'status-other'">
-                        </span>
-                        {{ c.dev_name }}
+                <div class="container-row">
+                    <div class="container-info">
+                        <div class="container-name">
+                            <span class="status-dot"
+                                  :class="c.status === 'running' ? 'status-running' : c.status === 'exited' ? 'status-exited' : 'status-other'">
+                            </span>
+                            {{ c.dev_name }}
+                        </div>
+                        <div class="container-meta">
+                            <span>{{ c.project_name }}</span>
+                            <span>{{ c.status }}</span>
+                            <span>{{ c.mode }}</span>
+                            <span v-if="c.created">{{ formatDate(c.created) }}</span>
+                        </div>
                     </div>
-                    <div class="container-meta">
-                        <span>{{ c.project_name }}</span>
-                        <span>{{ c.status }}</span>
-                        <span>{{ c.mode }}</span>
-                        <span v-if="c.created">{{ formatDate(c.created) }}</span>
+                    <div class="container-actions">
+                        <button class="btn btn-warning btn-sm"
+                                @click="stopContainer(c)"
+                                :disabled="actionInProgress[c.container_id]">
+                            Stop
+                        </button>
+                        <button class="btn btn-danger btn-sm"
+                                @click="cleanContainer(c)"
+                                :disabled="actionInProgress[c.container_id]">
+                            Clean
+                        </button>
                     </div>
                 </div>
-                <div class="container-actions">
-                    <button class="btn btn-warning btn-sm"
-                            @click="stopContainer(c)"
-                            :disabled="actionInProgress[c.container_id]">
-                        Stop
-                    </button>
-                    <button class="btn btn-danger btn-sm"
-                            @click="cleanContainer(c)"
-                            :disabled="actionInProgress[c.container_id]">
-                        Clean
-                    </button>
+
+                <!-- Tunnel controls (only for running containers) -->
+                <div v-if="c.status === 'running'" class="tunnel-panel">
+                    <div class="tunnel-row">
+                        <span class="tunnel-status">
+                            Tunnel:
+                            <template v-if="tunnelState[c.name]?.running">running</template>
+                            <template v-else>off</template>
+                        </span>
+
+                        <template v-if="tunnelState[c.name]?.running">
+                            <a v-if="tunnelState[c.name]?.web_url"
+                               :href="tunnelState[c.name].web_url"
+                               target="_blank" class="tunnel-link">
+                                Open in browser
+                            </a>
+                            <button class="btn btn-outline btn-sm"
+                                    @click="tunnelKill(c)"
+                                    :disabled="actionInProgress['tunnel-'+c.name]">
+                                Kill tunnel
+                            </button>
+                        </template>
+
+                        <template v-else>
+                            <button class="btn btn-secondary btn-sm"
+                                    @click="tunnelStart(c)"
+                                    :disabled="actionInProgress['tunnel-'+c.name]">
+                                <span v-if="actionInProgress['tunnel-'+c.name]" class="spinner"></span>
+                                Start tunnel
+                            </button>
+                            <button class="btn btn-outline btn-sm"
+                                    @click="tunnelAuth(c)"
+                                    :disabled="actionInProgress['tunnel-'+c.name]">
+                                Auth
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auth modal -->
+        <div v-if="authModal" class="modal-overlay" @click.self="closeAuthModal">
+            <div class="modal">
+                <h2>Tunnel Authentication</h2>
+
+                <template v-if="authModal.status === 'starting'">
+                    <p><span class="spinner"></span> Starting authentication...</p>
+                </template>
+
+                <template v-else-if="authModal.status === 'waiting_for_browser'">
+                    <p>Open the link below and enter this code:</p>
+                    <div class="device-code">{{ authModal.device_code }}</div>
+                    <p>
+                        <a :href="authModal.device_url" target="_blank" class="tunnel-link">
+                            {{ authModal.device_url }}
+                        </a>
+                    </p>
+                    <p style="color: #64748b; font-size: 0.8rem;">
+                        <span class="spinner"></span>
+                        Waiting for you to complete authentication in the browser...
+                    </p>
+                </template>
+
+                <template v-else-if="authModal.status === 'authenticated'">
+                    <p style="color: #bbf7d0;">Authentication successful! You can now start a tunnel.</p>
+                </template>
+
+                <template v-else-if="authModal.status === 'already_authenticated'">
+                    <p style="color: #bbf7d0;">Already authenticated. You can start a tunnel.</p>
+                </template>
+
+                <template v-else>
+                    <p style="color: #fecaca;">{{ authModal.message || 'Authentication failed.' }}</p>
+                </template>
+
+                <div class="modal-actions">
+                    <button class="btn btn-outline btn-sm" @click="closeAuthModal">Close</button>
                 </div>
             </div>
         </div>
@@ -301,7 +474,7 @@
 </div>
 
 <script>
-const { createApp, ref, reactive, onMounted } = Vue;
+const { createApp, ref, reactive, onMounted, onUnmounted } = Vue;
 
 createApp({
     setup() {
@@ -312,8 +485,11 @@ createApp({
         const startDevName = ref('');
         const toast = ref(null);
         const actionInProgress = reactive({});
+        const tunnelState = reactive({});  // container_name -> { running, web_url, tunnel_name }
+        const authModal = ref(null);
 
         let toastTimer = null;
+        let authPollTimer = null;
 
         function showToast(message, type = 'success') {
             if (toastTimer) clearTimeout(toastTimer);
@@ -328,10 +504,33 @@ createApp({
                 if (!res.ok) throw new Error(await res.text());
                 const data = await res.json();
                 containers.value = data.containers;
+
+                // Check tunnel status for running containers
+                for (const c of data.containers) {
+                    if (c.status === 'running') {
+                        checkTunnelStatus(c.name);
+                    }
+                }
             } catch (e) {
                 showToast('Failed to load containers: ' + e.message, 'error');
             } finally {
                 loading.value = false;
+            }
+        }
+
+        async function checkTunnelStatus(containerName) {
+            try {
+                const res = await fetch(`/api/tunnel/status?container_name=${encodeURIComponent(containerName)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    tunnelState[containerName] = {
+                        running: data.running,
+                        web_url: data.running ? `https://vscode.dev/tunnel/${data.tunnel_name}` : null,
+                        tunnel_name: data.tunnel_name,
+                    };
+                }
+            } catch (e) {
+                // Silently ignore status check failures
             }
         }
 
@@ -403,6 +602,133 @@ createApp({
             }
         }
 
+        // --- Tunnel ---
+
+        async function tunnelStart(c) {
+            const key = 'tunnel-' + c.name;
+            actionInProgress[key] = true;
+            try {
+                const res = await fetch('/api/tunnel/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ container_name: c.name }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Tunnel start failed');
+                }
+                const data = await res.json();
+
+                if (data.status === 'running') {
+                    tunnelState[c.name] = {
+                        running: true,
+                        web_url: data.web_url,
+                        tunnel_name: data.tunnel_name,
+                    };
+                    showToast(`Tunnel running for ${c.dev_name}`);
+                } else if (data.status === 'auth_required') {
+                    showToast('Tunnel needs authentication - click Auth first', 'error');
+                } else {
+                    showToast('Tunnel may still be starting, check status', 'error');
+                }
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                delete actionInProgress[key];
+            }
+        }
+
+        async function tunnelKill(c) {
+            const key = 'tunnel-' + c.name;
+            actionInProgress[key] = true;
+            try {
+                const res = await fetch('/api/tunnel/kill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ container_name: c.name }),
+                });
+                if (res.ok) {
+                    delete tunnelState[c.name];
+                    showToast(`Tunnel killed for ${c.dev_name}`);
+                }
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                delete actionInProgress[key];
+            }
+        }
+
+        async function tunnelAuth(c) {
+            const key = 'tunnel-' + c.name;
+            actionInProgress[key] = true;
+            authModal.value = { status: 'starting', containerName: c.name };
+
+            try {
+                const res = await fetch('/api/tunnel/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ container_name: c.name }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Auth failed');
+                }
+                const data = await res.json();
+                authModal.value = { ...data, containerName: c.name };
+
+                if (data.status === 'waiting_for_browser') {
+                    // Poll for completion
+                    startAuthPoll(c.name);
+                }
+            } catch (e) {
+                authModal.value = { status: 'error', message: e.message };
+            } finally {
+                delete actionInProgress[key];
+            }
+        }
+
+        function startAuthPoll(containerName) {
+            if (authPollTimer) clearInterval(authPollTimer);
+            authPollTimer = setInterval(async () => {
+                try {
+                    const res = await fetch(
+                        `/api/tunnel/auth/status?container_name=${encodeURIComponent(containerName)}`
+                    );
+                    if (!res.ok) return;
+                    const data = await res.json();
+
+                    if (data.status === 'authenticated') {
+                        authModal.value = { status: 'authenticated', containerName };
+                        stopAuthPoll();
+                        showToast('Tunnel authenticated!');
+                    } else if (data.status === 'failed' || data.status === 'no_pending_auth') {
+                        if (authModal.value?.status === 'waiting_for_browser') {
+                            authModal.value = {
+                                status: 'error',
+                                message: data.message || 'Auth session ended',
+                                containerName,
+                            };
+                        }
+                        stopAuthPoll();
+                    }
+                } catch (e) {
+                    // ignore poll errors
+                }
+            }, 2000);
+        }
+
+        function stopAuthPoll() {
+            if (authPollTimer) {
+                clearInterval(authPollTimer);
+                authPollTimer = null;
+            }
+        }
+
+        function closeAuthModal() {
+            stopAuthPoll();
+            authModal.value = null;
+        }
+
         function formatDate(iso) {
             if (!iso) return '';
             const d = new Date(iso);
@@ -410,13 +736,17 @@ createApp({
         }
 
         onMounted(() => { loadContainers(); });
+        onUnmounted(() => { stopAuthPoll(); });
 
         return {
             containers, loading, starting,
             startRepo, startDevName,
             toast, actionInProgress,
+            tunnelState, authModal,
             loadContainers, startContainer,
-            stopContainer, cleanContainer, formatDate,
+            stopContainer, cleanContainer,
+            tunnelStart, tunnelKill, tunnelAuth,
+            closeAuthModal, formatDate,
         };
     }
 }).mount('#app');
