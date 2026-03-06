@@ -406,6 +406,12 @@
                                target="_blank" class="tunnel-link">
                                 Open in browser
                             </a>
+                            <button v-if="tunnelState[c.name]?.tunnel_name"
+                                    class="btn btn-outline btn-sm"
+                                    @click="copyVscodeCommand(c)"
+                                    :title="getVscodeCommand(c)">
+                                {{ copied === c.name ? 'Copied!' : 'VS Code cmd' }}
+                            </button>
                             <button class="btn btn-outline btn-sm"
                                     @click="tunnelKill(c)"
                                     :disabled="actionInProgress['tunnel-'+c.name]">
@@ -494,6 +500,8 @@ createApp({
         const tunnelState = reactive({});  // container_name -> { running, web_url, tunnel_name }
         const authModal = ref(null);
 
+        const copied = ref(null);
+        let copiedTimer = null;
         let toastTimer = null;
         let authPollTimer = null;
 
@@ -756,6 +764,25 @@ createApp({
             authModal.value = null;
         }
 
+        function getVscodeCommand(c) {
+            const tunnelName = tunnelState[c.name]?.tunnel_name;
+            if (!tunnelName) return '';
+            const workspacePath = `/workspaces/${c.project_name}-${c.dev_name}`;
+            return `code --remote tunnel+${tunnelName} ${workspacePath}`;
+        }
+
+        async function copyVscodeCommand(c) {
+            const cmd = getVscodeCommand(c);
+            try {
+                await navigator.clipboard.writeText(cmd);
+                if (copiedTimer) clearTimeout(copiedTimer);
+                copied.value = c.name;
+                copiedTimer = setTimeout(() => { copied.value = null; }, 2000);
+            } catch (e) {
+                showToast('Failed to copy to clipboard', 'error');
+            }
+        }
+
         function formatDate(iso) {
             if (!iso) return '';
             const d = new Date(iso);
@@ -769,10 +796,11 @@ createApp({
             containers, loading, starting,
             startRepo, startDevName,
             toast, actionInProgress,
-            tunnelState, authModal,
+            tunnelState, authModal, copied,
             loadContainers, startContainer,
             restartContainer, stopContainer, cleanContainer,
             tunnelStart, tunnelKill, tunnelAuth,
+            copyVscodeCommand, getVscodeCommand,
             closeAuthModal, formatDate,
         };
     }
