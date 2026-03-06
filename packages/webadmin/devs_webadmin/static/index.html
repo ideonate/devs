@@ -372,7 +372,13 @@
                         </div>
                     </div>
                     <div class="container-actions">
-                        <button class="btn btn-warning btn-sm"
+                        <button v-if="c.status !== 'running'" class="btn btn-primary btn-sm"
+                                @click="restartContainer(c)"
+                                :disabled="actionInProgress[c.container_id]">
+                            <span v-if="actionInProgress[c.container_id]" class="spinner"></span>
+                            Start
+                        </button>
+                        <button v-if="c.status === 'running'" class="btn btn-warning btn-sm"
                                 @click="stopContainer(c)"
                                 :disabled="actionInProgress[c.container_id]">
                             Stop
@@ -560,6 +566,27 @@ createApp({
             }
         }
 
+        async function restartContainer(c) {
+            actionInProgress[c.container_id] = true;
+            try {
+                const res = await fetch('/api/restart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ container_name: c.name }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Start failed');
+                }
+                showToast(`Started ${c.dev_name}`);
+                await loadContainers();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                delete actionInProgress[c.container_id];
+            }
+        }
+
         async function stopContainer(c) {
             actionInProgress[c.container_id] = true;
             try {
@@ -744,7 +771,7 @@ createApp({
             toast, actionInProgress,
             tunnelState, authModal,
             loadContainers, startContainer,
-            stopContainer, cleanContainer,
+            restartContainer, stopContainer, cleanContainer,
             tunnelStart, tunnelKill, tunnelAuth,
             closeAuthModal, formatDate,
         };

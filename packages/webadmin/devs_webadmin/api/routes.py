@@ -133,6 +133,28 @@ def _clean_workspace(project_name: str, dev_name: str) -> None:
         shutil.rmtree(workspace_dir)
 
 
+@router.post("/restart")
+async def restart_container(request: ContainerActionRequest) -> dict:
+    """Restart a stopped container by Docker name."""
+    def _restart(container_name: str) -> bool:
+        docker = DockerClient()
+        try:
+            docker.start_container(container_name)
+            return True
+        except Exception:
+            return False
+
+    success = await asyncio.to_thread(_restart, request.container_name)
+
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Container {request.container_name} not found or cannot be started",
+        )
+
+    return {"status": "started", "container_name": request.container_name}
+
+
 @router.post("/stop")
 async def stop_container(request: ContainerActionRequest) -> dict:
     """Stop a container by Docker name (preserves state)."""
