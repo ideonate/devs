@@ -152,10 +152,7 @@ class TestCLI:
         # Verify subprocess was called with correct arguments
         mock_subprocess.assert_called_once()
         call_args = mock_subprocess.call_args
-        assert 'claude' in call_args[0][0]
-        assert 'auth' in call_args[0][0]
-        assert '--key' in call_args[0][0]
-        assert 'test-key-123' in call_args[0][0]
+        assert call_args[0][0] == ['claude', 'auth', 'login', '--key', 'test-key-123']
 
     @patch('devs.cli.subprocess.run')
     @patch('devs.cli.config')
@@ -177,9 +174,7 @@ class TestCLI:
         # Verify subprocess was called for interactive auth
         mock_subprocess.assert_called_once()
         call_args = mock_subprocess.call_args
-        assert 'claude' in call_args[0][0]
-        assert 'auth' in call_args[0][0]
-        assert '--key' not in call_args[0][0]
+        assert call_args[0][0] == ['claude', 'auth', 'login']
 
     @patch('devs.cli.subprocess.run')
     @patch('devs.cli.config')

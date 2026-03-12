@@ -463,7 +463,7 @@ def _handle_claude_auth(api_key: str, debug: bool) -> None:
             env = os.environ.copy()
             env['CLAUDE_CONFIG_DIR'] = str(config.claude_config_dir)
 
-            cmd = ['claude', 'auth', '--key', api_key]
+            cmd = ['claude', 'auth', 'login', '--key', api_key]
 
             if debug:
                 console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
@@ -490,7 +490,7 @@ def _handle_claude_auth(api_key: str, debug: bool) -> None:
             env = os.environ.copy()
             env['CLAUDE_CONFIG_DIR'] = str(config.claude_config_dir)
 
-            cmd = ['claude', 'auth']
+            cmd = ['claude', 'auth', 'login']
 
             if debug:
                 console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
