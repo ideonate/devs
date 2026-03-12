@@ -131,66 +131,15 @@ class TestCLI:
         assert result.exit_code == 0
         assert "Execute Claude CLI in devcontainer or set up authentication" in result.output
         assert "--auth" in result.output
-        assert "--api-key" in result.output
 
-    @patch('devs.cli.subprocess.run')
-    @patch('devs.cli.config')
-    def test_claude_auth_with_api_key(self, mock_config, mock_subprocess):
-        """Test claude --auth command with API key."""
-        # Setup mocks
-        mock_config.claude_config_dir = '/tmp/test-claude-config'
-        mock_config.ensure_directories = Mock()
-        mock_subprocess.return_value.returncode = 0
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ['claude', '--auth', '--api-key', 'test-key-123'])
-
-        assert result.exit_code == 0
-        assert "Setting up Claude authentication" in result.output
-        assert "Claude authentication configured successfully" in result.output
-
-        # Verify subprocess was called with correct arguments
-        mock_subprocess.assert_called_once()
-        call_args = mock_subprocess.call_args
-        assert call_args[0][0] == ['claude', 'auth', 'login', '--key', 'test-key-123']
-
-    @patch('devs.cli.subprocess.run')
-    @patch('devs.cli.config')
-    def test_claude_auth_interactive(self, mock_config, mock_subprocess):
-        """Test claude --auth command in interactive mode."""
-        # Setup mocks
-        mock_config.claude_config_dir = '/tmp/test-claude-config'
-        mock_config.ensure_directories = Mock()
-        mock_subprocess.return_value.returncode = 0
-
+    def test_claude_auth_shows_instructions(self):
+        """Test claude --auth shows setup instructions."""
         runner = CliRunner()
         result = runner.invoke(cli, ['claude', '--auth'])
 
         assert result.exit_code == 0
-        assert "Setting up Claude authentication" in result.output
-        assert "Starting interactive authentication" in result.output
-        assert "Claude authentication configured successfully" in result.output
-
-        # Verify subprocess was called for interactive auth
-        mock_subprocess.assert_called_once()
-        call_args = mock_subprocess.call_args
-        assert call_args[0][0] == ['claude', 'auth', 'login']
-
-    @patch('devs.cli.subprocess.run')
-    @patch('devs.cli.config')
-    def test_claude_auth_command_not_found(self, mock_config, mock_subprocess):
-        """Test claude --auth when claude CLI is not installed."""
-        # Setup mocks
-        mock_config.claude_config_dir = '/tmp/test-claude-config'
-        mock_config.ensure_directories = Mock()
-        mock_subprocess.side_effect = FileNotFoundError()
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ['claude', '--auth'])
-
-        assert result.exit_code == 1
-        assert "Claude CLI not found" in result.output
-        assert "npm install -g @anthropic-ai/claude-cli" in result.output
+        assert "claude setup-token" in result.output
+        assert "CLAUDE_CODE_OAUTH_TOKEN" in result.output
 
     def test_claude_missing_args(self):
         """Test claude command without required args (not using --auth)."""

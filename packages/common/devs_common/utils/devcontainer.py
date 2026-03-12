@@ -66,7 +66,9 @@ def prepare_devcontainer_environment(
         # Create default .env file with GH_TOKEN if available
         env_content = ""
         if 'GH_TOKEN' in os.environ:
-            env_content = f"GH_TOKEN={os.environ['GH_TOKEN']}\n"
+            env_content += f"GH_TOKEN={os.environ['GH_TOKEN']}\n"
+        if 'CLAUDE_CODE_OAUTH_TOKEN' in os.environ:
+            env_content += f"CLAUDE_CODE_OAUTH_TOKEN={os.environ['CLAUDE_CODE_OAUTH_TOKEN']}\n"
         env_file.write_text(env_content)
 
     env['DEVS_ENV_MOUNT_PATH'] = str(env_mount_path)
@@ -87,6 +89,10 @@ def prepare_devcontainer_environment(
     # Pass through GH_TOKEN if available (for GitHub authentication)
     if 'GH_TOKEN' in os.environ:
         env['GH_TOKEN'] = os.environ['GH_TOKEN']
+
+    # Pass through CLAUDE_CODE_OAUTH_TOKEN if available (for Claude authentication)
+    if 'CLAUDE_CODE_OAUTH_TOKEN' in os.environ:
+        env['CLAUDE_CODE_OAUTH_TOKEN'] = os.environ['CLAUDE_CODE_OAUTH_TOKEN']
     
     # Merge in any extra environment variables
     if extra_env:

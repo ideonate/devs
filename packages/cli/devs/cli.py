@@ -11,7 +11,6 @@ from rich.console import Console
 from rich.table import Table
 
 from .config import config
-from pathlib import Path
 from .core import Project, ContainerManager, WorkspaceManager
 from .core.integration import VSCodeIntegration, ExternalToolIntegration
 from devs_common.devs_config import DevsConfigLoader
@@ -362,13 +361,12 @@ def shell(dev_name: str, live: bool, env: tuple, debug: bool) -> None:
 @cli.command()
 @click.argument('dev_name', required=False)
 @click.argument('prompt', required=False)
-@click.option('--auth', is_flag=True, help='Set up Claude authentication for devcontainers')
-@click.option('--api-key', help='Claude API key to authenticate with (use with --auth)')
+@click.option('--auth', is_flag=True, help='Show Claude authentication setup instructions')
 @click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
 @click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
 @debug_option
-def claude(dev_name: str, prompt: str, auth: bool, api_key: str, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
+def claude(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
     """Execute Claude CLI in devcontainer or set up authentication.
 
     DEV_NAME: Development environment name
@@ -378,12 +376,22 @@ def claude(dev_name: str, prompt: str, auth: bool, api_key: str, reset_workspace
     Example: devs claude sally "Fix the tests" --reset-workspace
     Example: devs claude sally "Fix the tests" --live  # Run with current directory
     Example: devs claude sally "Start the server" --env QUART_PORT=5001
-    Example: devs claude --auth                        # Interactive authentication
-    Example: devs claude --auth --api-key <YOUR_KEY>   # API key authentication
+    Example: devs claude --auth                        # Show auth setup instructions
     """
     # Handle authentication mode
     if auth:
-        _handle_claude_auth(api_key=api_key, debug=debug)
+        console.print("🔐 Claude authentication for devcontainers")
+        console.print("")
+        console.print("1. Generate a token (on a machine with a browser):")
+        console.print("   [cyan]claude setup-token[/cyan]")
+        console.print("")
+        console.print("2. Add the token to your environment:")
+        console.print("   [cyan]export CLAUDE_CODE_OAUTH_TOKEN=<token>[/cyan]")
+        console.print("")
+        console.print("   Or add it to [cyan]~/.devs/envs/default/.env[/cyan]:")
+        console.print("   [dim]CLAUDE_CODE_OAUTH_TOKEN=<token>[/dim]")
+        console.print("")
+        console.print("The token will be automatically passed to all devcontainers.")
         return
 
     # Validate required arguments for execution mode
@@ -441,88 +449,6 @@ def claude(dev_name: str, prompt: str, auth: bool, api_key: str, reset_workspace
         sys.exit(1)
 
 
-def _handle_claude_auth(api_key: str, debug: bool) -> None:
-    """Handle Claude authentication setup.
-
-    This configures Claude authentication that will be shared across
-    all devcontainers for this project. The authentication is stored
-    on the host and bind-mounted into containers.
-    """
-    try:
-        # Ensure Claude config directory exists
-        config.ensure_directories()
-
-        console.print("🔐 Setting up Claude authentication...")
-        console.print(f"   Configuration will be saved to: {config.claude_config_dir}")
-
-        if api_key:
-            # Set API key directly using Claude CLI
-            console.print("   Using provided API key...")
-
-            # Set CLAUDE_CONFIG_DIR to our config directory and run auth with API key
-            env = os.environ.copy()
-            env['CLAUDE_CONFIG_DIR'] = str(config.claude_config_dir)
-
-            cmd = ['claude', 'auth', 'login', '--key', api_key]
-
-            if debug:
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-                console.print(f"[dim]CLAUDE_CONFIG_DIR: {config.claude_config_dir}[/dim]")
-
-            result = subprocess.run(
-                cmd,
-                env=env,
-                capture_output=True,
-                text=True
-            )
-
-            if result.returncode != 0:
-                error_msg = result.stderr or result.stdout or "Unknown error"
-                raise Exception(f"Claude authentication failed: {error_msg}")
-
-        else:
-            # Interactive authentication
-            console.print("   Starting interactive authentication...")
-            console.print("   Follow the prompts to authenticate with Claude")
-            console.print("")
-
-            # Set CLAUDE_CONFIG_DIR to our config directory
-            env = os.environ.copy()
-            env['CLAUDE_CONFIG_DIR'] = str(config.claude_config_dir)
-
-            cmd = ['claude', 'auth', 'login']
-
-            if debug:
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-                console.print(f"[dim]CLAUDE_CONFIG_DIR: {config.claude_config_dir}[/dim]")
-
-            # Run interactively
-            result = subprocess.run(
-                cmd,
-                env=env,
-                check=False
-            )
-
-            if result.returncode != 0:
-                raise Exception("Claude authentication was cancelled or failed")
-
-        console.print("")
-        console.print("✅ Claude authentication configured successfully!")
-        console.print(f"   Configuration saved to: {config.claude_config_dir}")
-        console.print("   This authentication will be shared across all devcontainers")
-        console.print("")
-        console.print("💡 You can now use Claude in any devcontainer:")
-        console.print("   devs claude <dev-name> 'Your prompt here'")
-
-    except FileNotFoundError:
-        console.print("❌ Claude CLI not found on host machine")
-        console.print("")
-        console.print("Please install Claude CLI first:")
-        console.print("   npm install -g @anthropic-ai/claude-cli")
-        console.print("")
-        console.print("Note: Claude needs to be installed on the host machine")
-        console.print("      for authentication. It's already available in containers.")
-        sys.exit(1)
 
     except Exception as e:
         console.print(f"❌ Failed to configure Claude authentication: {e}")
