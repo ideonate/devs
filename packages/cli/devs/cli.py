@@ -203,11 +203,12 @@ def start(dev_names: tuple, rebuild: bool, live: bool, env: tuple, debug: bool) 
             # Create/ensure workspace exists (handles live mode internally)
             workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
             
-            # Ensure container is running
+            # Ensure container is running (never auto-rebuild in CLI; use --rebuild to force)
             if container_manager.ensure_container_running(
-                dev_name, 
-                workspace_dir, 
+                dev_name,
+                workspace_dir,
                 force_rebuild=rebuild,
+                check_rebuild=False,
                 debug=debug,
                 live=live,
                 extra_env=extra_env
@@ -268,8 +269,8 @@ def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, debug: bool) 
             # Ensure workspace exists (handles live mode internally)
             workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
             
-            # Ensure container is running before launching VS Code
-            if container_manager.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
+            # Ensure container is running before launching VS Code (no auto-rebuild in CLI)
+            if container_manager.ensure_container_running(dev_name, workspace_dir, check_rebuild=False, debug=debug, live=live, extra_env=extra_env):
                 workspace_dirs.append(workspace_dir)
                 valid_dev_names.append(dev_name)
             else:

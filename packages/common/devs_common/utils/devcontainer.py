@@ -238,10 +238,11 @@ class DevContainerCLI:
         config_path: Optional[Path] = None,
         live: bool = False,
         extra_env: Optional[dict] = None,
-        config_hash: Optional[str] = None
+        config_hash: Optional[str] = None,
+        devcontainer_hash: Optional[str] = None
     ) -> bool:
         """Start a devcontainer.
-        
+
         Args:
             workspace_folder: Path to workspace folder on host
             dev_name: Development environment name
@@ -254,7 +255,8 @@ class DevContainerCLI:
             config_path: Optional path to external devcontainer config directory
             live: Whether to use live mode (mount current directory)
             extra_env: Additional environment variables to pass to container
-            config_hash: Optional hash of config files for detecting changes
+            config_hash: Optional hash of env config files for detecting changes
+            devcontainer_hash: Optional content hash of devcontainer files for rebuild detection
 
         Returns:
             True if successful
@@ -290,6 +292,10 @@ class DevContainerCLI:
             # Add config hash label for detecting config changes
             if config_hash:
                 cmd.extend(['--id-label', f'devs.config-hash={config_hash}'])
+
+            # Add devcontainer content hash label for rebuild detection
+            if devcontainer_hash:
+                cmd.extend(['--id-label', f'devs.devcontainer-hash={devcontainer_hash}'])
 
             # Add extra container labels from config if provided
             if self.config and hasattr(self.config, 'container_labels'):

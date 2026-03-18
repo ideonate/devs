@@ -246,7 +246,7 @@ class TestContainerManager:
                 assert result is False
 
     def test_should_rebuild_image_no_existing(self, mock_project):
-        """Test should_rebuild_image when no image exists."""
+        """Test should_rebuild_image returns False when no existing container."""
         with patch('devs_common.utils.docker_client.docker') as mock_docker:
             mock_docker_instance = MagicMock()
             mock_docker.from_env.return_value = mock_docker_instance
@@ -257,13 +257,14 @@ class TestContainerManager:
 
                 manager = ContainerManager(mock_project)
 
-                # Mock no existing images
-                manager.docker.find_images_by_pattern = MagicMock(return_value=[])
+                # Mock no existing containers
+                manager.docker.find_containers_by_labels = MagicMock(return_value=[])
 
-                should_rebuild, reason = manager.should_rebuild_image("alice")
+                project_labels = {'devs.project': 'test-org-test-repo', 'devs.dev': 'alice'}
+                should_rebuild, reason = manager.should_rebuild_image("alice", project_labels)
 
                 assert should_rebuild is False
-                assert "No existing image" in reason
+                assert "No existing container" in reason
 
     def test_find_aborted_containers(self, mock_project):
         """Test finding aborted containers."""
