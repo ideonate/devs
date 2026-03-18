@@ -168,47 +168,52 @@ def cli(ctx, debug: bool, repo: str) -> None:
 @cli.command()
 @click.argument('dev_names', nargs=-1, required=True)
 @click.option('--rebuild', is_flag=True, help='Force rebuild of container images')
+@click.option('--rebuild-if-changed', 'rebuild_if_changed', is_flag=True, help='Rebuild if devcontainer files have changed since last build')
 @click.option('--live', is_flag=True, help='Mount current directory as workspace instead of copying')
 @click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
 @debug_option
-def start(dev_names: tuple, rebuild: bool, live: bool, env: tuple, debug: bool) -> None:
+def start(dev_names: tuple, rebuild: bool, rebuild_if_changed: bool, live: bool, env: tuple, debug: bool) -> None:
     """Start named devcontainers.
-    
+
     DEV_NAMES: One or more development environment names to start
-    
+
     Example: devs start sally bob
     Example: devs start sally --live  # Mount current directory directly
+    Example: devs start sally --rebuild-if-changed  # Rebuild only if devcontainer files changed
     Example: devs start sally --env QUART_PORT=5001 --env DB_HOST=localhost:3307
     """
     check_dependencies()
     project = get_project()
-    
+
     console.print(f"🚀 Starting devcontainers for project: {project.info.name}")
-    
+
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
-    
+
     for dev_name in dev_names:
         console.print(f"   Starting: {dev_name}")
-        
+
         # Load environment variables from DEVS.yml and merge with CLI --env flags
         devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
         cli_env = parse_env_vars(env) if env else {}
         extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
-        
+
         if extra_env:
             console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
-        
+
         try:
             # Create/ensure workspace exists (handles live mode internally)
             workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
-            
-            # Ensure container is running (never auto-rebuild in CLI; use --rebuild to force)
+
+            # Ensure container is running.
+            # --rebuild: always force a full rebuild
+            # --rebuild-if-changed: rebuild only when devcontainer file content has changed
+            # (default): never auto-rebuild
             if container_manager.ensure_container_running(
                 dev_name,
                 workspace_dir,
                 force_rebuild=rebuild,
-                check_rebuild=False,
+                check_rebuild=rebuild_if_changed,
                 debug=debug,
                 live=live,
                 extra_env=extra_env
@@ -216,7 +221,7 @@ def start(dev_names: tuple, rebuild: bool, live: bool, env: tuple, debug: bool) 
                 continue
             else:
                 console.print(f"   ⚠️  Failed to start {dev_name}, continuing with others...")
-                
+
         except (ContainerError, WorkspaceError) as e:
             console.print(f"   ❌ Error starting {dev_name}: {e}")
             continue
