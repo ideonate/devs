@@ -40,7 +40,7 @@ from ..utils.docker_client import DockerClient
 from ..utils.devcontainer import DevContainerCLI
 from ..utils.devcontainer_template import get_template_dir
 from ..utils.console import get_console
-from ..utils.config_hash import compute_env_config_hash, get_env_mount_path
+from ..utils.config_hash import compute_env_config_hash, compute_devcontainer_hash, get_env_mount_path
 from .project import Project
 
 # Initialize console based on environment
@@ -138,100 +138,84 @@ class ContainerManager:
         
         return labels
     
-    def should_rebuild_image(self, dev_name: str) -> Tuple[bool, str]:
-        """Check if devcontainer image should be rebuilt.
-        
+    def should_rebuild_image(self, dev_name: str, project_labels: dict) -> Tuple[bool, str]:
+        """Check if devcontainer image should be rebuilt based on content hash.
+
+        Compares the content hash of devcontainer files against the hash stored
+        in the existing container's label. This avoids false positives from fresh
+        checkouts, rebases, or other operations that update file timestamps without
+        changing the actual content.
+
         Args:
             dev_name: Development environment name
-            
+            project_labels: Labels used to find the existing container
+
         Returns:
             Tuple of (should_rebuild, reason)
         """
         try:
-            # Find existing images for this devcontainer configuration
-            image_pattern = f"vsc-{self.project.get_workspace_name(dev_name)}-"
-            existing_images = self.docker.find_images_by_pattern(image_pattern)
-            
-            if not existing_images:
-                return False, "No existing image found"
-            
-            # Get the newest image creation time
-            newest_image_time = None
-            for image_name in existing_images:
-                image_time = self.docker.get_image_creation_time(image_name)
-                if image_time and (not newest_image_time or image_time > newest_image_time):
-                    newest_image_time = image_time
-            
-            if not newest_image_time:
-                return False, "Could not determine image age"
-            
-            # Check if devcontainer-related files are newer than the image
-            devcontainer_files = [
-                self.project.project_dir / ".devcontainer",
-                self.project.project_dir / "Dockerfile", 
-                self.project.project_dir / "docker-compose.yml",
-                self.project.project_dir / "docker-compose.yaml",
-            ]
-            
-            for file_path in devcontainer_files:
-                if file_path.exists():
-                    if file_path.is_file():
-                        file_time = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
-                        if file_time > newest_image_time:
-                            return True, f"File newer than image: {file_path.name}"
-                    elif file_path.is_dir():
-                        # For directories, find the newest file
-                        newest_file_time = None
-                        newest_file = None
-                        
-                        for item in file_path.rglob('*'):
-                            if item.is_file():
-                                item_time = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
-                                if not newest_file_time or item_time > newest_file_time:
-                                    newest_file_time = item_time
-                                    newest_file = item
-                        
-                        if newest_file_time and newest_file_time > newest_image_time:
-                            return True, f"File newer than image: {newest_file}"
-            
-            return False, "Image is up to date"
-            
+            current_hash = compute_devcontainer_hash(self.project.project_dir)
+
+            # Look for an existing container to compare against
+            existing_containers = self.docker.find_containers_by_labels(project_labels)
+            if not existing_containers:
+                return False, "No existing container to compare against"
+
+            existing_container = existing_containers[0]
+            existing_labels = existing_container.get('labels', {})
+            stored_hash = existing_labels.get('devs.devcontainer-hash', '')
+
+            if not stored_hash:
+                # No hash stored yet — don't trigger a rebuild speculatively
+                return False, "No devcontainer hash label on existing container"
+
+            if stored_hash != current_hash:
+                return True, f"Devcontainer files changed ({stored_hash} → {current_hash})"
+
+            return False, "Devcontainer files unchanged"
+
         except (DockerError, OSError) as e:
             console.print(f"[yellow]Warning: Could not check image rebuild status: {e}[/yellow]")
             return False, "Could not determine rebuild status"
     
     def ensure_container_running(
-        self, 
+        self,
         dev_name: str,
         workspace_dir: Path,
         force_rebuild: bool = False,
+        check_rebuild: bool = True,
         debug: bool = False,
         live: bool = False,
         extra_env: Optional[Dict[str, str]] = None
     ) -> bool:
         """Ensure a container is running for the specified dev environment.
-        
+
         Args:
             dev_name: Development environment name
             workspace_dir: Workspace directory path
             force_rebuild: Force rebuild even if not needed
+            check_rebuild: Automatically rebuild if devcontainer files have changed.
+                Set to False (e.g. for the CLI) to only rebuild when force_rebuild=True.
             debug: Show debug output for devcontainer operations
             live: Whether to use live mode (mount current directory instead of copying)
             extra_env: Additional environment variables to pass to container
-            
+
         Returns:
             True if container is running successfully
-            
+
         Raises:
             ContainerError: If container operations fail
         """
         workspace_info = self._get_container_info(dev_name, live)
         container_name = workspace_info["container_name"]
         project_labels = self._get_project_labels(dev_name, live)
-        
+
         try:
             # Check if we need to rebuild
-            rebuild_needed, rebuild_reason = self.should_rebuild_image(dev_name)
+            if check_rebuild:
+                rebuild_needed, rebuild_reason = self.should_rebuild_image(dev_name, project_labels)
+            else:
+                rebuild_needed, rebuild_reason = False, "Auto-rebuild disabled"
             if rebuild_needed or force_rebuild:
                 if force_rebuild:
                     console.print(f"   🔄 Forcing image rebuild for {dev_name}...")
@@ -248,9 +232,10 @@ class ContainerManager:
                         console.print(f"[dim]Removing container: {existing_container['name']}[/dim]")
                     self.docker.remove_container(existing_container['name'])
             
-            # Compute current config hash for comparison
+            # Compute current config hashes for comparison
             env_mount_path = get_env_mount_path(self.project.info.name)
             current_config_hash = compute_env_config_hash(self.project.info.name)
+            current_devcontainer_hash = compute_devcontainer_hash(self.project.project_dir)
             console.print(f"   📁 Env mount: {env_mount_path} (hash: {current_config_hash})")
 
             # Check if container is already running
@@ -267,13 +252,19 @@ class ContainerManager:
 
                 console.print(f"   🔍 Found container: {existing_container['name']} (status: {existing_container['status']}, hash: {existing_config_hash or 'none'})")
 
-                # Check if config hash has changed
+                # Check if config hash has changed (only when auto-rebuild checks are enabled)
                 if existing_config_hash and existing_config_hash != current_config_hash:
-                    config_hash_changed = True
-                    console.print(f"   🔄 Config hash changed ({existing_config_hash} → {current_config_hash}), will restart container")
-                elif not existing_config_hash:
-                    console.print(f"   ⚠️  Container has no config hash label, will restart to add it")
-                    config_hash_changed = True
+                    if check_rebuild:
+                        config_hash_changed = True
+                        console.print(f"   🔄 Config hash changed ({existing_config_hash} → {current_config_hash}), will restart container")
+                    else:
+                        console.print(f"   ℹ️  Env config has changed since container was created — use --rebuild-if-changed to restart")
+
+                # Check devcontainer hash when not rebuilding, to inform user of changes
+                if not check_rebuild:
+                    existing_devcontainer_hash = existing_labels.get('devs.devcontainer-hash', '')
+                    if existing_devcontainer_hash and existing_devcontainer_hash != current_devcontainer_hash:
+                        console.print(f"   ℹ️  Devcontainer files have changed since image was built — use --rebuild-if-changed to rebuild")
 
                 # Check if existing container matches the requested mode
                 if existing_is_live != live:
@@ -335,7 +326,8 @@ class ContainerManager:
                 config_path=config_path,
                 live=live,
                 extra_env=extra_env,
-                config_hash=current_config_hash
+                config_hash=current_config_hash,
+                devcontainer_hash=current_devcontainer_hash
             )
             
             if not success:
@@ -628,8 +620,8 @@ class ContainerManager:
                 console.print(f"   ▶️  Starting stopped container: {container_id}")
                 self.docker.start_container(container_id)
         else:
-            # Ensure container is running (may create/restart as needed)
-            if not self.ensure_container_running(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env):
+            # Ensure container is running (may create/restart as needed, but never auto-rebuild)
+            if not self.ensure_container_running(dev_name, workspace_dir, check_rebuild=False, debug=debug, live=live, extra_env=extra_env):
                 raise ContainerError(f"Failed to start container for {dev_name}")
 
         return container_name, container_workspace_dir
