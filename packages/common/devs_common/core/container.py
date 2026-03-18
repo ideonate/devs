@@ -252,13 +252,19 @@ class ContainerManager:
 
                 console.print(f"   🔍 Found container: {existing_container['name']} (status: {existing_container['status']}, hash: {existing_config_hash or 'none'})")
 
-                # Check if config hash has changed
+                # Check if config hash has changed (only when auto-rebuild checks are enabled)
                 if existing_config_hash and existing_config_hash != current_config_hash:
-                    config_hash_changed = True
-                    console.print(f"   🔄 Config hash changed ({existing_config_hash} → {current_config_hash}), will restart container")
-                elif not existing_config_hash:
-                    console.print(f"   ⚠️  Container has no config hash label, will restart to add it")
-                    config_hash_changed = True
+                    if check_rebuild:
+                        config_hash_changed = True
+                        console.print(f"   🔄 Config hash changed ({existing_config_hash} → {current_config_hash}), will restart container")
+                    else:
+                        console.print(f"   ℹ️  Env config has changed since container was created — use --rebuild-if-changed to restart")
+
+                # Check devcontainer hash when not rebuilding, to inform user of changes
+                if not check_rebuild:
+                    existing_devcontainer_hash = existing_labels.get('devs.devcontainer-hash', '')
+                    if existing_devcontainer_hash and existing_devcontainer_hash != current_devcontainer_hash:
+                        console.print(f"   ℹ️  Devcontainer files have changed since image was built — use --rebuild-if-changed to rebuild")
 
                 # Check if existing container matches the requested mode
                 if existing_is_live != live:
