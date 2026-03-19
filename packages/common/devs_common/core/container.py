@@ -1099,13 +1099,91 @@ class ContainerManager:
 
             result = subprocess.run(cmd, capture_output=True, text=True)
 
+            # Get auth info (logged in user/provider)
+            user_result = subprocess.run(
+                ['docker', 'exec', container_name,
+                 '/usr/local/bin/code', 'tunnel', 'user', 'show'],
+                capture_output=True, text=True
+            )
+            auth_info = user_result.stdout.strip() if user_result.returncode == 0 else None
+
             if result.returncode == 0:
-                return True, result.stdout.strip()
+                raw = result.stdout.strip()
+                return True, self._format_tunnel_status(raw, dev_name, auth_info)
             else:
                 return False, result.stderr.strip() if result.stderr else "No tunnel running"
 
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to get tunnel status in {dev_name}: {e}")
+
+    def _format_tunnel_status(self, raw_json: str, dev_name: str, auth_info: Optional[str] = None) -> str:
+        """Format tunnel status JSON into human-readable output."""
+        import json
+        try:
+            data = json.loads(raw_json)
+        except json.JSONDecodeError:
+            return raw_json
+
+        tunnel = data.get("tunnel")
+        if not tunnel:
+            lines = ["[dim]● No tunnel running[/dim]"]
+            if auth_info:
+                lines.append(f"   Auth: {auth_info}")
+            return "\n".join(lines)
+        name = tunnel.get("name") or "unknown"
+        state = tunnel.get("tunnel", "Unknown")
+        started_at = tunnel.get("started_at")
+        connected_at = tunnel.get("last_connected_at")
+        disconnected_at = tunnel.get("last_disconnected_at")
+        fail_reason = tunnel.get("last_fail_reason")
+
+        lines = []
+
+        # Status line with color
+        if state == "Connected":
+            lines.append(f"[bold green]● Connected[/bold green]  ({name})")
+        elif state == "Disconnected":
+            lines.append(f"[bold red]● Disconnected[/bold red]  ({name})")
+        else:
+            lines.append(f"[bold yellow]● {state}[/bold yellow]  ({name})")
+
+        # Timestamps
+        if started_at:
+            lines.append(f"   Started:      {self._format_timestamp(started_at)}")
+        if connected_at:
+            lines.append(f"   Connected:    {self._format_timestamp(connected_at)}")
+        if disconnected_at:
+            lines.append(f"   Disconnected: {self._format_timestamp(disconnected_at)}")
+        if fail_reason:
+            lines.append(f"   Fail reason:  {fail_reason}")
+        if auth_info:
+            lines.append(f"   Auth:         {auth_info}")
+
+        # Connection info when connected
+        if state == "Connected":
+            tunnel_name = self._get_tunnel_name(dev_name)
+            lines.append("")
+            lines.append("[bold]Connect:[/bold]")
+            lines.append(f"   Desktop:  code --remote tunnel+{tunnel_name}")
+            lines.append(f"   Browser:  https://vscode.dev/tunnel/{tunnel_name}")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_timestamp(ts: str) -> str:
+        """Format an ISO timestamp into a friendly local time string."""
+        from datetime import datetime
+        try:
+            # Handle nanosecond precision by truncating to microseconds
+            if "." in ts:
+                base, frac = ts.split(".")
+                frac = frac.rstrip("Z")[:6]
+                ts = f"{base}.{frac}Z"
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            local_dt = dt.astimezone()
+            return local_dt.strftime("%H:%M:%S %Z")
+        except (ValueError, TypeError):
+            return ts
 
     def kill_tunnel(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> bool:
         """Kill a running VS Code tunnel in the container.

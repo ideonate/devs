@@ -782,11 +782,13 @@ def tunnel(dev_name: str, auth: bool, status: bool, kill_tunnel: bool, live: boo
                 extra_env=extra_env
             )
             if is_running:
-                console.print(f"Tunnel status for {dev_name}:")
+                console.print(f"[bold]Tunnel for {dev_name}:[/bold]")
                 console.print(status_msg)
             else:
-                console.print(f"No tunnel running in {dev_name}")
-                console.print(f"   {status_msg}")
+                console.print(f"[bold]Tunnel for {dev_name}:[/bold]")
+                console.print(f"[dim]   Not running[/dim]")
+                if status_msg:
+                    console.print(f"   {status_msg}")
 
         elif kill_tunnel:
             # Kill the tunnel
