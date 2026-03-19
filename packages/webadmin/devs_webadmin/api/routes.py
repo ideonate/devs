@@ -234,6 +234,22 @@ def _docker_exec(container_name: str, cmd: list, timeout: int = 10) -> subproces
     return subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
 
 
+def _kill_tunnel_processes(container_name: str) -> None:
+    """Kill all tunnel processes in a container.
+
+    Uses both 'code tunnel kill' (service-level) and pkill (process-level)
+    to ensure detached shell wrappers and tunnel processes are fully terminated.
+    """
+    subprocess.run(
+        ["docker", "exec", container_name, "/usr/local/bin/code", "tunnel", "kill"],
+        capture_output=True,
+    )
+    subprocess.run(
+        ["docker", "exec", container_name, "pkill", "-f", "code tunnel"],
+        capture_output=True,
+    )
+
+
 # --- Tunnel endpoints ---
 
 @router.get("/tunnel/status")
@@ -266,6 +282,15 @@ async def tunnel_start(request: ContainerActionRequest) -> dict:
     tunnel_cmd = f"/usr/local/bin/code tunnel --accept-server-license-terms --name {tunnel_name}"
 
     def _start() -> dict:
+        # Kill any stale tunnel processes and clear log before starting
+        _kill_tunnel_processes(container_name)
+        subprocess.run(
+            ["docker", "exec", container_name, "/bin/sh", "-c", f"> {log_file}"],
+            capture_output=True,
+        )
+        import time
+        time.sleep(1)
+
         # Start tunnel in background
         subprocess.run(
             ["docker", "exec", "-d", container_name,
@@ -274,7 +299,6 @@ async def tunnel_start(request: ContainerActionRequest) -> dict:
         )
 
         # Poll for startup (up to 15s)
-        import time
         for i in range(15):
             time.sleep(1)
             result = subprocess.run(
@@ -293,10 +317,7 @@ async def tunnel_start(request: ContainerActionRequest) -> dict:
 
             if "log in" in output.lower() or "device" in output.lower() or "invalid" in output.lower():
                 # Auth needed - kill the failed attempt
-                subprocess.run(
-                    ["docker", "exec", container_name, "/usr/local/bin/code", "tunnel", "kill"],
-                    capture_output=True,
-                )
+                _kill_tunnel_processes(container_name)
                 return {"status": "auth_required", "tunnel_name": tunnel_name}
 
         # Timeout - tunnel may still be starting
@@ -316,13 +337,12 @@ async def tunnel_start(request: ContainerActionRequest) -> dict:
 async def tunnel_kill(request: ContainerActionRequest) -> dict:
     """Kill a running VS Code tunnel."""
     try:
-        result = await asyncio.to_thread(
-            _docker_exec, request.container_name,
-            ["/usr/local/bin/code", "tunnel", "kill"]
+        await asyncio.to_thread(
+            _kill_tunnel_processes, request.container_name
         )
         return {
-            "killed": result.returncode == 0,
-            "message": result.stdout.strip() or result.stderr.strip(),
+            "killed": True,
+            "message": "Tunnel processes killed",
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

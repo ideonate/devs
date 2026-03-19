@@ -908,6 +908,22 @@ class ContainerManager:
             console.print("[yellow]Authentication was cancelled or failed.[/yellow]")
             return False
 
+    def _kill_tunnel_processes(self, container_name: str) -> None:
+        """Kill all tunnel processes in the container.
+
+        Uses pkill to ensure detached shell wrappers and tunnel processes
+        are fully terminated, not just the service-level shutdown that
+        'code tunnel kill' provides.
+        """
+        subprocess.run(
+            ['docker', 'exec', container_name, '/usr/local/bin/code', 'tunnel', 'kill'],
+            capture_output=True
+        )
+        subprocess.run(
+            ['docker', 'exec', container_name, 'pkill', '-f', 'code tunnel'],
+            capture_output=True
+        )
+
     def _start_and_poll_tunnel(self, container_name: str, dev_name: str, tunnel_cmd: str,
                                log_file: str, vscode_cmd: str, web_url: str, debug: bool = False) -> bool:
         """Start a detached tunnel and poll the log for startup confirmation.
@@ -915,6 +931,14 @@ class ContainerManager:
         Returns:
             True if tunnel started (or timed out), False if auth is needed.
         """
+        # Kill any stale tunnel processes and clear the log before starting
+        self._kill_tunnel_processes(container_name)
+        subprocess.run(
+            ['docker', 'exec', container_name, '/bin/sh', '-c', f'> {log_file}'],
+            capture_output=True
+        )
+        time.sleep(1)
+
         subprocess.run(
             ['docker', 'exec', '-d', container_name,
              '/bin/sh', '-c', f'{tunnel_cmd} > {log_file} 2>&1'],
@@ -942,10 +966,7 @@ class ContainerManager:
                 return True
 
             if 'log in' in output.lower() or 'device' in output.lower() or 'invalid' in output.lower():
-                subprocess.run(
-                    ['docker', 'exec', container_name, '/usr/local/bin/code', 'tunnel', 'kill'],
-                    capture_output=True
-                )
+                self._kill_tunnel_processes(container_name)
                 return False
 
             if debug and output.strip():
@@ -1108,24 +1129,13 @@ class ContainerManager:
                 dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
             )
 
-            # Kill the tunnel
-            cmd = [
-                'docker', 'exec',
-                container_name,
-                '/usr/local/bin/code', 'tunnel', 'kill'
-            ]
-
+            # Kill the tunnel (both service-level and process-level)
             if debug:
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+                console.print(f"[dim]Killing tunnel processes in {container_name}[/dim]")
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
-
-            if result.returncode == 0:
-                console.print(f"   Tunnel killed in: {dev_name}")
-                return True
-            else:
-                console.print(f"   No tunnel to kill in: {dev_name}")
-                return False
+            self._kill_tunnel_processes(container_name)
+            console.print(f"   Tunnel killed in: {dev_name}")
+            return True
 
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to kill tunnel in {dev_name}: {e}")
