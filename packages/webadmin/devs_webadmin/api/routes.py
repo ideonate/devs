@@ -263,11 +263,17 @@ async def tunnel_status(project_name: str, dev_name: str) -> dict:
         tunnel_data = raw_status.get("tunnel") or {}
         is_connected = tunnel_data.get("tunnel") == "Connected"
 
+        # Use the actual tunnel name from status if available
+        actual_tunnel_name = tunnel_data.get("name") or info["tunnel_name"]
+        workspace_dir = info["workspace_dir"]
+        web_url = f"https://vscode.dev/tunnel/{actual_tunnel_name}{workspace_dir}"
+        vscode_cmd = f"code --remote tunnel+{actual_tunnel_name} {workspace_dir}"
+
         return {
             "running": is_connected,
-            "tunnel_name": info["tunnel_name"],
-            "web_url": info["web_url"] if is_connected else None,
-            "vscode_cmd": info["vscode_cmd"] if is_connected else None,
+            "tunnel_name": actual_tunnel_name,
+            "web_url": web_url if is_connected else None,
+            "vscode_cmd": vscode_cmd if is_connected else None,
         }
     except subprocess.TimeoutExpired:
         return {"running": False, "message": "Status check timed out"}
@@ -310,11 +316,20 @@ async def tunnel_start(request: TunnelRequest) -> dict:
             output = result.stdout
 
             if "Open this link" in output or "vscode.dev/tunnel" in output:
+                # Parse the actual tunnel URL from the log output
+                actual_tunnel_name = info["tunnel_name"]
+                url_match = re.search(r'https://vscode\.dev/tunnel/([^/\s]+)', output)
+                if url_match:
+                    actual_tunnel_name = url_match.group(1)
+
+                workspace_dir = info["workspace_dir"]
+                web_url = f"https://vscode.dev/tunnel/{actual_tunnel_name}{workspace_dir}"
+                vscode_cmd = f"code --remote tunnel+{actual_tunnel_name} {workspace_dir}"
                 return {
                     "status": "running",
-                    "tunnel_name": info["tunnel_name"],
-                    "web_url": info["web_url"],
-                    "vscode_cmd": info["vscode_cmd"],
+                    "tunnel_name": actual_tunnel_name,
+                    "web_url": web_url,
+                    "vscode_cmd": vscode_cmd,
                 }
 
             if "log in" in output.lower() or "device" in output.lower() or "invalid" in output.lower():

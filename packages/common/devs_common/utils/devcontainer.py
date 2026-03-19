@@ -302,7 +302,7 @@ class DevContainerCLI:
                 for k, v in self.config.container_labels.items():
                     if k not in ('devs.project', 'devs.dev', 'devs.live'):
                         cmd.extend(['--id-label', f'{k}={v}'])
-            
+
             # Set environment variables using shared function
             env = prepare_devcontainer_environment(
                 dev_name=dev_name,

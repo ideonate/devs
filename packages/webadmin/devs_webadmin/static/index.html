@@ -292,7 +292,21 @@
             font-size: 0.9rem;
             z-index: 100;
             animation: slideIn 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
         }
+        .toast-close {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 1.1rem;
+            cursor: pointer;
+            padding: 0 0.1rem;
+            opacity: 0.7;
+            line-height: 1;
+        }
+        .toast-close:hover { opacity: 1; }
         .toast-success { background: #166534; color: #bbf7d0; }
         .toast-error { background: #991b1b; color: #fecaca; }
 
@@ -475,7 +489,8 @@
 
         <!-- Toast -->
         <div v-if="toast" class="toast" :class="'toast-' + toast.type">
-            {{ toast.message }}
+            <span>{{ toast.message }}</span>
+            <button class="toast-close" @click="toast = null">&times;</button>
         </div>
     </div>
 </div>
@@ -503,7 +518,15 @@ createApp({
         function showToast(message, type = 'success') {
             if (toastTimer) clearTimeout(toastTimer);
             toast.value = { message, type };
-            toastTimer = setTimeout(() => { toast.value = null; }, 3000);
+            if (type === 'error') {
+                console.error('[devs-webadmin]', message);
+            } else {
+                console.log('[devs-webadmin]', message);
+            }
+            const duration = type === 'error' ? 0 : 3000;
+            if (duration > 0) {
+                toastTimer = setTimeout(() => { toast.value = null; }, duration);
+            }
         }
 
         async function loadContainers() {
