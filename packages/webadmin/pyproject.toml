@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "devs-webadmin"
-version = "3.3.2"
+version = "3.3.3"
 description = "Web admin UI for managing devcontainers on a server"
 readme = "README.md"
 requires-python = ">=3.8"
