@@ -517,7 +517,7 @@ createApp({
                 // Check tunnel status for running containers
                 for (const c of data.containers) {
                     if (c.status === 'running') {
-                        checkTunnelStatus(c.name);
+                        checkTunnelStatus(c);
                     }
                 }
             } catch (e) {
@@ -527,14 +527,18 @@ createApp({
             }
         }
 
-        async function checkTunnelStatus(containerName) {
+        async function checkTunnelStatus(c) {
             try {
-                const res = await fetch(`/api/tunnel/status?container_name=${encodeURIComponent(containerName)}`);
+                const params = new URLSearchParams({
+                    project_name: c.project_name,
+                    dev_name: c.dev_name,
+                });
+                const res = await fetch(`/api/tunnel/status?${params}`);
                 if (res.ok) {
                     const data = await res.json();
-                    tunnelState[containerName] = {
+                    tunnelState[c.name] = {
                         running: data.running,
-                        web_url: data.running ? `https://vscode.dev/tunnel/${data.tunnel_name}` : null,
+                        web_url: data.web_url || null,
                         tunnel_name: data.tunnel_name,
                     };
                 }
@@ -641,7 +645,7 @@ createApp({
                 const res = await fetch('/api/tunnel/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ container_name: c.name }),
+                    body: JSON.stringify({ project_name: c.project_name, dev_name: c.dev_name }),
                 });
                 if (!res.ok) {
                     const err = await res.json();
@@ -677,7 +681,7 @@ createApp({
                 const res = await fetch('/api/tunnel/kill', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ container_name: c.name }),
+                    body: JSON.stringify({ project_name: c.project_name, dev_name: c.dev_name }),
                 });
                 if (res.ok) {
                     delete tunnelState[c.name];
@@ -699,7 +703,7 @@ createApp({
                 const res = await fetch('/api/tunnel/auth', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ container_name: c.name }),
+                    body: JSON.stringify({ project_name: c.project_name, dev_name: c.dev_name }),
                 });
                 if (!res.ok) {
                     const err = await res.json();
@@ -727,9 +731,11 @@ createApp({
             if (authPollTimer) clearInterval(authPollTimer);
             authPollTimer = setInterval(async () => {
                 try {
-                    const res = await fetch(
-                        `/api/tunnel/auth/status?container_name=${encodeURIComponent(containerName)}`
-                    );
+                    const params = new URLSearchParams({
+                        project_name: c.project_name,
+                        dev_name: c.dev_name,
+                    });
+                    const res = await fetch(`/api/tunnel/auth/status?${params}`);
                     if (!res.ok) return;
                     const data = await res.json();
 
@@ -781,7 +787,19 @@ createApp({
         async function copyVscodeCommand(c) {
             const cmd = getVscodeCommand(c);
             try {
-                await navigator.clipboard.writeText(cmd);
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(cmd);
+                } else {
+                    // Fallback for non-HTTPS contexts
+                    const ta = document.createElement('textarea');
+                    ta.value = cmd;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
                 if (copiedTimer) clearTimeout(copiedTimer);
                 copied.value = c.name;
                 copiedTimer = setTimeout(() => { copied.value = null; }, 2000);

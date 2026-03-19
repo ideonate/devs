@@ -3,6 +3,7 @@
 import asyncio
 import re
 import subprocess
+import time
 from typing import Dict, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -10,7 +11,12 @@ from pydantic import BaseModel
 
 import structlog
 
-from devs_common.core.container import ContainerManager
+from devs_common.core.container import (
+    ContainerManager,
+    make_tunnel_name,
+    get_container_workspace_dir,
+    kill_tunnel_processes,
+)
 from devs_common.core.workspace import WorkspaceManager
 from devs_common.core.project import Project
 from devs_common.utils.repo_cache import RepoCache
@@ -37,11 +43,22 @@ class ContainerActionRequest(BaseModel):
     container_name: str  # Docker container name from list
 
 
+class TunnelRequest(BaseModel):
+    project_name: str  # org-repo format (from container list)
+    dev_name: str
+
+
 def _get_repo_project(repo: str) -> Project:
     """Clone/update a repo via cache and return a Project for it."""
     repo_cache = RepoCache(cache_dir=config.repo_cache_dir)
     repo_path = repo_cache.ensure_repo(repo)
     return Project(project_dir=repo_path)
+
+
+def _get_container_name(project_name: str, dev_name: str) -> str:
+    """Derive container name from project_name + dev_name."""
+    project_prefix = config.project_prefix if config else "dev"
+    return f"{project_prefix}-{project_name}-{dev_name}"
 
 
 @router.get("/containers")
@@ -77,7 +94,7 @@ async def list_containers(repo: Optional[str] = None) -> dict:
 async def start_container(request: StartRequest) -> dict:
     """Start a named devcontainer for a repo."""
     try:
-        project = await asyncio.to_thread(_get_repo_project, request.repo)
+        project = await asyncio.to_thread(_get_repo_project, request.project_name)
         container_manager = ContainerManager(project, config)
         workspace_manager = WorkspaceManager(project, config)
 
@@ -98,7 +115,7 @@ async def start_container(request: StartRequest) -> dict:
         if success:
             return {
                 "status": "started",
-                "repo": request.repo,
+                "repo": request.project_name,
                 "dev_name": request.dev_name,
             }
         else:
@@ -198,74 +215,54 @@ async def clean_container(request: ContainerActionRequest) -> dict:
 
 # --- Tunnel helpers ---
 
-def _get_container_labels(container_name: str) -> dict:
-    """Get labels for a container by Docker name."""
-    docker = DockerClient()
-    containers = docker.find_containers_by_labels({"devs.managed": "true"})
-    for c in containers:
-        if c["name"] == container_name:
-            return c.get("labels", {})
-    return {}
-
-
-def _make_tunnel_name(container_name: str) -> str:
-    """Derive tunnel name from container name (max 20 chars).
-
-    Container names are like dev-ideonate-devs-sally.
-    Tunnel name uses the same convention, truncated to 20 chars
-    keeping the dev name suffix.
-    """
-    name = container_name.replace(".", "-").replace("_", "-")
-    if len(name) <= 20:
-        return name
-    # Keep the last segment (dev name) and truncate the rest
-    parts = name.rsplit("-", 1)
-    if len(parts) == 2:
-        suffix = f"-{parts[1]}"
-        budget = 20 - len(suffix)
-        if budget >= 3:
-            return parts[0][:budget].rstrip("-") + suffix
-    return name[:20]
-
-
 def _docker_exec(container_name: str, cmd: list, timeout: int = 10) -> subprocess.CompletedProcess:
     """Run a docker exec command."""
     full_cmd = ["docker", "exec", container_name] + cmd
     return subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
 
 
-def _kill_tunnel_processes(container_name: str) -> None:
-    """Kill all tunnel processes in a container.
-
-    Uses both 'code tunnel kill' (service-level) and pkill (process-level)
-    to ensure detached shell wrappers and tunnel processes are fully terminated.
-    """
-    subprocess.run(
-        ["docker", "exec", container_name, "/usr/local/bin/code", "tunnel", "kill"],
-        capture_output=True,
-    )
-    subprocess.run(
-        ["docker", "exec", container_name, "pkill", "-f", "code tunnel"],
-        capture_output=True,
-    )
+def _tunnel_info(project_name: str, dev_name: str) -> dict:
+    """Derive all tunnel-related names/paths from project_name + dev_name."""
+    container_name = _get_container_name(project_name, dev_name)
+    tunnel_name = make_tunnel_name(container_name)
+    workspace_dir = get_container_workspace_dir(container_name)
+    return {
+        "container_name": container_name,
+        "tunnel_name": tunnel_name,
+        "workspace_dir": workspace_dir,
+        "web_url": f"https://vscode.dev/tunnel/{tunnel_name}{workspace_dir}",
+        "vscode_cmd": f"code --remote tunnel+{tunnel_name} {workspace_dir}",
+    }
 
 
 # --- Tunnel endpoints ---
 
 @router.get("/tunnel/status")
-async def tunnel_status(container_name: str) -> dict:
+async def tunnel_status(project_name: str, dev_name: str) -> dict:
     """Get VS Code tunnel status for a container."""
+    info = _tunnel_info(project_name, dev_name)
     try:
         result = await asyncio.to_thread(
-            _docker_exec, container_name,
+            _docker_exec, info["container_name"],
             ["/usr/local/bin/code", "tunnel", "status"]
         )
-        is_running = result.returncode == 0
-        tunnel_name = _make_tunnel_name(container_name)
+
+        import json
+        raw_status = {}
+        if result.returncode == 0:
+            try:
+                raw_status = json.loads(result.stdout.strip())
+            except json.JSONDecodeError:
+                pass
+
+        tunnel_data = raw_status.get("tunnel") or {}
+        is_connected = tunnel_data.get("tunnel") == "Connected"
+
         return {
-            "running": is_running,
-            "message": result.stdout.strip() if is_running else (result.stderr.strip() or "No tunnel running"),
-            "tunnel_name": tunnel_name,
+            "running": is_connected,
+            "tunnel_name": info["tunnel_name"],
+            "web_url": info["web_url"] if is_connected else None,
+            "vscode_cmd": info["vscode_cmd"] if is_connected else None,
         }
     except subprocess.TimeoutExpired:
         return {"running": False, "message": "Status check timed out"}
@@ -274,21 +271,21 @@ async def tunnel_status(container_name: str) -> dict:
 
 
 @router.post("/tunnel/start")
-async def tunnel_start(request: ContainerActionRequest) -> dict:
+async def tunnel_start(request: TunnelRequest) -> dict:
     """Start a VS Code tunnel in a container (background)."""
-    container_name = request.container_name
-    tunnel_name = _make_tunnel_name(container_name)
+    info = _tunnel_info(request.project_name, request.dev_name)
+    container_name = info["container_name"]
+    tunnel_name = info["tunnel_name"]
     log_file = "/tmp/vscode-tunnel.log"
     tunnel_cmd = f"/usr/local/bin/code tunnel --accept-server-license-terms --name {tunnel_name}"
 
     def _start() -> dict:
         # Kill any stale tunnel processes and clear log before starting
-        _kill_tunnel_processes(container_name)
+        kill_tunnel_processes(container_name)
         subprocess.run(
             ["docker", "exec", container_name, "/bin/sh", "-c", f"> {log_file}"],
             capture_output=True,
         )
-        import time
         time.sleep(1)
 
         # Start tunnel in background
@@ -299,7 +296,7 @@ async def tunnel_start(request: ContainerActionRequest) -> dict:
         )
 
         # Poll for startup (up to 15s)
-        for i in range(15):
+        for _ in range(15):
             time.sleep(1)
             result = subprocess.run(
                 ["docker", "exec", container_name, "cat", log_file],
@@ -310,20 +307,18 @@ async def tunnel_start(request: ContainerActionRequest) -> dict:
             if "Open this link" in output or "vscode.dev/tunnel" in output:
                 return {
                     "status": "running",
-                    "tunnel_name": tunnel_name,
-                    "web_url": f"https://vscode.dev/tunnel/{tunnel_name}",
-                    "vscode_cmd": f"code --remote tunnel+{tunnel_name}",
+                    "tunnel_name": info["tunnel_name"],
+                    "web_url": info["web_url"],
+                    "vscode_cmd": info["vscode_cmd"],
                 }
 
             if "log in" in output.lower() or "device" in output.lower() or "invalid" in output.lower():
-                # Auth needed - kill the failed attempt
-                _kill_tunnel_processes(container_name)
-                return {"status": "auth_required", "tunnel_name": tunnel_name}
+                kill_tunnel_processes(container_name)
+                return {"status": "auth_required", "tunnel_name": info["tunnel_name"]}
 
-        # Timeout - tunnel may still be starting
         return {
             "status": "starting",
-            "tunnel_name": tunnel_name,
+            "tunnel_name": info["tunnel_name"],
             "message": "Tunnel may still be starting, check status",
         }
 
@@ -334,29 +329,26 @@ async def tunnel_start(request: ContainerActionRequest) -> dict:
 
 
 @router.post("/tunnel/kill")
-async def tunnel_kill(request: ContainerActionRequest) -> dict:
+async def tunnel_kill(request: TunnelRequest) -> dict:
     """Kill a running VS Code tunnel."""
+    info = _tunnel_info(request.project_name, request.dev_name)
     try:
-        await asyncio.to_thread(
-            _kill_tunnel_processes, request.container_name
-        )
-        return {
-            "killed": True,
-            "message": "Tunnel processes killed",
-        }
+        await asyncio.to_thread(kill_tunnel_processes, info["container_name"])
+        return {"killed": True, "message": "Tunnel processes killed"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/tunnel/auth")
-async def tunnel_auth_start(request: ContainerActionRequest) -> dict:
+async def tunnel_auth_start(request: TunnelRequest) -> dict:
     """Start tunnel auth (GitHub device flow).
 
     Launches the login command, captures the device URL + code,
     and returns them so the user can complete auth in their browser.
     The process keeps running until auth completes or is cancelled.
     """
-    container_name = request.container_name
+    info = _tunnel_info(request.project_name, request.dev_name)
+    container_name = info["container_name"]
 
     # Kill any existing auth process for this container
     if container_name in _auth_processes:
@@ -381,19 +373,17 @@ async def tunnel_auth_start(request: ContainerActionRequest) -> dict:
         output_lines = []
         device_url = None
         device_code = None
-        import time
-        deadline = time.time() + 30  # 30s timeout for initial output
+        deadline = time.time() + 30
 
         while time.time() < deadline:
             line = proc.stdout.readline()
             if not line:
                 if proc.poll() is not None:
-                    break  # Process exited
+                    break
                 continue
             output_lines.append(line.strip())
             full_output = " ".join(output_lines)
 
-            # Look for GitHub device flow URL and code
             url_match = re.search(r'(https://github\.com/login/device)', full_output)
             if url_match:
                 device_url = url_match.group(1)
@@ -402,7 +392,6 @@ async def tunnel_auth_start(request: ContainerActionRequest) -> dict:
             if code_match:
                 device_code = code_match.group(1)
 
-            # If we have both, return immediately (process keeps running)
             if device_url and device_code:
                 return {
                     "status": "waiting_for_browser",
@@ -411,13 +400,11 @@ async def tunnel_auth_start(request: ContainerActionRequest) -> dict:
                     "message": f"Open {device_url} and enter code {device_code}",
                 }
 
-        # Process may have exited successfully (already authed)
         if proc.poll() is not None and proc.returncode == 0:
             if container_name in _auth_processes:
                 del _auth_processes[container_name]
             return {"status": "already_authenticated"}
 
-        # Timeout or couldn't parse
         if container_name in _auth_processes:
             try:
                 proc.kill()
@@ -436,8 +423,11 @@ async def tunnel_auth_start(request: ContainerActionRequest) -> dict:
 
 
 @router.get("/tunnel/auth/status")
-async def tunnel_auth_status(container_name: str) -> dict:
+async def tunnel_auth_status(project_name: str, dev_name: str) -> dict:
     """Check if a pending tunnel auth has completed."""
+    info = _tunnel_info(project_name, dev_name)
+    container_name = info["container_name"]
+
     proc = _auth_processes.get(container_name)
     if proc is None:
         return {"status": "no_pending_auth"}
@@ -446,7 +436,6 @@ async def tunnel_auth_status(container_name: str) -> dict:
     if poll is None:
         return {"status": "waiting_for_browser"}
 
-    # Process finished
     del _auth_processes[container_name]
     if poll == 0:
         return {"status": "authenticated"}

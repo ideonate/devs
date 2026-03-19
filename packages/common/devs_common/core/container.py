@@ -47,6 +47,55 @@ from .project import Project
 console = get_console()
 
 
+def make_tunnel_name(container_name: str) -> str:
+    """Derive a VS Code tunnel name from a container name (max 20 chars).
+
+    VS Code tunnel names have a 20 character limit. We keep the dev name
+    suffix and shorten the project portion if needed.
+
+    Container names are like dev-ideonate-devs-sally.
+    """
+    name = container_name.replace(".", "-").replace("_", "-")
+    if len(name) <= 20:
+        return name
+    # Keep the last segment (dev name) and truncate the rest
+    parts = name.rsplit("-", 1)
+    if len(parts) == 2:
+        suffix = f"-{parts[1]}"
+        budget = 20 - len(suffix)
+        if budget >= 3:
+            return parts[0][:budget].rstrip("-") + suffix
+    return name[:20]
+
+
+def get_container_workspace_dir(container_name: str) -> str:
+    """Derive the workspace path inside a container from its name.
+
+    Container name 'dev-ideonate-devs-bob' -> '/workspaces/ideonate-devs-bob'.
+    """
+    if container_name.startswith("dev-"):
+        workspace_name = container_name[4:]
+    else:
+        workspace_name = container_name
+    return f"/workspaces/{workspace_name}"
+
+
+def kill_tunnel_processes(container_name: str) -> None:
+    """Kill all tunnel processes in a container.
+
+    Uses both 'code tunnel kill' (service-level) and pkill (process-level)
+    to ensure detached shell wrappers and tunnel processes are fully terminated.
+    """
+    subprocess.run(
+        ['docker', 'exec', container_name, '/usr/local/bin/code', 'tunnel', 'kill'],
+        capture_output=True
+    )
+    subprocess.run(
+        ['docker', 'exec', container_name, 'pkill', '-f', 'code tunnel'],
+        capture_output=True
+    )
+
+
 class ContainerInfo:
     """Information about a devcontainer."""
     
@@ -852,27 +901,11 @@ class ContainerManager:
         )
 
     def _get_tunnel_name(self, dev_name: str) -> str:
-        """Generate a VS Code tunnel name, truncated to 20 chars.
-
-        VS Code tunnel names have a 20 character limit. We keep the dev name
-        suffix and shorten the project portion if needed.
-        """
-        project_prefix = self.config.project_prefix if self.config else "dev"
-        tunnel_name = f"{project_prefix}-{self.project.info.name}-{dev_name}"
-        # Sanitize: tunnel names can only contain alphanumeric, dash, underscore
-        tunnel_name = tunnel_name.replace(".", "-").replace("_", "-")
-
-        if len(tunnel_name) > 20:
-            suffix = f"-{dev_name}"
-            prefix_budget = 20 - len(suffix)
-            if prefix_budget >= 3:
-                project_part = f"{project_prefix}-{self.project.info.name}"
-                project_part = project_part[:prefix_budget].rstrip("-")
-                tunnel_name = f"{project_part}{suffix}"
-            else:
-                tunnel_name = tunnel_name[:20]
-
-        return tunnel_name
+        """Generate a VS Code tunnel name for this project/dev combo."""
+        container_name = self.project.get_container_name(
+            dev_name, self.config.project_prefix if self.config else "dev"
+        )
+        return make_tunnel_name(container_name)
 
     def _run_tunnel_auth(self, container_name: str, debug: bool = False) -> bool:
         """Run interactive VS Code tunnel authentication in a container.
@@ -909,27 +942,15 @@ class ContainerManager:
             return False
 
     def _kill_tunnel_processes(self, container_name: str) -> None:
-        """Kill all tunnel processes in the container.
+        """Kill all tunnel processes in the container."""
+        kill_tunnel_processes(container_name)
 
-        Uses pkill to ensure detached shell wrappers and tunnel processes
-        are fully terminated, not just the service-level shutdown that
-        'code tunnel kill' provides.
-        """
-        subprocess.run(
-            ['docker', 'exec', container_name, '/usr/local/bin/code', 'tunnel', 'kill'],
-            capture_output=True
-        )
-        subprocess.run(
-            ['docker', 'exec', container_name, 'pkill', '-f', 'code tunnel'],
-            capture_output=True
-        )
-
-    def _start_and_poll_tunnel(self, container_name: str, dev_name: str, tunnel_cmd: str,
-                               log_file: str, vscode_cmd: str, web_url: str, debug: bool = False) -> bool:
+    def _start_and_poll_tunnel(self, container_name: str, tunnel_cmd: str,
+                               log_file: str, debug: bool = False) -> dict:
         """Start a detached tunnel and poll the log for startup confirmation.
 
         Returns:
-            True if tunnel started (or timed out), False if auth is needed.
+            Dict with 'status' key: 'running', 'auth_required', or 'starting'.
         """
         # Kill any stale tunnel processes and clear the log before starting
         self._kill_tunnel_processes(container_name)
@@ -945,7 +966,6 @@ class ContainerManager:
             check=True
         )
 
-        console.print("[dim]Waiting for tunnel to start...[/dim]")
         for i in range(15):
             time.sleep(1)
             result = subprocess.run(
@@ -955,19 +975,11 @@ class ContainerManager:
             output = result.stdout
 
             if 'Open this link' in output or 'vscode.dev/tunnel' in output:
-                console.print(f"[bold green]Tunnel running![/bold green]")
-                console.print("")
-                console.print("[bold]Connect:[/bold]")
-                console.print(f"   Desktop:  {vscode_cmd}")
-                console.print(f"   Browser:  {web_url}")
-                console.print("")
-                console.print(f"[dim]Use 'devs tunnel {dev_name} --status' to check status[/dim]")
-                console.print(f"[dim]Use 'devs tunnel {dev_name} --kill' to stop[/dim]")
-                return True
+                return {'status': 'running'}
 
             if 'log in' in output.lower() or 'device' in output.lower() or 'invalid' in output.lower():
                 self._kill_tunnel_processes(container_name)
-                return False
+                return {'status': 'auth_required'}
 
             if debug and output.strip():
                 console.print(f"[dim]Log ({i+1}s): {output.strip()[-100:]}[/dim]")
@@ -977,16 +989,30 @@ class ContainerManager:
             ['docker', 'exec', container_name, 'cat', log_file],
             capture_output=True, text=True
         )
-        if result.stdout.strip():
-            console.print("[yellow]Tunnel may still be starting. Log output:[/yellow]")
-            console.print(result.stdout.strip())
-        else:
-            console.print("[yellow]Tunnel started but no output yet. Check status with:[/yellow]")
-        console.print(f"   devs tunnel {dev_name} --status")
-        return True
+        return {'status': 'starting', 'log': result.stdout.strip()}
+
+    def get_tunnel_info(self, dev_name: str, workspace_dir: Path, debug: bool = False,
+                        live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> dict:
+        """Get tunnel connection info (names, paths) without starting anything.
+
+        Returns:
+            Dict with container_name, tunnel_name, container_workspace_dir,
+            vscode_cmd, web_url.
+        """
+        container_name, container_workspace_dir = self._prepare_container_exec(
+            dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
+        )
+        tunnel_name = self._get_tunnel_name(dev_name)
+        return {
+            'container_name': container_name,
+            'tunnel_name': tunnel_name,
+            'container_workspace_dir': container_workspace_dir,
+            'vscode_cmd': f"code --remote tunnel+{tunnel_name} {container_workspace_dir}",
+            'web_url': f"https://vscode.dev/tunnel/{tunnel_name}{container_workspace_dir}",
+        }
 
     def tunnel_auth(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> None:
-        """Authenticate VS Code tunnel (interactive, per-container setup).
+        """Authenticate VS Code tunnel (interactive CLI, per-container setup).
 
         Args:
             dev_name: Development environment name
@@ -999,26 +1025,22 @@ class ContainerManager:
             ContainerError: If authentication fails
         """
         try:
-            container_name, container_workspace_dir = self._prepare_container_exec(
-                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
-            )
-
-            tunnel_name = self._get_tunnel_name(dev_name)
+            info = self.get_tunnel_info(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
 
             console.print("🔐 Setting up VS Code tunnel authentication...")
-            console.print(f"   Container: {container_name}")
+            console.print(f"   Container: {info['container_name']}")
             console.print("")
 
-            if self._run_tunnel_auth(container_name, debug=debug):
+            if self._run_tunnel_auth(info['container_name'], debug=debug):
                 console.print("")
                 console.print(f"   Start a tunnel:  devs tunnel {dev_name}")
-                console.print(f"   Then connect:    code --remote tunnel+{tunnel_name} {container_workspace_dir}")
+                console.print(f"   Then connect:    {info['vscode_cmd']}")
 
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to authenticate tunnel in {dev_name}: {e}")
 
     def start_tunnel(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> None:
-        """Start a VS Code tunnel in the background.
+        """Start a VS Code tunnel in the background (CLI version with interactive auth).
 
         If authentication is needed, prompts interactively then retries.
 
@@ -1033,73 +1055,95 @@ class ContainerManager:
             ContainerError: If tunnel startup fails
         """
         try:
-            container_name, container_workspace_dir = self._prepare_container_exec(
-                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
-            )
-
-            tunnel_name = self._get_tunnel_name(dev_name)
+            info = self.get_tunnel_info(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
+            container_name = info['container_name']
+            tunnel_name = info['tunnel_name']
             log_file = '/tmp/vscode-tunnel.log'
             tunnel_cmd = f'/usr/local/bin/code tunnel --accept-server-license-terms --name {tunnel_name}'
-            vscode_cmd = f"code --remote tunnel+{tunnel_name} {container_workspace_dir}"
-            web_url = f"https://vscode.dev/tunnel/{tunnel_name}{container_workspace_dir}"
 
             console.print(f"[bold cyan]Starting VS Code tunnel for: {dev_name}[/bold cyan]")
             console.print(f"   Container: {container_name}")
             console.print(f"   Tunnel name: {tunnel_name}")
             console.print("")
 
-            if not self._start_and_poll_tunnel(container_name, dev_name, tunnel_cmd,
-                                               log_file, vscode_cmd, web_url, debug=debug):
-                # Auth needed
+            result = self._start_and_poll_tunnel(container_name, tunnel_cmd, log_file, debug=debug)
+
+            if result['status'] == 'running':
+                console.print(f"[bold green]Tunnel running![/bold green]")
+                console.print("")
+                console.print("[bold]Connect:[/bold]")
+                console.print(f"   Desktop:  {info['vscode_cmd']}")
+                console.print(f"   Browser:  {info['web_url']}")
+                console.print("")
+                console.print(f"[dim]Use 'devs tunnel {dev_name} --status' to check status[/dim]")
+                console.print(f"[dim]Use 'devs tunnel {dev_name} --kill' to stop[/dim]")
+            elif result['status'] == 'auth_required':
                 console.print("[yellow]Authentication required. Starting login...[/yellow]")
                 console.print("")
                 if not self._run_tunnel_auth(container_name, debug=debug):
                     return
-
                 console.print("")
                 console.print("[dim]Restarting tunnel...[/dim]")
                 console.print("")
-                self._start_and_poll_tunnel(container_name, dev_name, tunnel_cmd,
-                                            log_file, vscode_cmd, web_url, debug=debug)
+                retry = self._start_and_poll_tunnel(container_name, tunnel_cmd, log_file, debug=debug)
+                if retry['status'] == 'running':
+                    console.print(f"[bold green]Tunnel running![/bold green]")
+                    console.print("")
+                    console.print("[bold]Connect:[/bold]")
+                    console.print(f"   Desktop:  {info['vscode_cmd']}")
+                    console.print(f"   Browser:  {info['web_url']}")
+                    console.print("")
+                    console.print(f"[dim]Use 'devs tunnel {dev_name} --status' to check status[/dim]")
+                    console.print(f"[dim]Use 'devs tunnel {dev_name} --kill' to stop[/dim]")
+                else:
+                    log = retry.get('log', '')
+                    if log:
+                        console.print("[yellow]Tunnel may still be starting. Log output:[/yellow]")
+                        console.print(log)
+                    console.print(f"   devs tunnel {dev_name} --status")
+            else:
+                log = result.get('log', '')
+                if log:
+                    console.print("[yellow]Tunnel may still be starting. Log output:[/yellow]")
+                    console.print(log)
+                else:
+                    console.print("[yellow]Tunnel started but no output yet. Check status with:[/yellow]")
+                console.print(f"   devs tunnel {dev_name} --status")
 
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to start tunnel in {dev_name}: {e}")
 
     def get_tunnel_status(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str]:
-        """Get VS Code tunnel status in the container.
-
-        Args:
-            dev_name: Development environment name
-            workspace_dir: Workspace directory path
-            debug: Show debug output for devcontainer operations
-            live: Whether the container is in live mode
-            extra_env: Additional environment variables to pass to container
+        """Get VS Code tunnel status, formatted for CLI display.
 
         Returns:
-            Tuple of (is_running, status_message)
+            Tuple of (is_running, formatted_status_message)
+        """
+        data = self.get_tunnel_status_data(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
+        return data.get('running', False), self._format_tunnel_status(data)
+
+    def get_tunnel_status_data(self, dev_name: str, workspace_dir: Path, debug: bool = False,
+                               live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> dict:
+        """Get VS Code tunnel status as structured data.
+
+        Returns:
+            Dict with running, tunnel_name, web_url, vscode_cmd, raw_status, auth_info.
 
         Raises:
             ContainerError: If status check fails
         """
         try:
-            # Prepare container for execution
-            container_name, container_workspace_dir = self._prepare_container_exec(
-                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
-            )
+            info = self.get_tunnel_info(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
+            container_name = info['container_name']
 
-            # Check tunnel status
-            cmd = [
-                'docker', 'exec',
-                container_name,
-                '/usr/local/bin/code', 'tunnel', 'status'
-            ]
-
+            cmd = ['docker', 'exec', container_name,
+                   '/usr/local/bin/code', 'tunnel', 'status']
             if debug:
                 console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
 
             result = subprocess.run(cmd, capture_output=True, text=True)
 
-            # Get auth info (logged in user/provider)
+            # Get auth info
             user_result = subprocess.run(
                 ['docker', 'exec', container_name,
                  '/usr/local/bin/code', 'tunnel', 'user', 'show'],
@@ -1107,29 +1151,42 @@ class ContainerManager:
             )
             auth_info = user_result.stdout.strip() if user_result.returncode == 0 else None
 
+            import json
+            raw_status = {}
             if result.returncode == 0:
-                raw = result.stdout.strip()
-                return True, self._format_tunnel_status(raw, dev_name, auth_info)
-            else:
-                return False, result.stderr.strip() if result.stderr else "No tunnel running"
+                try:
+                    raw_status = json.loads(result.stdout.strip())
+                except json.JSONDecodeError:
+                    pass
+
+            tunnel_data = raw_status.get('tunnel') or {}
+            is_running = result.returncode == 0 and tunnel_data.get('tunnel') == 'Connected'
+
+            return {
+                'running': is_running,
+                'tunnel_name': info['tunnel_name'],
+                'web_url': info['web_url'] if is_running else None,
+                'vscode_cmd': info['vscode_cmd'] if is_running else None,
+                'auth_info': auth_info,
+                'raw_status': raw_status,
+                'container_name': container_name,
+            }
 
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to get tunnel status in {dev_name}: {e}")
 
-    def _format_tunnel_status(self, raw_json: str, dev_name: str, auth_info: Optional[str] = None) -> str:
-        """Format tunnel status JSON into human-readable output."""
-        import json
-        try:
-            data = json.loads(raw_json)
-        except json.JSONDecodeError:
-            return raw_json
+    def _format_tunnel_status(self, data: dict) -> str:
+        """Format tunnel status data into human-readable CLI output."""
+        raw_status = data.get('raw_status', {})
+        tunnel = raw_status.get('tunnel')
+        auth_info = data.get('auth_info')
 
-        tunnel = data.get("tunnel")
         if not tunnel:
             lines = ["[dim]● No tunnel running[/dim]"]
             if auth_info:
                 lines.append(f"   Auth: {auth_info}")
             return "\n".join(lines)
+
         name = tunnel.get("name") or "unknown"
         state = tunnel.get("tunnel", "Unknown")
         started_at = tunnel.get("started_at")
@@ -1139,7 +1196,6 @@ class ContainerManager:
 
         lines = []
 
-        # Status line with color
         if state == "Connected":
             lines.append(f"[bold green]● Connected[/bold green]  ({name})")
         elif state == "Disconnected":
@@ -1147,7 +1203,6 @@ class ContainerManager:
         else:
             lines.append(f"[bold yellow]● {state}[/bold yellow]  ({name})")
 
-        # Timestamps
         if started_at:
             lines.append(f"   Started:      {self._format_timestamp(started_at)}")
         if connected_at:
@@ -1159,13 +1214,11 @@ class ContainerManager:
         if auth_info:
             lines.append(f"   Auth:         {auth_info}")
 
-        # Connection info when connected
-        if state == "Connected":
-            tunnel_name = self._get_tunnel_name(dev_name)
+        if state == "Connected" and data.get('vscode_cmd'):
             lines.append("")
             lines.append("[bold]Connect:[/bold]")
-            lines.append(f"   Desktop:  code --remote tunnel+{tunnel_name}")
-            lines.append(f"   Browser:  https://vscode.dev/tunnel/{tunnel_name}")
+            lines.append(f"   Desktop:  {data['vscode_cmd']}")
+            lines.append(f"   Browser:  {data['web_url']}")
 
         return "\n".join(lines)
 
@@ -1174,7 +1227,6 @@ class ContainerManager:
         """Format an ISO timestamp into a friendly local time string."""
         from datetime import datetime
         try:
-            # Handle nanosecond precision by truncating to microseconds
             if "." in ts:
                 base, frac = ts.split(".")
                 frac = frac.rstrip("Z")[:6]
@@ -1188,13 +1240,6 @@ class ContainerManager:
     def kill_tunnel(self, dev_name: str, workspace_dir: Path, debug: bool = False, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> bool:
         """Kill a running VS Code tunnel in the container.
 
-        Args:
-            dev_name: Development environment name
-            workspace_dir: Workspace directory path
-            debug: Show debug output for devcontainer operations
-            live: Whether the container is in live mode
-            extra_env: Additional environment variables to pass to container
-
         Returns:
             True if tunnel was killed successfully
 
@@ -1202,12 +1247,9 @@ class ContainerManager:
             ContainerError: If tunnel kill fails
         """
         try:
-            # Prepare container for execution
-            container_name, container_workspace_dir = self._prepare_container_exec(
-                dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env, reuse_existing=True
-            )
+            info = self.get_tunnel_info(dev_name, workspace_dir, debug=debug, live=live, extra_env=extra_env)
+            container_name = info['container_name']
 
-            # Kill the tunnel (both service-level and process-level)
             if debug:
                 console.print(f"[dim]Killing tunnel processes in {container_name}[/dim]")
 
