@@ -94,7 +94,7 @@ async def list_containers(repo: Optional[str] = None) -> dict:
 async def start_container(request: StartRequest) -> dict:
     """Start a named devcontainer for a repo."""
     try:
-        project = await asyncio.to_thread(_get_repo_project, request.project_name)
+        project = await asyncio.to_thread(_get_repo_project, request.repo)
         container_manager = ContainerManager(project, config)
         workspace_manager = WorkspaceManager(project, config)
 
@@ -115,7 +115,7 @@ async def start_container(request: StartRequest) -> dict:
         if success:
             return {
                 "status": "started",
-                "repo": request.project_name,
+                "repo": request.repo,
                 "dev_name": request.dev_name,
             }
         else:
@@ -123,6 +123,11 @@ async def start_container(request: StartRequest) -> dict:
 
     except DevsError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error starting container", repo=request.repo, dev_name=request.dev_name)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def _stop_by_name(container_name: str, remove: bool) -> bool:
