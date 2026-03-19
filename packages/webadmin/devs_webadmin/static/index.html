@@ -426,11 +426,6 @@
                                 <span v-if="actionInProgress['tunnel-'+c.name]" class="spinner"></span>
                                 Start tunnel
                             </button>
-                            <button class="btn btn-outline btn-sm"
-                                    @click="tunnelAuth(c)"
-                                    :disabled="actionInProgress['tunnel-'+c.name]">
-                                Auth
-                            </button>
                         </template>
                     </div>
                 </div>
@@ -662,7 +657,9 @@ createApp({
                     };
                     showToast(`Tunnel running for ${c.dev_name}`);
                 } else if (data.status === 'auth_required') {
-                    showToast('Tunnel needs authentication - click Auth first', 'error');
+                    // Auto-trigger auth flow, then retry tunnel start
+                    tunnelAuth(c, { autoStartAfter: true });
+                    return;
                 } else {
                     showToast('Tunnel may still be starting, check status', 'error');
                 }
@@ -693,7 +690,7 @@ createApp({
             }
         }
 
-        async function tunnelAuth(c) {
+        async function tunnelAuth(c, opts = {}) {
             const key = 'tunnel-' + c.name;
             actionInProgress[key] = true;
             authModal.value = { status: 'starting', containerName: c.name };
@@ -712,8 +709,11 @@ createApp({
                 authModal.value = { ...data, containerName: c.name };
 
                 if (data.status === 'waiting_for_browser') {
-                    // Poll for completion
-                    startAuthPoll(c.name);
+                    // Poll for completion, auto-start tunnel after if requested
+                    startAuthPoll(c, opts.autoStartAfter);
+                } else if (data.status === 'already_authenticated' && opts.autoStartAfter) {
+                    authModal.value = null;
+                    tunnelStart(c);
                 }
             } catch (e) {
                 authModal.value = { status: 'error', message: e.message };
@@ -722,7 +722,8 @@ createApp({
             }
         }
 
-        function startAuthPoll(containerName) {
+        function startAuthPoll(c, autoStartAfter) {
+            const containerName = c.name;
             if (authPollTimer) clearInterval(authPollTimer);
             authPollTimer = setInterval(async () => {
                 try {
@@ -733,9 +734,15 @@ createApp({
                     const data = await res.json();
 
                     if (data.status === 'authenticated') {
-                        authModal.value = { status: 'authenticated', containerName };
                         stopAuthPoll();
-                        showToast('Tunnel authenticated!');
+                        if (autoStartAfter) {
+                            authModal.value = null;
+                            showToast('Authenticated! Starting tunnel...');
+                            tunnelStart(c);
+                        } else {
+                            authModal.value = { status: 'authenticated', containerName };
+                            showToast('Tunnel authenticated!');
+                        }
                     } else if (data.status === 'failed' || data.status === 'no_pending_auth') {
                         if (authModal.value?.status === 'waiting_for_browser') {
                             authModal.value = {
@@ -799,7 +806,7 @@ createApp({
             tunnelState, authModal, copied,
             loadContainers, startContainer,
             restartContainer, stopContainer, cleanContainer,
-            tunnelStart, tunnelKill, tunnelAuth,
+            tunnelStart, tunnelKill,
             copyVscodeCommand, getVscodeCommand,
             closeAuthModal, formatDate,
         };
