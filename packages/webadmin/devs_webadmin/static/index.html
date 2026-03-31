@@ -676,19 +676,35 @@ createApp({
                 }
                 const data = await res.json();
 
-                if (data.status === 'running') {
-                    tunnelState[c.name] = {
-                        running: true,
-                        web_url: data.web_url,
-                        tunnel_name: data.tunnel_name,
-                    };
-                    showToast(`Tunnel running for ${c.dev_name}`);
-                } else if (data.status === 'auth_required') {
+                if (data.status === 'auth_required') {
                     // Auto-trigger auth flow, then retry tunnel start
                     tunnelAuth(c, { autoStartAfter: true });
                     return;
-                } else {
-                    showToast('Tunnel may still be starting, check status', 'error');
+                }
+
+                // 'starting' (or legacy 'running') — poll status until connected
+                showToast(`Starting tunnel for ${c.dev_name}…`);
+                const deadline = Date.now() + 30000;
+                let connected = false;
+                while (Date.now() < deadline) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    const params = new URLSearchParams({ project_name: c.project_name, dev_name: c.dev_name });
+                    const sr = await fetch(`/api/tunnel/status?${params}`);
+                    if (!sr.ok) continue;
+                    const sd = await sr.json();
+                    if (sd.running) {
+                        tunnelState[c.name] = {
+                            running: true,
+                            web_url: sd.web_url,
+                            tunnel_name: sd.tunnel_name,
+                        };
+                        showToast(`Tunnel running for ${c.dev_name}`);
+                        connected = true;
+                        break;
+                    }
+                }
+                if (!connected) {
+                    showToast('Tunnel is taking a while — check status manually', 'error');
                 }
             } catch (e) {
                 showToast(e.message, 'error');

@@ -283,7 +283,11 @@ async def tunnel_status(project_name: str, dev_name: str) -> dict:
 
 @router.post("/tunnel/start")
 async def tunnel_start(request: TunnelRequest) -> dict:
-    """Start a VS Code tunnel in a container (background)."""
+    """Start a VS Code tunnel in a container (background).
+
+    Returns immediately with {"status": "starting"}.  The caller should poll
+    GET /api/tunnel/status until running==true.
+    """
     info = _tunnel_info(request.project_name, request.dev_name)
     container_name = info["container_name"]
     tunnel_name = info["tunnel_name"]
@@ -299,48 +303,23 @@ async def tunnel_start(request: TunnelRequest) -> dict:
         )
         time.sleep(1)
 
-        # Start tunnel in background
+        # Check for auth_required before launching (fast check via existing log)
+        result = subprocess.run(
+            ["docker", "exec", container_name, "cat", log_file],
+            capture_output=True, text=True,
+        )
+        output = result.stdout
+        if "log in" in output.lower() or "device" in output.lower() or "invalid" in output.lower():
+            return {"status": "auth_required", "tunnel_name": tunnel_name}
+
+        # Launch tunnel in background and return immediately
         subprocess.run(
             ["docker", "exec", "-d", container_name,
              "/bin/sh", "-c", f"{tunnel_cmd} > {log_file} 2>&1"],
             check=True,
         )
 
-        # Poll for startup (up to 15s)
-        for _ in range(15):
-            time.sleep(1)
-            result = subprocess.run(
-                ["docker", "exec", container_name, "cat", log_file],
-                capture_output=True, text=True,
-            )
-            output = result.stdout
-
-            if "Open this link" in output or "vscode.dev/tunnel" in output:
-                # Parse the actual tunnel URL from the log output
-                actual_tunnel_name = info["tunnel_name"]
-                url_match = re.search(r'https://vscode\.dev/tunnel/([^/\s]+)', output)
-                if url_match:
-                    actual_tunnel_name = url_match.group(1)
-
-                workspace_dir = info["workspace_dir"]
-                web_url = f"https://vscode.dev/tunnel/{actual_tunnel_name}{workspace_dir}"
-                vscode_cmd = f"code --remote tunnel+{actual_tunnel_name} {workspace_dir}"
-                return {
-                    "status": "running",
-                    "tunnel_name": actual_tunnel_name,
-                    "web_url": web_url,
-                    "vscode_cmd": vscode_cmd,
-                }
-
-            if "log in" in output.lower() or "device" in output.lower() or "invalid" in output.lower():
-                kill_tunnel_processes(container_name)
-                return {"status": "auth_required", "tunnel_name": info["tunnel_name"]}
-
-        return {
-            "status": "starting",
-            "tunnel_name": info["tunnel_name"],
-            "message": "Tunnel may still be starting, check status",
-        }
+        return {"status": "starting", "tunnel_name": tunnel_name}
 
     try:
         return await asyncio.to_thread(_start)
