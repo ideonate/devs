@@ -176,15 +176,11 @@ class ContainerManager:
             "devs.project": self.project.info.name,
             "devs.dev": dev_name,
         }
-        
+
         # Add live mode label if applicable
         if live:
             labels["devs.live"] = "true"
-        
-        # Add config labels if available
-        if self.config:
-            labels.update(self.config.container_labels)
-        
+
         return labels
     
     def should_rebuild_image(self, dev_name: str, project_labels: dict) -> Tuple[bool, str]:
