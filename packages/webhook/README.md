@@ -50,7 +50,6 @@ export AUTHORIZED_TRIGGER_USERS="danlester,admin"  # Users who can trigger proce
 # Optional settings (with defaults)
 export CONTAINER_POOL="eamonn,harry,darren"
 export CONTAINER_TIMEOUT_MINUTES="30"
-export MAX_CONCURRENT_TASKS="3"
 export WEBHOOK_HOST="0.0.0.0"
 export WEBHOOK_PORT="8000"
 ```
@@ -389,7 +388,6 @@ The webhook handler automatically detects and uses these settings when processin
 | `AUTHORIZED_TRIGGER_USERS`  | (empty - allows all)         | Comma-separated list of users who can trigger events |
 | `CONTAINER_POOL`            | `eamonn,harry,darren`        | Container names                          |
 | `CONTAINER_TIMEOUT_MINUTES` | `30`                         | Container timeout                        |
-| `MAX_CONCURRENT_TASKS`      | `3`                          | Max parallel tasks                       |
 | `REPO_CACHE_DIR`            | `~/.devs-webhook/repos`      | Repository cache                         |
 | `WORKSPACE_DIR`             | `~/.devs-webhook/workspaces` | Container workspaces                     |
 | `WEBHOOK_HOST`              | `0.0.0.0`                    | Server host                              |
