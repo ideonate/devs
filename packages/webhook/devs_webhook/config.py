@@ -277,18 +277,16 @@ class WebhookConfig(BaseSettings, BaseConfig):
             missing.append("github_webhook_secret (GITHUB_WEBHOOK_SECRET) - required for signature verification")
 
         # Task source specific validations
-        if self.task_source == "webhook":
-            # Require admin password in production mode
-            if not self.dev_mode and not self.admin_password:
-                missing.append("admin_password (ADMIN_PASSWORD) - required in production mode")
-
-        elif self.task_source == "sqs":
+        if self.task_source == "sqs":
             # SQS source requires queue URL
             if not self.aws_sqs_queue_url:
                 missing.append("aws_sqs_queue_url (AWS_SQS_QUEUE_URL) - required for SQS source")
 
-        else:
+        elif self.task_source != "webhook":
             missing.append(f"task_source must be 'webhook' or 'sqs', got '{self.task_source}'")
+        # admin_password is only enforced when actually starting the FastAPI server
+        # (see main_cli.serve). It's not required for SQS-source operation or for
+        # read-only commands like `devs-webhook config`.
 
         # Raise error if any required settings are missing
         if missing:

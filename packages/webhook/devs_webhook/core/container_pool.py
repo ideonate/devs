@@ -369,6 +369,16 @@ class ContainerPool:
             # Determine which container to use
             best_container = None
 
+            # Load score = queued tasks + 1 if a task is currently running on the
+            # container. Without the running-task term, qsize() reads 0 for a
+            # busy-but-not-backlogged container (the worker pulls off the queue
+            # immediately) and the first item in target_pool wins every tie,
+            # pinning all traffic to one devname.
+            def _load(dev_name: str) -> int:
+                queued = self.container_queues[dev_name].qsize()
+                running = 1 if dev_name in self.running_containers else 0
+                return queued + running
+
             if single_queue_required:
                 # Use the previously assigned container for this single-queue repo
                 if repo_name in self.single_queue_assignments:
@@ -389,12 +399,7 @@ class ContainerPool:
 
                 if best_container is None:
                     # First time for this single-queue repo or need reassignment
-                    min_queue_size = float('inf')
-                    for dev_name in target_pool:
-                        queue_size = self.container_queues[dev_name].qsize()
-                        if queue_size < min_queue_size:
-                            min_queue_size = queue_size
-                            best_container = dev_name
+                    best_container = min(target_pool, key=_load)
 
                     if best_container:
                         self.single_queue_assignments[repo_name] = best_container
@@ -403,13 +408,8 @@ class ContainerPool:
                                    container=best_container,
                                    task_type=task_type)
             else:
-                # Normal load balancing - find container with shortest queue in target pool
-                min_queue_size = float('inf')
-                for dev_name in target_pool:
-                    queue_size = self.container_queues[dev_name].qsize()
-                    if queue_size < min_queue_size:
-                        min_queue_size = queue_size
-                        best_container = dev_name
+                # Normal load balancing - lowest queued+running count in target pool
+                best_container = min(target_pool, key=_load) if target_pool else None
 
             if best_container is None:
                 logger.error("No containers available for task queuing",

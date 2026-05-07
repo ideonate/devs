@@ -124,6 +124,15 @@ def serve(host: str, port: int, reload: bool, env_file: Path, dev: bool, source:
 
     # Start the appropriate task source
     if config.task_source == "webhook":
+        # admin_password is required only when actually serving the FastAPI app
+        # (the admin endpoints use BasicAuth). SQS-source operation doesn't need it.
+        if not config.dev_mode and not config.admin_password:
+            click.echo(
+                "❌ ADMIN_PASSWORD is required when serving the webhook FastAPI app "
+                "in production mode (set ADMIN_PASSWORD or enable DEV_MODE=true)."
+            )
+            exit(1)
+
         # Override config with CLI options
         actual_host = host or config.webhook_host
         actual_port = port or config.webhook_port
