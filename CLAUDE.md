@@ -417,7 +417,6 @@ devs start eamonn --env DEBUG=false --env NEW_VAR=test
 - `CONTAINER_TIMEOUT_MINUTES`: Idle timeout for containers in minutes (default: 60). Only applies when `STOP_CONTAINER_AFTER_TASK` is false.
 - `CONTAINER_MAX_AGE_HOURS`: Maximum container age in hours - containers older than this are cleaned up when idle (default: 10). Only applies when `STOP_CONTAINER_AFTER_TASK` is false.
 - `CLEANUP_CHECK_INTERVAL_SECONDS`: How often to check for idle/old containers (default: 60). Only applies when `STOP_CONTAINER_AFTER_TASK` is false.
-- `MAX_CONCURRENT_TASKS`: Maximum parallel tasks (default: 3)
 
 **Access Control**:
 - `ALLOWED_ORGS`: Comma-separated GitHub organizations

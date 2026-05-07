@@ -90,8 +90,6 @@ class WebhookConfig(BaseSettings, BaseConfig):
                     "This ensures only one running container per dev name at any time, "
                     "reducing RAM usage when multiple repos are in play."
     )
-    max_concurrent_tasks: int = Field(default=3, description="Maximum concurrent tasks")
-    
     # Repository settings
     repo_cache_dir: Path = Field(
         default_factory=lambda: Path.home() / ".devs" / "repocache",
