@@ -176,8 +176,25 @@ class ClaudeDispatcher(BaseDispatcher):
                 logger.info("Created new workspace",
                            container=dev_name,
                            workspace_dir=str(workspace_dir))
-            
-            # 3. Build Claude prompt
+
+            # 3. Ensure container is running with environment variables from DEVS.yml.
+            # check_rebuild defaults to True so the image is rebuilt when devcontainer
+            # files change. Safe here because the per-devname queue is serial — a rebuild
+            # only happens between tasks, never mid-task.
+            extra_env = None
+            if devs_options:
+                extra_env = devs_options.get_env_vars(dev_name)
+
+            if not container_manager.ensure_container_running(
+                dev_name=dev_name,
+                workspace_dir=workspace_dir,
+                force_rebuild=False,
+                debug=self.config.dev_mode,
+                extra_env=extra_env,
+            ):
+                return False, "", f"Failed to start container for {dev_name}", 1
+
+            # 4. Build Claude prompt
             workspace_name = project.get_workspace_name(dev_name)
             workspace_path = f"/workspaces/{workspace_name}"
             repo_name = event.repository.full_name
@@ -277,13 +294,9 @@ Always remember to PUSH your work to origin!
                        prompt_length=len(prompt),
                        event_type="PR" if is_pr else "Issue")
             
-            # 4. Execute Claude (like CLI pattern) with environment variables from DEVS.yml
+            # 5. Execute Claude (like CLI pattern) with environment variables from DEVS.yml
             logger.info("Executing Claude via ContainerManager (like CLI)",
                        container=dev_name)
-
-            extra_env = None
-            if devs_options:
-                extra_env = devs_options.get_env_vars(dev_name)
 
             # Start container logging if enabled
             if container_log:
