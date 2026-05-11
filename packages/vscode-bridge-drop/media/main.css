@@ -1,0 +1,200 @@
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    padding: 8px;
+    margin: 0;
+}
+
+#dropzone {
+    border: 2px dashed var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 6px;
+    padding: 22px 12px;
+    text-align: center;
+    color: var(--vscode-descriptionForeground);
+    transition: background-color 80ms ease-in, border-color 80ms ease-in;
+    user-select: none;
+}
+
+#dropzone.active {
+    background-color: var(--vscode-list-dropBackground);
+    border-color: var(--vscode-focusBorder);
+    color: var(--vscode-foreground);
+}
+
+.dz-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.dz-sub {
+    font-size: 0.9em;
+    opacity: 0.85;
+}
+
+.pick-row {
+    margin-top: 10px;
+}
+
+.primary-btn {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    border-radius: 3px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 0.9em;
+    width: 100%;
+}
+
+.primary-btn:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.hint {
+    font-size: 0.8em;
+    color: var(--vscode-descriptionForeground);
+    margin-top: 4px;
+}
+
+.footer-hint {
+    margin-top: 14px;
+    padding: 8px;
+    border-left: 2px solid var(--vscode-textLink-foreground);
+    background: var(--vscode-textBlockQuote-background);
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 14px 2px 4px;
+}
+
+.header-title {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.78em;
+    letter-spacing: 0.04em;
+    opacity: 0.8;
+}
+
+.link-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    font-size: 0.85em;
+    padding: 2px 4px;
+}
+
+.link-btn:hover {
+    color: var(--vscode-textLink-activeForeground);
+    text-decoration: underline;
+}
+
+ul#entries {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.entry {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    background-color: var(--vscode-editor-background);
+}
+
+.name-wrap {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+    font-weight: 600;
+    font-size: 1em;
+    margin-bottom: 2px;
+}
+
+.name-head {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.name-tail {
+    white-space: nowrap;
+    flex: 0 0 auto;
+}
+
+.meta {
+    font-size: 0.8em;
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: 8px;
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.action-label {
+    font-size: 0.72em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--vscode-descriptionForeground);
+    flex: 0 0 70px;
+}
+
+.actions button {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: none;
+    border-radius: 3px;
+    padding: 2px 10px;
+    cursor: pointer;
+    font-size: 0.85em;
+}
+
+.actions button:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.actions .unavail {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    font-size: 0.85em;
+}
+
+.drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    user-select: none;
+    color: var(--vscode-descriptionForeground);
+    font-size: 1.1em;
+    padding: 0 2px;
+    border-radius: 3px;
+}
+
+.drag-handle:hover {
+    color: var(--vscode-foreground);
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+.actions .send {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.actions .send:hover {
+    background: var(--vscode-button-hoverBackground);
+}

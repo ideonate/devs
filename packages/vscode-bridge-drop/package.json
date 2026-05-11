@@ -1,0 +1,78 @@
+{
+  "name": "devs-bridge-drop",
+  "displayName": "Devs Bridge Drop",
+  "description": "Drop files between host and devcontainer via the shared bridge mount. Surfaces both host and container paths.",
+  "version": "0.7.0",
+  "publisher": "ideonate",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "extensionKind": ["workspace"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "devsBridge",
+          "title": "Bridge",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "devsBridge": [
+        {
+          "id": "devsBridgeDrop",
+          "name": "Bridge",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "devsBridge.clearHistory",
+        "title": "Bridge: Clear Drop History"
+      },
+      {
+        "command": "devsBridge.openBridgeDir",
+        "title": "Bridge: Reveal Bridge Directory"
+      },
+      {
+        "command": "devsBridge.copyToBridge",
+        "title": "Copy to Bridge",
+        "category": "Bridge"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "devsBridge.copyToBridge",
+          "when": "!explorerResourceIsFolder",
+          "group": "5_cutcopypaste@99"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "devsBridge.copyToBridge",
+          "group": "1_close@99"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --out devs-bridge-drop.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}

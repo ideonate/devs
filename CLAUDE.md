@@ -144,6 +144,55 @@ packages/webadmin/
 - **Configuration**: Base configuration classes for all packages
 - **Utilities**: Shared git, Docker, and file operations
 
+### VS Code Bridge Drop Extension (`packages/vscode-bridge-drop/`)
+
+A TypeScript VS Code extension that turns the existing bridge bind-mount into a UI for moving files between host and devcontainer. The only non-Python package in the monorepo.
+
+**Build / install**:
+
+```bash
+cd packages/vscode-bridge-drop
+npm install
+npm run compile
+npm run package         # produces devs-bridge-drop.vsix
+# Then inside the running devcontainer:
+code --install-extension /path/to/devs-bridge-drop.vsix --force
+```
+
+The .vsix isn't yet auto-installed via the devcontainer template — that's a deferred wiring step. To distribute, copy the .vsix into the bridge dir on the host so it appears at `/home/node/bridge/` inside the container.
+
+**What it builds on**:
+
+The devcontainer template already bind-mounts `~/.devs/bridge/<project>-<dev>/` (host) → `/home/node/bridge/` (container) — see `packages/common/devs_common/templates/devcontainer.json` (the `DEVS_BRIDGE_MOUNT_PATH` mount) and `packages/common/devs_common/utils/devcontainer.py` (where the host path is set per container). The extension reads `DEVS_BRIDGE_MOUNT_PATH` at runtime to compute the host-side path for each entry. If unset (raw devcontainer CLI launch), the host-path column shows "unavailable" and the extension still works with container paths only.
+
+Files dropped via the extension land at `/home/node/bridge/dropped/<YYYYMMDD-HHmmss>-<sanitized-name>` (collision-safe). The container path is always auto-copied to the clipboard on drop.
+
+**Why a webview rather than a TreeView**:
+
+Initial impulse was a TreeView with `TreeDragAndDropController` for drag-out into editor/terminal. We tried it (v0.6.0) and removed it (v0.7.0). Reasons:
+
+- The compact webview layout (filename + meta + Container row + Host row inline) is denser and more useful than an expand-to-see-paths TreeView with one row per entry-child.
+- The TreeView added no drag-out capability the webview didn't already have. Webview drag handles work for editor buffers; TreeView drag handles also work for editor buffers. Neither works for the integrated terminal.
+
+**Why drag-into-terminal doesn't work and isn't fixable from extension code**:
+
+VS Code marks `*as-designed` (see [microsoft/vscode#245816](https://github.com/microsoft/vscode/issues/245816)) the fact that drag data set via `TreeDragAndDropController` is only consumable by VS Code-internal components (other tree views, editor drop providers). It's deliberately *not* exposed to native DOM consumers like the terminal xterm.js canvas, browsers, or external apps. The same restriction applies to webview-originated drags (the iframe sandbox strips custom MIMEs). So:
+
+- ⠿ drag handle → VS Code editor: ✓ (uses `text/uri-list` which the editor drop provider accepts)
+- ⠿ drag handle → host-OS terminal (iTerm/Terminal.app): ✓ (OS-level drag, outside VS Code)
+- ⠿ drag handle → VS Code integrated terminal: ✗ (platform limitation, no API surface to fix)
+- ⠿ drag handle → Finder: ✗ (macOS doesn't accept text drops as "create file")
+
+The **Send** button on the Container row uses `vscode.window.activeTerminal.sendText(path, false)` — this is the supported and reliable way to get a path into the integrated terminal (including a Claude CLI session running inside it). It only appears on the container row because the extension runs in the container's extension host and `activeTerminal` is always container-side; sending a host path into a container shell would just fail.
+
+**Why no drag from VS Code explorer to the panel**:
+
+Webviews are sandboxed iframes; VS Code does not deliver native tree-view drag events to webview DOM listeners ([microsoft/vscode#139111](https://github.com/microsoft/vscode/issues/139111)). To get a container-side file into the bridge, the extension exposes a context-menu entry "Copy to Bridge" on the explorer (and on editor tabs), plus an "Add files from container…" button in the panel that opens VS Code's native multi-select file picker. Both flow through the same write logic as host-OS drops.
+
+**Distribution path forward (not yet wired)**:
+
+When the extension is stable, the build artifact should be copied to `packages/common/devs_common/templates/extensions/` and the post-create script `packages/common/devs_common/templates/scripts/setup-workspace.sh` should `code --install-extension` it on first container start, so every `devs start` includes the extension automatically. Or — eventually — publish to the marketplace and add the ID to `customizations.vscode.extensions` in `devcontainer.json`.
+
 ## Architecture
 
 ### Container Naming
