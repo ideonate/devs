@@ -280,26 +280,10 @@ else
     echo "No package.json found in root directory"
 fi
 
-# Install the devs-bridge-drop extension from the latest GitHub release.
-# Same one-liner third-party devcontainers can drop into their own
-# postAttachCommand — exercising one install path keeps it tested.
-echo "Installing devs-bridge-drop extension..."
-if ! command -v code >/dev/null 2>&1; then
-    echo "⚠️  Skipping devs-bridge-drop install: 'code' CLI not on PATH"
-else
-    tmp_vsix="/tmp/devs-bridge-drop.vsix"
-    vsix_url="https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix"
-    if curl -fsSL "$vsix_url" -o "$tmp_vsix"; then
-        if code --install-extension "$tmp_vsix" --force; then
-            echo "✓ Installed devs-bridge-drop"
-        else
-            echo "⚠️  'code --install-extension' failed for devs-bridge-drop (continuing)"
-        fi
-        rm -f "$tmp_vsix"
-    else
-        echo "⚠️  Could not download $vsix_url (continuing)"
-    fi
-fi
+# Note: devs-bridge-drop is installed by postAttachCommand (install-bridge-drop.sh)
+# rather than here, because the 'code' CLI baked into /usr/local/bin (used for
+# tunnels) doesn't write to the same extensions dir VS Code Server reads from.
+# By postAttachCommand time, VS Code Server's own 'code' shim is on PATH.
 
 echo "Workspace setup complete!"
 echo ""

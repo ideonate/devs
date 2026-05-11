@@ -159,7 +159,11 @@ The CI workflow (`.github/workflows/bump-and-publish.yml`) runs this automatical
 1. Builds & publishes the four PyPI packages.
 2. Creates a GitHub Release tagged `v<X.Y.Z>` with `devs-bridge-drop.vsix` attached as an asset.
 
-Containers install the extension by curl-fetching the latest release asset from `https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix` and running `code --install-extension --force`. Both the `devs` template's `setup-workspace.sh` and any third-party `.devcontainer/devcontainer.json` use the exact same one-liner — exercising the same install path keeps the release process tested on every container start.
+Containers install the extension by curl-fetching the latest release asset from `https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix` and running `code --install-extension --force`. The `devs` template wires this via `postAttachCommand` → `/usr/local/bin/install-bridge-drop.sh`, not `postCreateCommand` — see below.
+
+**Why `postAttachCommand` rather than `postCreateCommand`**:
+
+The `devs` Dockerfile bakes the standalone VS Code CLI into `/usr/local/bin/code` (used for `code tunnel`). That CLI is on PATH from container start, but its `--install-extension` writes to a different extensions directory than the one VS Code Server reads from after attaching. So an install at `postCreateCommand` time looks like a success but the extension never appears in the attached editor. By `postAttachCommand` time, VS Code Server is installed and its own `code` shim takes precedence on PATH — installs go into `~/.vscode-server/extensions/`, where the attached editor actually looks. Third-party repos should use `postAttachCommand` for the same reason.
 
 **Why curl-from-GitHub rather than bundle-and-mount**:
 

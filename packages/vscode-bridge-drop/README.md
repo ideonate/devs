@@ -26,11 +26,11 @@ Add one entry, in any runtime hook of your choosing:
 
 That's all. No mount, no env-var dependency, works regardless of whether `devs` started the container (or whether `devs` is installed at all).
 
-### Notes on hook choice
+### Why `postAttachCommand` specifically
 
-- **`postAttachCommand`** is the safest default — fires after VS Code Server attaches, so `code` is on PATH.
-- **`postCreateCommand`** works if your image bakes `code` into PATH (the `devs` template image does).
-- **Your own setup script** — paste the same one-liner anywhere your devcontainer already does setup.
+`postCreateCommand` runs before VS Code Server attaches. Even if your image bakes the standalone `code` CLI onto PATH (the `devs` template does, for tunnel support), that CLI installs extensions into a different location than where VS Code Server reads from on attach. Installs at `postCreateCommand` time therefore appear to succeed but the extension never shows up.
+
+`postAttachCommand` fires after VS Code Server is in place. By then `code` resolves to the Server-aware shim that installs into `~/.vscode-server/extensions/` — the location the attached VS Code actually scans. Use this hook unless you know exactly what you're doing.
 
 ### Notes
 

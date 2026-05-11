@@ -99,6 +99,7 @@
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
   "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh",
+  "postAttachCommand": "/usr/local/bin/install-bridge-drop.sh",
   "forwardPorts": [],
   "portsAttributes": {
     "3306": {
