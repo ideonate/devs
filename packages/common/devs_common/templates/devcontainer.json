@@ -79,6 +79,7 @@
     "source=${localEnv:HOME}/.devs/codexconfig,target=/home/node/codexconfig,type=bind",
     "source=${localEnv:DEVS_ENV_MOUNT_PATH},target=/home/node/.devs-env,type=bind",
     "source=${localEnv:DEVS_BRIDGE_MOUNT_PATH},target=/home/node/bridge,type=bind",
+    "source=${localEnv:DEVS_EXTENSIONS_MOUNT_PATH},target=/usr/local/devs-extensions,type=bind,readonly",
     // Remove the extensions mount to get fresh state each time
     // "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-extensions,target=/home/node/.vscode-server/extensions,type=volume",
     // .vscode-server includes extension state which we don't want to keep
@@ -95,7 +96,8 @@
     "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}",
     "DEVS_LIVE_MODE": "${localEnv:DEVS_LIVE_MODE}",
     "DEVS_ENV_MOUNT_PATH": "${localEnv:DEVS_ENV_MOUNT_PATH}",
-    "DEVS_BRIDGE_MOUNT_PATH": "${localEnv:DEVS_BRIDGE_MOUNT_PATH}"
+    "DEVS_BRIDGE_MOUNT_PATH": "${localEnv:DEVS_BRIDGE_MOUNT_PATH}",
+    "DEVS_EXTENSIONS_MOUNT_PATH": "${localEnv:DEVS_EXTENSIONS_MOUNT_PATH}"
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
   "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh",

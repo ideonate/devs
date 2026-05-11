@@ -151,15 +151,14 @@ A TypeScript VS Code extension that turns the existing bridge bind-mount into a 
 **Build / install**:
 
 ```bash
-cd packages/vscode-bridge-drop
-npm install
-npm run compile
-npm run package         # produces devs-bridge-drop.vsix
-# Then inside the running devcontainer:
-code --install-extension /path/to/devs-bridge-drop.vsix --force
+./scripts/build-extension.sh
 ```
 
-The .vsix isn't yet auto-installed via the devcontainer template — that's a deferred wiring step. To distribute, copy the .vsix into the bridge dir on the host so it appears at `/home/node/bridge/` inside the container.
+This compiles the extension, packages a `.vsix`, and stages it at `packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix`. The `.vsix` is gitignored (only the README in that dir is tracked) but is bundled into the `devs-common` wheel via `package_data`.
+
+On every `devs start`, the extensions dir is bind-mounted into the container at `/usr/local/devs-extensions` (readonly) via `DEVS_EXTENSIONS_MOUNT_PATH`, and `setup-workspace.sh` runs `code --install-extension --force` on every `.vsix` it finds there. No per-repo devcontainer.json changes — the install happens automatically through the `devs` template.
+
+`scripts/bump-and-publish.py` invokes `build-extension.sh` automatically before producing PyPI wheels, so released `devs-common` wheels always include the current `.vsix`. End users running `pip install devs-common` get the extension bundled in.
 
 **What it builds on**:
 
@@ -189,9 +188,17 @@ The **Send** button on the Container row uses `vscode.window.activeTerminal.send
 
 Webviews are sandboxed iframes; VS Code does not deliver native tree-view drag events to webview DOM listeners ([microsoft/vscode#139111](https://github.com/microsoft/vscode/issues/139111)). To get a container-side file into the bridge, the extension exposes a context-menu entry "Copy to Bridge" on the explorer (and on editor tabs), plus an "Add files from container…" button in the panel that opens VS Code's native multi-select file picker. Both flow through the same write logic as host-OS drops.
 
-**Distribution path forward (not yet wired)**:
+**Distribution wiring** (already in place — see commit history):
 
-When the extension is stable, the build artifact should be copied to `packages/common/devs_common/templates/extensions/` and the post-create script `packages/common/devs_common/templates/scripts/setup-workspace.sh` should `code --install-extension` it on first container start, so every `devs start` includes the extension automatically. Or — eventually — publish to the marketplace and add the ID to `customizations.vscode.extensions` in `devcontainer.json`.
+- `scripts/build-extension.sh` builds and stages the `.vsix` into `packages/common/devs_common/templates/extensions/`.
+- `.gitignore` excludes built `.vsix` files there; only the README is tracked.
+- `pyproject.toml` (devs-common) includes `templates/**/*` in `package_data`, so the staged `.vsix` ships in the wheel.
+- `devcontainer.py:prepare_devcontainer_environment` sets `DEVS_EXTENSIONS_MOUNT_PATH` to the extensions dir inside the installed `devs_common` package.
+- `templates/devcontainer.json` mounts that path readonly into `/usr/local/devs-extensions` and passes the env var through `remoteEnv`.
+- `templates/scripts/setup-workspace.sh` installs every `.vsix` it finds in the mounted dir.
+- `scripts/bump-and-publish.py` invokes the build script before running `python -m build` for `devs-common`, so releases are always up to date.
+
+We did **not** publish to the VS Code Marketplace. The extension depends on `DEVS_BRIDGE_MOUNT_PATH`, which only `devs` sets, so it has no value outside this workflow; bundling avoids publish-cycle latency and keeps version locked to the `devs-common` version.
 
 ## Architecture
 

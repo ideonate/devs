@@ -148,9 +148,16 @@ def main():
             print(f"  {pkg_name}: {info['current']} -> {info['new']}")
         return
 
-    # Step 3: Build and upload packages in dependency order (common first)
+    # Step 3a: Build bundled VS Code extension so its .vsix ships inside devs-common
+    print(f"\n{'='*50}")
+    print("Building bundled VS Code extension (vscode-bridge-drop)")
+    print(f"{'='*50}")
+    build_script = project_root / "scripts" / "build-extension.sh"
+    run_command([str(build_script)], cwd=project_root)
+
+    # Step 3b: Build and upload packages in dependency order (common first)
     upload_order = ["packages/common", "packages/cli", "packages/webhook", "packages/webadmin"]
-    
+
     for package_dir in upload_order:
         pkg_path = project_root / package_dir
         package_name = pkg_path.name

@@ -1,3 +1,6 @@
+# Bundled VS Code extension artifacts (built on demand via scripts/build-extension.sh)
+packages/common/devs_common/templates/extensions/*.vsix
+
 # Python
 __pycache__/
 *.py[cod]
