@@ -283,14 +283,21 @@ fi
 # Install the devs-bridge-drop extension from the latest GitHub release.
 # Same one-liner third-party devcontainers can drop into their own
 # postAttachCommand — exercising one install path keeps it tested.
-if command -v code >/dev/null 2>&1; then
+echo "Installing devs-bridge-drop extension..."
+if ! command -v code >/dev/null 2>&1; then
+    echo "⚠️  Skipping devs-bridge-drop install: 'code' CLI not on PATH"
+else
     tmp_vsix="/tmp/devs-bridge-drop.vsix"
-    if curl -fsSL "https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix" -o "$tmp_vsix" 2>/dev/null; then
-        code --install-extension "$tmp_vsix" --force || \
-            echo "⚠️  Failed to install devs-bridge-drop (continuing)"
+    vsix_url="https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix"
+    if curl -fsSL "$vsix_url" -o "$tmp_vsix"; then
+        if code --install-extension "$tmp_vsix" --force; then
+            echo "✓ Installed devs-bridge-drop"
+        else
+            echo "⚠️  'code --install-extension' failed for devs-bridge-drop (continuing)"
+        fi
         rm -f "$tmp_vsix"
     else
-        echo "⚠️  Could not download devs-bridge-drop.vsix (continuing)"
+        echo "⚠️  Could not download $vsix_url (continuing)"
     fi
 fi
 
