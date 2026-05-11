@@ -6,30 +6,45 @@ Drop a file from your host OS onto the **Bridge** panel and it lands in `/home/n
 
 See the project-root `CLAUDE.md` for design notes (why a webview rather than a TreeView, why drag-into-terminal isn't fixable, etc.).
 
-## Why
+## Auto-install when using the devs template
 
-The devcontainer has `~/.devs/bridge/<project>-<dev>/` bind-mounted to `/home/node/bridge`. This extension uses that mount as neutral ground so files can move between host and container without `docker cp` or fiddling with host-OS paths the container can't resolve.
+If your repo uses the `devs` devcontainer template (i.e. you don't have your own `.devcontainer/devcontainer.json`), there is nothing to do. The extension is bundled into the `devs-common` PyPI package, mounted into every container, and installed by the template's `setup-workspace.sh` on first start.
 
-## Install (dev)
+## Wiring it into a third-party `.devcontainer/devcontainer.json`
 
-```bash
-cd packages/vscode-bridge-drop
-npm install
-npm run compile
-npm run package   # produces devs-bridge-drop.vsix
+For repos that have their own committed devcontainer config (e.g. they diverged from the `devs` template, or never used it), add two lines:
+
+```jsonc
+{
+  // ... your existing config ...
+  "mounts": [
+    // ... your existing mounts ...
+    "source=${localEnv:DEVS_EXTENSIONS_MOUNT_PATH},target=/usr/local/devs-extensions,type=bind,readonly"
+  ],
+  "postAttachCommand": "bash /usr/local/devs-extensions/install.sh || true"
+}
 ```
 
-Inside a running devcontainer:
+That's it. The `devs` CLI exports `DEVS_EXTENSIONS_MOUNT_PATH` automatically when it invokes `devcontainer up`, so the mount resolves at runtime. The mounted `install.sh` is the same self-contained installer the `devs` template uses internally — single source of truth.
+
+### Notes
+
+- **Already have a `postAttachCommand`?** Chain it: `"postAttachCommand": "your-existing-command && bash /usr/local/devs-extensions/install.sh || true"`. Or move both into an array if you prefer.
+- **Why `postAttachCommand` and not `postCreateCommand`?** `postCreateCommand` fires before VS Code Server is installed, so the `code` CLI may not exist yet. `postAttachCommand` fires after Server is up. The installer has an `unzip`-into-`~/.vscode-server/extensions/` fallback for environments where `code` is still not on PATH, but `postAttachCommand` is the natural fit.
+- **Container started outside `devs` (raw `devcontainer` CLI)**: `DEVS_EXTENSIONS_MOUNT_PATH` won't be set, so the mount source will be empty and `devcontainer up` will error. Either start through `devs`, or omit these two lines from your config in that environment.
+- **Repos that copied from the template wholesale**: you've already got the equivalent wiring (the mount entry, plus the `setup-workspace.sh` delegation). No action needed.
+
+## Building
 
 ```bash
-code --install-extension /path/to/devs-bridge-drop.vsix
+./scripts/build-extension.sh    # from repo root
 ```
 
-Or symlink into `~/.vscode-server/extensions/` for live development.
+Stages the `.vsix` at `packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix` (gitignored). Run before publishing devs-common to PyPI; `scripts/bump-and-publish.py` does this automatically.
 
 ## Behaviour
 
 - Files are written to `/home/node/bridge/dropped/<YYYYMMDD-HHmmss>-<sanitized-name>` (collision-safe).
 - The host-side path is derived from `DEVS_BRIDGE_MOUNT_PATH`, which the `devs` CLI passes through as a `remoteEnv` var. If unset (e.g. raw devcontainer CLI), only the container path is shown.
 - Drop history is persisted in workspace state, capped at 50 entries.
-- Folder drops are not supported in v1 — files only.
+- Folder drops are not supported — files only.

@@ -280,22 +280,11 @@ else
     echo "No package.json found in root directory"
 fi
 
-# Install any bundled VS Code extensions (.vsix files mounted in by devs)
-if [ -d /usr/local/devs-extensions ]; then
-    shopt -s nullglob
-    vsix_files=(/usr/local/devs-extensions/*.vsix)
-    shopt -u nullglob
-    if [ ${#vsix_files[@]} -gt 0 ]; then
-        if command -v code >/dev/null 2>&1; then
-            for vsix in "${vsix_files[@]}"; do
-                echo "Installing bundled extension: $(basename "$vsix")"
-                code --install-extension "$vsix" --force || \
-                    echo "  ⚠️  Failed to install $(basename "$vsix") (continuing)"
-            done
-        else
-            echo "⚠️  Bundled .vsix files present but 'code' CLI not on PATH; skipping extension install"
-        fi
-    fi
+# Install bundled VS Code extensions via the self-contained installer
+# (same script third-party devcontainers can call directly — see
+# packages/vscode-bridge-drop/README.md for instructions).
+if [ -x /usr/local/devs-extensions/install.sh ]; then
+    bash /usr/local/devs-extensions/install.sh || true
 fi
 
 echo "Workspace setup complete!"

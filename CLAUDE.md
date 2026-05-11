@@ -156,7 +156,9 @@ A TypeScript VS Code extension that turns the existing bridge bind-mount into a 
 
 This compiles the extension, packages a `.vsix`, and stages it at `packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix`. The `.vsix` is gitignored (only the README in that dir is tracked) but is bundled into the `devs-common` wheel via `package_data`.
 
-On every `devs start`, the extensions dir is bind-mounted into the container at `/usr/local/devs-extensions` (readonly) via `DEVS_EXTENSIONS_MOUNT_PATH`, and `setup-workspace.sh` runs `code --install-extension --force` on every `.vsix` it finds there. No per-repo devcontainer.json changes — the install happens automatically through the `devs` template.
+On every `devs start`, the extensions dir is bind-mounted into the container at `/usr/local/devs-extensions` (readonly) via `DEVS_EXTENSIONS_MOUNT_PATH`. A self-contained installer (`templates/extensions/install.sh`) ships alongside the `.vsix`; `setup-workspace.sh` invokes it. The installer tries `code --install-extension` first, falls back to unzipping the `.vsix` into `~/.vscode-server/extensions/` if the `code` CLI isn't on PATH.
+
+**Third-party repos** with their own committed `.devcontainer/devcontainer.json` (i.e. those that diverged from the `devs` template) can opt in by adding two lines — one `mounts` entry and one `postAttachCommand` — pointing at the same `install.sh`. Documented in `packages/vscode-bridge-drop/README.md`. Single source of truth for the install logic.
 
 `scripts/bump-and-publish.py` invokes `build-extension.sh` automatically before producing PyPI wheels, so released `devs-common` wheels always include the current `.vsix`. End users running `pip install devs-common` get the extension bundled in.
 
