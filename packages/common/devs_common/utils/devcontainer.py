@@ -78,14 +78,6 @@ def prepare_devcontainer_environment(
     bridge_mount_path.mkdir(parents=True, exist_ok=True)
     env['DEVS_BRIDGE_MOUNT_PATH'] = str(bridge_mount_path)
 
-    # Set bundled-extensions mount path (ships inside devs_common templates)
-    extensions_path = Path(__file__).resolve().parent.parent / 'templates' / 'extensions'
-    try:
-        extensions_path.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
-    env['DEVS_EXTENSIONS_MOUNT_PATH'] = str(extensions_path)
-
     # Pass debug mode to container scripts
     if debug:
         env['DEVS_DEBUG'] = 'true'

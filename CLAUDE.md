@@ -148,17 +148,24 @@ packages/webadmin/
 
 A TypeScript VS Code extension that turns the existing bridge bind-mount into a UI for moving files between host and devcontainer. The only non-Python package in the monorepo.
 
-**Build / install**:
+**Build / install flow**:
 
 ```bash
-./scripts/build-extension.sh
+./scripts/build-extension.sh    # local build → stages .vsix in devs-common templates
 ```
 
-This compiles the extension, packages a `.vsix`, and stages it at `packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix`. The `.vsix` is gitignored (only the README in that dir is tracked) but is bundled into the `devs-common` wheel via `package_data`.
+The CI workflow (`.github/workflows/bump-and-publish.yml`) runs this automatically on every release, then:
 
-On every `devs start`, the extensions dir is bind-mounted into the container at `/usr/local/devs-extensions` (readonly) via `DEVS_EXTENSIONS_MOUNT_PATH`. A self-contained installer (`templates/extensions/install.sh`) ships alongside the `.vsix`; `setup-workspace.sh` invokes it. The installer tries `code --install-extension` first, falls back to unzipping the `.vsix` into `~/.vscode-server/extensions/` if the `code` CLI isn't on PATH.
+1. Builds & publishes the four PyPI packages.
+2. Creates a GitHub Release tagged `v<X.Y.Z>` with `devs-bridge-drop.vsix` attached as an asset.
 
-**Third-party repos** with their own committed `.devcontainer/devcontainer.json` (i.e. those that diverged from the `devs` template) can opt in by adding two lines — one `mounts` entry and one `postAttachCommand` — pointing at the same `install.sh`. Documented in `packages/vscode-bridge-drop/README.md`. Single source of truth for the install logic.
+Containers install the extension by curl-fetching the latest release asset from `https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix` and running `code --install-extension --force`. Both the `devs` template's `setup-workspace.sh` and any third-party `.devcontainer/devcontainer.json` use the exact same one-liner — exercising the same install path keeps the release process tested on every container start.
+
+**Why curl-from-GitHub rather than bundle-and-mount**:
+
+We initially mounted the bundled `.vsix` from inside `devs-common` into every container. The downsides: extra mount in `devcontainer.json`, an env var (`DEVS_EXTENSIONS_MOUNT_PATH`) the consuming devcontainer had to know about, and divergent install paths for template-using vs third-party repos. The current GitHub-release approach is one line for everyone, version-pinnable if needed (`download/vX.Y.Z` rather than `latest`), and validates the release pipeline on every container start.
+
+**Offline fallback**: the `.vsix` and a self-contained `install.sh` are still bundled inside `devs-common` at `devs_common/templates/extensions/`, accessible to anyone who's pip-installed `devs-common` on the host. Not part of the default container-install path; useful for air-gapped environments or manual debugging.
 
 `scripts/bump-and-publish.py` invokes `build-extension.sh` automatically before producing PyPI wheels, so released `devs-common` wheels always include the current `.vsix`. End users running `pip install devs-common` get the extension bundled in.
 
@@ -192,15 +199,13 @@ Webviews are sandboxed iframes; VS Code does not deliver native tree-view drag e
 
 **Distribution wiring** (already in place — see commit history):
 
-- `scripts/build-extension.sh` builds and stages the `.vsix` into `packages/common/devs_common/templates/extensions/`.
-- `.gitignore` excludes built `.vsix` files there; only the README is tracked.
-- `pyproject.toml` (devs-common) includes `templates/**/*` in `package_data`, so the staged `.vsix` ships in the wheel.
-- `devcontainer.py:prepare_devcontainer_environment` sets `DEVS_EXTENSIONS_MOUNT_PATH` to the extensions dir inside the installed `devs_common` package.
-- `templates/devcontainer.json` mounts that path readonly into `/usr/local/devs-extensions` and passes the env var through `remoteEnv`.
-- `templates/scripts/setup-workspace.sh` installs every `.vsix` it finds in the mounted dir.
-- `scripts/bump-and-publish.py` invokes the build script before running `python -m build` for `devs-common`, so releases are always up to date.
+- `scripts/build-extension.sh` compiles the extension and stages `devs-bridge-drop.vsix` at `packages/common/devs_common/templates/extensions/`.
+- `.gitignore` excludes built `.vsix` files there; only `README.md` and `install.sh` are tracked.
+- `pyproject.toml` (devs-common) includes `templates/**/*` in `package_data`, so the staged `.vsix` ships in the wheel as an offline fallback.
+- `.github/workflows/bump-and-publish.yml` sets up Node, runs `build-extension.sh`, publishes PyPI packages, then `gh release create v<X.Y.Z>` with the `.vsix` attached.
+- `templates/scripts/setup-workspace.sh` curls the latest release asset and installs via `code --install-extension --force` — same one-liner third-party repos use, so the release pipeline is exercised on every `devs start`.
 
-We did **not** publish to the VS Code Marketplace. The extension depends on `DEVS_BRIDGE_MOUNT_PATH`, which only `devs` sets, so it has no value outside this workflow; bundling avoids publish-cycle latency and keeps version locked to the `devs-common` version.
+We did **not** publish to the VS Code Marketplace. The extension depends on `DEVS_BRIDGE_MOUNT_PATH`, which only `devs` sets, so it has no value outside this workflow; GitHub Releases give us a stable installable URL without a marketplace account.
 
 ## Architecture
 

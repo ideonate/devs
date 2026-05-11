@@ -6,49 +6,45 @@ Drop a file from your host OS onto the **Bridge** panel and it lands in `/home/n
 
 See the project-root `CLAUDE.md` for design notes (why a webview rather than a TreeView, why drag-into-terminal isn't fixable, etc.).
 
-## Auto-install when using the devs template
+## How it gets installed
 
-If your repo uses the `devs` devcontainer template (i.e. you don't have your own `.devcontainer/devcontainer.json`), there is nothing to do. The extension is bundled into the `devs-common` PyPI package, mounted into every container, and installed by the template's `setup-workspace.sh` on first start.
+Each release is published as a GitHub Release asset at a stable URL:
+
+```
+https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix
+```
+
+A one-line `curl` + `code --install-extension` fetches and installs it. The `devs` template's `setup-workspace.sh` already does this on first container start, so repos using the template need no changes.
 
 ## Wiring it into a third-party `.devcontainer/devcontainer.json`
 
-Two things are needed:
+Add one entry, in any runtime hook of your choosing:
 
-1. **Mount the extensions dir** so `install.sh` and the `.vsix` are reachable inside the container:
+```jsonc
+"postAttachCommand": "command -v code >/dev/null && curl -fsSL https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix -o /tmp/d.vsix && code --install-extension /tmp/d.vsix --force || true"
+```
 
-   ```jsonc
-   "mounts": [
-     "source=${localEnv:DEVS_EXTENSIONS_MOUNT_PATH},target=/usr/local/devs-extensions,type=bind,readonly"
-   ]
-   ```
+That's all. No mount, no env-var dependency, works regardless of whether `devs` started the container (or whether `devs` is installed at all).
 
-2. **Invoke `/usr/local/devs-extensions/install.sh` from any runtime hook you like.** The script is self-contained — it finds every `.vsix` next to it, tries `code --install-extension --force`, and falls back to unzipping into `~/.vscode-server/extensions/` if `code` isn't on PATH. Some options:
+### Notes on hook choice
 
-   - **`postAttachCommand`** — fires after VS Code Server attaches, so the `code` CLI is reliably available. Best default for VS Code-attached workflows.
-     ```jsonc
-     "postAttachCommand": "bash /usr/local/devs-extensions/install.sh || true"
-     ```
-   - **`postCreateCommand`** — runs once on first container creation. Works if your image already has `code` on PATH, or if you're happy with the unzip fallback.
-     ```jsonc
-     "postCreateCommand": "bash /usr/local/devs-extensions/install.sh || true"
-     ```
-   - **From your own setup script** — if your devcontainer already has its own `setup-workspace.sh` (or similar) wired into a hook, just call `install.sh` from inside it: `bash /usr/local/devs-extensions/install.sh || true`. Same effect.
-   - **`onCreateCommand` / `updateContentCommand`** — also fine. Anywhere that runs inside the container after the mount is live works.
+- **`postAttachCommand`** is the safest default — fires after VS Code Server attaches, so `code` is on PATH.
+- **`postCreateCommand`** works if your image bakes `code` into PATH (the `devs` template image does).
+- **Your own setup script** — paste the same one-liner anywhere your devcontainer already does setup.
 
 ### Notes
 
-- **Bake into the image?** Not really viable from this mount, because the mount is only present at *runtime* (it's resolved from a `localEnv` var on container start). If you want the extension baked into your image, you'd have to `COPY` your own `.vsix` in at image build time, which defeats the point of the bundled-distribution approach. Stick to a runtime hook.
-- **Chaining with an existing hook command**: `"postAttachCommand": "your-existing-command && bash /usr/local/devs-extensions/install.sh || true"`. Arrays also work per the devcontainer spec.
-- **Container started outside `devs` (raw `devcontainer` CLI)**: `DEVS_EXTENSIONS_MOUNT_PATH` won't be set, so the mount source will resolve to empty and `devcontainer up` will error. Either start through `devs`, or guard the mount entry behind whatever conditional config mechanism you have.
-- **Repos that copied from the `devs` template wholesale**: you already have the equivalent wiring — the template's `setup-workspace.sh` delegates to the same `install.sh`. No action needed.
+- **Chaining with an existing hook command**: `"postAttachCommand": "your-existing-command && curl ... && code --install-extension ..."`. Arrays also work per the devcontainer spec.
+- **Pinning to a specific version**: replace `latest` with `download/vX.Y.Z` in the URL.
+- **Offline / no internet in the container**: the `.vsix` is also bundled inside the `devs-common` Python package at `devs_common/templates/extensions/devs-bridge-drop.vsix`, alongside a self-contained `install.sh` you can copy into a container and run manually. Not part of the default install path; just a fallback.
 
-## Building
+## Building locally
 
 ```bash
 ./scripts/build-extension.sh    # from repo root
 ```
 
-Stages the `.vsix` at `packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix` (gitignored). Run before publishing devs-common to PyPI; `scripts/bump-and-publish.py` does this automatically.
+Stages the `.vsix` at `packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix` (gitignored). CI runs this automatically before producing the GitHub Release and PyPI wheels.
 
 ## Behaviour
 

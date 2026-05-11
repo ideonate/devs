@@ -280,11 +280,18 @@ else
     echo "No package.json found in root directory"
 fi
 
-# Install bundled VS Code extensions via the self-contained installer
-# (same script third-party devcontainers can call directly — see
-# packages/vscode-bridge-drop/README.md for instructions).
-if [ -x /usr/local/devs-extensions/install.sh ]; then
-    bash /usr/local/devs-extensions/install.sh || true
+# Install the devs-bridge-drop extension from the latest GitHub release.
+# Same one-liner third-party devcontainers can drop into their own
+# postAttachCommand — exercising one install path keeps it tested.
+if command -v code >/dev/null 2>&1; then
+    tmp_vsix="/tmp/devs-bridge-drop.vsix"
+    if curl -fsSL "https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix" -o "$tmp_vsix" 2>/dev/null; then
+        code --install-extension "$tmp_vsix" --force || \
+            echo "⚠️  Failed to install devs-bridge-drop (continuing)"
+        rm -f "$tmp_vsix"
+    else
+        echo "⚠️  Could not download devs-bridge-drop.vsix (continuing)"
+    fi
 fi
 
 echo "Workspace setup complete!"

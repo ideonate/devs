@@ -32,6 +32,11 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
@@ -53,6 +58,9 @@ jobs:
           git add packages/*/pyproject.toml
           git commit -m "${{ steps.bump.outputs.new_version }}"
           git push
+
+      - name: Build VS Code extension (devs-bridge-drop.vsix)
+        run: ./scripts/build-extension.sh
 
       - name: Build packages
         run: |
@@ -83,3 +91,19 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/webadmin/dist/
+
+      - name: Create GitHub release with .vsix asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.bump.outputs.new_version }}"
+          TAG="v${VERSION}"
+          VSIX=packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix
+          if [ ! -f "$VSIX" ]; then
+            echo "ERROR: $VSIX not found — build-extension.sh did not run as expected" >&2
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "Automated release for v${VERSION}. Includes devs-bridge-drop.vsix." \
+            "$VSIX"
