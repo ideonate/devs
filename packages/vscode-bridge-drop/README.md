@@ -12,27 +12,35 @@ If your repo uses the `devs` devcontainer template (i.e. you don't have your own
 
 ## Wiring it into a third-party `.devcontainer/devcontainer.json`
 
-For repos that have their own committed devcontainer config (e.g. they diverged from the `devs` template, or never used it), add two lines:
+Two things are needed:
 
-```jsonc
-{
-  // ... your existing config ...
-  "mounts": [
-    // ... your existing mounts ...
-    "source=${localEnv:DEVS_EXTENSIONS_MOUNT_PATH},target=/usr/local/devs-extensions,type=bind,readonly"
-  ],
-  "postAttachCommand": "bash /usr/local/devs-extensions/install.sh || true"
-}
-```
+1. **Mount the extensions dir** so `install.sh` and the `.vsix` are reachable inside the container:
 
-That's it. The `devs` CLI exports `DEVS_EXTENSIONS_MOUNT_PATH` automatically when it invokes `devcontainer up`, so the mount resolves at runtime. The mounted `install.sh` is the same self-contained installer the `devs` template uses internally — single source of truth.
+   ```jsonc
+   "mounts": [
+     "source=${localEnv:DEVS_EXTENSIONS_MOUNT_PATH},target=/usr/local/devs-extensions,type=bind,readonly"
+   ]
+   ```
+
+2. **Invoke `/usr/local/devs-extensions/install.sh` from any runtime hook you like.** The script is self-contained — it finds every `.vsix` next to it, tries `code --install-extension --force`, and falls back to unzipping into `~/.vscode-server/extensions/` if `code` isn't on PATH. Some options:
+
+   - **`postAttachCommand`** — fires after VS Code Server attaches, so the `code` CLI is reliably available. Best default for VS Code-attached workflows.
+     ```jsonc
+     "postAttachCommand": "bash /usr/local/devs-extensions/install.sh || true"
+     ```
+   - **`postCreateCommand`** — runs once on first container creation. Works if your image already has `code` on PATH, or if you're happy with the unzip fallback.
+     ```jsonc
+     "postCreateCommand": "bash /usr/local/devs-extensions/install.sh || true"
+     ```
+   - **From your own setup script** — if your devcontainer already has its own `setup-workspace.sh` (or similar) wired into a hook, just call `install.sh` from inside it: `bash /usr/local/devs-extensions/install.sh || true`. Same effect.
+   - **`onCreateCommand` / `updateContentCommand`** — also fine. Anywhere that runs inside the container after the mount is live works.
 
 ### Notes
 
-- **Already have a `postAttachCommand`?** Chain it: `"postAttachCommand": "your-existing-command && bash /usr/local/devs-extensions/install.sh || true"`. Or move both into an array if you prefer.
-- **Why `postAttachCommand` and not `postCreateCommand`?** `postCreateCommand` fires before VS Code Server is installed, so the `code` CLI may not exist yet. `postAttachCommand` fires after Server is up. The installer has an `unzip`-into-`~/.vscode-server/extensions/` fallback for environments where `code` is still not on PATH, but `postAttachCommand` is the natural fit.
-- **Container started outside `devs` (raw `devcontainer` CLI)**: `DEVS_EXTENSIONS_MOUNT_PATH` won't be set, so the mount source will be empty and `devcontainer up` will error. Either start through `devs`, or omit these two lines from your config in that environment.
-- **Repos that copied from the template wholesale**: you've already got the equivalent wiring (the mount entry, plus the `setup-workspace.sh` delegation). No action needed.
+- **Bake into the image?** Not really viable from this mount, because the mount is only present at *runtime* (it's resolved from a `localEnv` var on container start). If you want the extension baked into your image, you'd have to `COPY` your own `.vsix` in at image build time, which defeats the point of the bundled-distribution approach. Stick to a runtime hook.
+- **Chaining with an existing hook command**: `"postAttachCommand": "your-existing-command && bash /usr/local/devs-extensions/install.sh || true"`. Arrays also work per the devcontainer spec.
+- **Container started outside `devs` (raw `devcontainer` CLI)**: `DEVS_EXTENSIONS_MOUNT_PATH` won't be set, so the mount source will resolve to empty and `devcontainer up` will error. Either start through `devs`, or guard the mount entry behind whatever conditional config mechanism you have.
+- **Repos that copied from the `devs` template wholesale**: you already have the equivalent wiring — the template's `setup-workspace.sh` delegates to the same `install.sh`. No action needed.
 
 ## Building
 
