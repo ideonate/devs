@@ -137,6 +137,25 @@ def main():
         update_version_in_file(info["pyproject"], info["new"])
         print(f"Updated {info['pyproject']}")
 
+    # Also bump the VS Code extension's package.json so the Marketplace publish
+    # in CI gets a fresh version each release (re-publishing the same version
+    # is rejected by the Marketplace).
+    ext_package_json = project_root / "packages" / "vscode-bridge-drop" / "package.json"
+    if ext_package_json.exists():
+        target_version = package_info[0]["new"]
+        content = ext_package_json.read_text()
+        new_content, n = re.subn(
+            r'("version"\s*:\s*)"\d+\.\d+\.\d+"',
+            f'\\1"{target_version}"',
+            content,
+            count=1,
+        )
+        if n != 1:
+            print(f"Error: could not find version field in {ext_package_json}")
+            sys.exit(1)
+        ext_package_json.write_text(new_content)
+        print(f"Updated {ext_package_json} to {target_version}")
+
     # If bump-only mode, stop here
     if args.bump_only:
         print("\n" + "=" * 50)
