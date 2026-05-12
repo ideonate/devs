@@ -21,7 +21,8 @@
         "ms-python.vscode-pylance",
         "ms-python.black-formatter",
         "ms-python.isort",
-        "Anthropic.claude-code"
+        "Anthropic.claude-code",
+        "ideonate.devs-bridge-drop"
       ],
       "settings": {
         "editor.formatOnSave": false,
@@ -99,7 +100,6 @@
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
   "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh",
-  "postAttachCommand": "/usr/local/bin/install-bridge-drop.sh",
   "forwardPorts": [],
   "portsAttributes": {
     "3306": {

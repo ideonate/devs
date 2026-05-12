@@ -280,10 +280,9 @@ else
     echo "No package.json found in root directory"
 fi
 
-# Note: devs-bridge-drop is installed by postAttachCommand (install-bridge-drop.sh)
-# rather than here, because the 'code' CLI baked into /usr/local/bin (used for
-# tunnels) doesn't write to the same extensions dir VS Code Server reads from.
-# By postAttachCommand time, VS Code Server's own 'code' shim is on PATH.
+# Note: devs-bridge-drop is installed declaratively via customizations.vscode.extensions
+# in devcontainer.json (Marketplace ID: ideonate.devs-bridge-drop). The legacy
+# install-bridge-drop.sh script remains in this directory as an offline fallback.
 
 echo "Workspace setup complete!"
 echo ""

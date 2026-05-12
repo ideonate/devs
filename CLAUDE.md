@@ -157,19 +157,22 @@ A TypeScript VS Code extension that turns the existing bridge bind-mount into a 
 The CI workflow (`.github/workflows/bump-and-publish.yml`) runs this automatically on every release, then:
 
 1. Builds & publishes the four PyPI packages.
-2. Creates a GitHub Release tagged `v<X.Y.Z>` with `devs-bridge-drop.vsix` attached as an asset.
+2. Publishes `devs-bridge-drop` to the **VS Code Marketplace** (`ideonate.devs-bridge-drop`) via `vsce publish` — gated on the `VSCE_PAT` repo secret.
+3. Creates a GitHub Release tagged `v<X.Y.Z>` with `devs-bridge-drop.vsix` attached as an asset (used by the offline / GitHub-release fallback paths below).
 
-Containers install the extension by curl-fetching the latest release asset from `https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix` and running `code --install-extension --force`. The `devs` template wires this via `postAttachCommand` → `/usr/local/bin/install-bridge-drop.sh`, not `postCreateCommand` — see below.
+**Primary install path**: Marketplace. The `devs` template's `devcontainer.json` lists `ideonate.devs-bridge-drop` in `customizations.vscode.extensions`, and VS Code installs it on attach the same way as any other Marketplace extension. Third-party repos do the same thing — declarative, one line, no shell scripts.
 
-**Why `postAttachCommand` rather than `postCreateCommand`**:
+**Fallback install path (legacy, kept for offline use)**: `packages/common/devs_common/templates/scripts/install-bridge-drop.sh` curls `https://github.com/ideonate/devs/releases/latest/download/devs-bridge-drop.vsix` and calls `code --install-extension --force`. Useful for:
 
-The `devs` Dockerfile bakes the standalone VS Code CLI into `/usr/local/bin/code` (used for `code tunnel`). That CLI is on PATH from container start, but its `--install-extension` writes to a different extensions directory than the one VS Code Server reads from after attaching. So an install at `postCreateCommand` time looks like a success but the extension never appears in the attached editor. By `postAttachCommand` time, VS Code Server is installed and its own `code` shim takes precedence on PATH — installs go into `~/.vscode-server/extensions/`, where the attached editor actually looks. Third-party repos should use `postAttachCommand` for the same reason.
+- Air-gapped environments without Marketplace access.
+- Pinning to a specific version (`download/vX.Y.Z` rather than `latest`).
+- Containers where the Marketplace install hasn't run yet (e.g., headless devcontainer CLI launches with no editor attaching).
 
-**Why curl-from-GitHub rather than bundle-and-mount**:
+The fallback script must be wired via `postAttachCommand`, not `postCreateCommand`: the `devs` Dockerfile bakes the standalone VS Code CLI at `/usr/local/bin/code` for `code tunnel`, and that CLI's `--install-extension` writes to a different extensions directory than the one VS Code Server reads from after attaching. By `postAttachCommand` time, the Server's `code` shim takes precedence on PATH and installs land in `~/.vscode-server/extensions/`.
 
-We initially mounted the bundled `.vsix` from inside `devs-common` into every container. The downsides: extra mount in `devcontainer.json`, an env var (`DEVS_EXTENSIONS_MOUNT_PATH`) the consuming devcontainer had to know about, and divergent install paths for template-using vs third-party repos. The current GitHub-release approach is one line for everyone, version-pinnable if needed (`download/vX.Y.Z` rather than `latest`), and validates the release pipeline on every container start.
+**Why we abandoned the bundle-and-mount approach**: previously, the `.vsix` was mounted into every container via an extra `devcontainer.json` bind. Downsides were an env var (`DEVS_EXTENSIONS_MOUNT_PATH`) consumers had to know about, and divergent install paths for template-using vs third-party repos. The Marketplace approach removes all of that.
 
-**Offline fallback**: the `.vsix` and a self-contained `install.sh` are still bundled inside `devs-common` at `devs_common/templates/extensions/`, accessible to anyone who's pip-installed `devs-common` on the host. Not part of the default container-install path; useful for air-gapped environments or manual debugging.
+**Offline bundle**: the `.vsix` and a self-contained `install.sh` are still shipped inside the `devs-common` wheel at `devs_common/templates/extensions/`. Accessible to anyone who's pip-installed `devs-common` on the host; useful for manual debugging or fully air-gapped installs.
 
 `scripts/bump-and-publish.py` invokes `build-extension.sh` automatically before producing PyPI wheels, so released `devs-common` wheels always include the current `.vsix`. End users running `pip install devs-common` get the extension bundled in.
 
