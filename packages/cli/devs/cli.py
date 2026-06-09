@@ -3,6 +3,7 @@
 import os
 import sys
 import subprocess
+import traceback
 from functools import wraps
 from importlib.metadata import version, PackageNotFoundError
 
@@ -502,7 +503,6 @@ def claude(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: 
     except Exception as e:
         console.print(f"❌ Failed to configure Claude authentication: {e}")
         if debug:
-            import traceback
             console.print(traceback.format_exc())
         sys.exit(1)
 
@@ -675,7 +675,6 @@ def _handle_codex_auth(api_key: str, debug: bool) -> None:
     except Exception as e:
         console.print(f"❌ Failed to configure Codex authentication: {e}")
         if debug:
-            import traceback
             console.print(traceback.format_exc())
         sys.exit(1)
 

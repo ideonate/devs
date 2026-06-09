@@ -4,6 +4,7 @@ This module provides shared configuration handling for DEVS.yml files
 across the CLI and webhook packages.
 """
 
+import os
 from pathlib import Path
 from typing import Dict, Optional, List, Any
 from pydantic import BaseModel, Field
@@ -179,6 +180,5 @@ class DevsConfigLoader:
         Returns:
             SSH hostname string, or None if not configured
         """
-        import os
         options = DevsConfigLoader.load(project_name, repo_path)
         return options.ssh_host or os.environ.get("DEVS_SSH_HOST") or None

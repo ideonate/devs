@@ -8,6 +8,7 @@ from click.testing import CliRunner
 
 from devs.cli import cli
 from devs.core.integration import VSCodeIntegration
+from devs.exceptions import VSCodeError, WorkspaceError
 
 
 class TestVSCodeCommand:
@@ -115,8 +116,6 @@ class TestVSCodeCommand:
                                         mock_container_manager_class, mock_get_project,
                                         cli_runner, temp_project):
         """Test vscode command when workspace creation fails."""
-        from devs.exceptions import WorkspaceError
-
         # Setup mocks
         mock_project = Mock()
         mock_project.info.name = "test-org-test-repo"
@@ -174,8 +173,6 @@ class TestVSCodeCommand:
                                 mock_container_manager_class, mock_get_project,
                                 cli_runner, temp_project):
         """Test vscode command when VS Code integration fails."""
-        from devs.exceptions import VSCodeError
-
         # Setup mocks
         mock_project = Mock()
         mock_project.info.name = "test-org-test-repo"
