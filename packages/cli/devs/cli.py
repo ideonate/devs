@@ -246,9 +246,12 @@ def start(dev_names: tuple, rebuild: bool, rebuild_if_changed: bool, live: bool,
     default=None,
     envvar='DEVS_SSH_HOST',
     help=(
-        'Connect via Remote-SSH to this host, then attach to the running container. '
-        'Useful for Tailscale or other SSH-reachable remote Docker hosts. '
-        'Skips local container management — the container must already be running on the remote host. '
+        'Attach VS Code to a container ALREADY RUNNING on a remote SSH host '
+        '(e.g. Tailscale or any SSH-reachable Docker host). This is connection-only: '
+            'it does NOT provision anything. '
+        'It does NOT create, start, or sync the container — you must have already '
+            'started it on the remote host yourself (e.g. run `devs start` over there). '
+            'Only builds the VS Code Remote-SSH + attach URI. '
         'Can also be set via the DEVS_SSH_HOST env var or ssh_host in DEVS.yml.'
     ),
 )
@@ -261,7 +264,7 @@ def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, ssh_host: str
     Example: devs vscode sally bob
     Example: devs vscode sally --live  # Start with current directory mounted
     Example: devs vscode sally --env QUART_PORT=5001
-    Example: devs vscode sally --ssh myhost.tailnet.ts.net  # Connect via SSH then attach
+    Example: devs vscode sally --ssh myhost.tailnet.ts.net  # Attach to a container ALREADY running on myhost
     """
     check_dependencies()
     project = get_project()
@@ -273,9 +276,11 @@ def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, ssh_host: str
     vscode_integration = VSCodeIntegration(project)
 
     if ssh_host:
-        # SSH mode: skip local container management — containers must already be running
-        # on the remote host.  We only need the workspace path to construct the URI;
-        # derive it from the project name and dev name (no filesystem access needed).
+        # SSH mode is attach-only: we do NOT provision anything. The container must
+        # already be running on the remote host (start it there yourself, e.g. by
+        # running `devs start` on the remote machine). We skip ContainerManager /
+        # WorkspaceManager entirely and only need the workspace path to construct the
+        # URI; derive it from the project name and dev name (no filesystem access needed).
         workspace_dirs = []
         valid_dev_names = []
         for dev_name in dev_names:

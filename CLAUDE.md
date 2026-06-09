@@ -337,6 +337,49 @@ devs tunnel mydev
 # Open VS Code and connect via Remote Explorer > Tunnels
 ```
 
+### Remote-SSH Attach Mode (`devs vscode --ssh`)
+
+`devs vscode <name> --ssh <host>` attaches your local VS Code to a container that is
+**already running** on a remote Docker host reachable over SSH (e.g. a Tailscale
+MagicDNS name). It is the SSH-based alternative to tunnels for connecting to remote
+containers.
+
+**This mode is connection-only — it does NOT provision anything.** It is easy to assume
+`--ssh` means "SSH into the host first, *then* set up / start the devcontainer there."
+It does **not** do that. There is no remote-provisioning path in `devs`: the CLI only ever
+talks to the **local** Docker daemon when creating/starting containers.
+
+When `--ssh` is set, `devs vscode`:
+- Skips `ContainerManager` and `WorkspaceManager` entirely — no container is created,
+  started, or rebuilt, and no workspace is copied or synced (local or remote).
+- Only constructs a VS Code Remote-SSH + attached-container URI:
+  `vscode-remote://attached-container+<hex>/workspaces/<name>`, where `<hex>` encodes
+  `{"containerName": "/dev-<org>-<repo>-<name>", "settings": {"host": "ssh://<host>"}}`.
+  See `generate_devcontainer_uri()` in `packages/cli/devs/core/integration.py`.
+
+**You are responsible for starting the container on the remote host yourself** before
+running `--ssh` — e.g. SSH into the remote machine and run `devs start <name>` there, or
+point a remote Docker context at it. If the container is not already running on `<host>`,
+the VS Code attach will fail.
+
+The host can be set three ways (highest priority first): the `--ssh` flag, the
+`DEVS_SSH_HOST` env var, or `ssh_host` in `DEVS.yml`.
+
+**Example workflow:**
+```bash
+# On the remote host (over SSH), start the container there:
+ssh myhost.tailnet.ts.net
+devs start sally          # runs against the REMOTE machine's local Docker
+exit
+
+# Back on your laptop, attach VS Code to that already-running remote container:
+devs vscode sally --ssh myhost.tailnet.ts.net
+```
+
+> Note: there is also a separate, unrelated `.devcontainer/.ssh` mechanism that copies
+> SSH **keys** into the workspace (`packages/common/devs_common/core/workspace.py`). That
+> is about credentials inside the container and has nothing to do with the `--ssh` flag.
+
 ### Example Workflow
 
 ```bash
