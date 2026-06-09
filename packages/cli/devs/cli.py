@@ -239,64 +239,107 @@ def start(dev_names: tuple, rebuild: bool, rebuild_if_changed: bool, live: bool,
 @click.option('--delay', default=2.0, help='Delay between opening VS Code windows (seconds)')
 @click.option('--live', is_flag=True, help='Start containers with current directory mounted as workspace')
 @click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
+@click.option(
+    '--ssh',
+    'ssh_host',
+    default=None,
+    envvar='DEVS_SSH_HOST',
+    help=(
+        'Connect via Remote-SSH to this host, then attach to the running container. '
+        'Useful for Tailscale or other SSH-reachable remote Docker hosts. '
+        'Skips local container management — the container must already be running on the remote host. '
+        'Can also be set via the DEVS_SSH_HOST env var or ssh_host in DEVS.yml.'
+    ),
+)
 @debug_option
-def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, debug: bool) -> None:
+def vscode(dev_names: tuple, delay: float, live: bool, env: tuple, ssh_host: str, debug: bool) -> None:
     """Open devcontainers in VS Code.
-    
+
     DEV_NAMES: One or more development environment names to open
-    
+
     Example: devs vscode sally bob
     Example: devs vscode sally --live  # Start with current directory mounted
     Example: devs vscode sally --env QUART_PORT=5001
+    Example: devs vscode sally --ssh myhost.tailnet.ts.net  # Connect via SSH then attach
     """
     check_dependencies()
     project = get_project()
-    
+
+    # If --ssh not given on CLI or env, check DEVS.yml
+    if not ssh_host:
+        ssh_host = DevsConfigLoader.load_ssh_host(project.info.name) or None
+
+    vscode_integration = VSCodeIntegration(project)
+
+    if ssh_host:
+        # SSH mode: skip local container management — containers must already be running
+        # on the remote host.  We only need the workspace path to construct the URI;
+        # derive it from the project name and dev name (no filesystem access needed).
+        workspace_dirs = []
+        valid_dev_names = []
+        for dev_name in dev_names:
+            workspace_name = project.get_workspace_name(dev_name)
+            # Use a synthetic Path so generate_devcontainer_uri can derive workspace_name.
+            # The path itself is never accessed locally in SSH mode.
+            workspace_dirs.append(config.workspaces_dir / workspace_name)
+            valid_dev_names.append(dev_name)
+
+        try:
+            success_count = vscode_integration.launch_multiple_devcontainers(
+                workspace_dirs,
+                valid_dev_names,
+                delay_between_windows=delay,
+                live=live,
+                ssh_host=ssh_host,
+            )
+            if success_count == 0:
+                console.print("❌ Failed to open any VS Code windows")
+        except VSCodeError as e:
+            console.print(f"❌ VS Code integration error: {e}")
+        return
+
+    # Local mode: manage containers and workspaces as normal
     container_manager = ContainerManager(project, config)
     workspace_manager = WorkspaceManager(project, config)
-    vscode = VSCodeIntegration(project)
-    
+
     workspace_dirs = []
     valid_dev_names = []
-    
+
     for dev_name in dev_names:
         console.print(f"   Preparing: {dev_name}")
-        
-        # Load environment variables from DEVS.yml and merge with CLI --env flags
+
         devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
         cli_env = parse_env_vars(env) if env else {}
         extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
-        
+
         if extra_env:
             console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
-        
+
         try:
-            # Ensure workspace exists (handles live mode internally)
             workspace_dir = workspace_manager.create_workspace(dev_name, live=live)
-            
-            # Ensure container is running before launching VS Code (no auto-rebuild in CLI)
+
             if container_manager.ensure_container_running(dev_name, workspace_dir, check_rebuild=False, debug=debug, live=live, extra_env=extra_env):
                 workspace_dirs.append(workspace_dir)
                 valid_dev_names.append(dev_name)
             else:
                 console.print(f"   ❌ Failed to start container for {dev_name}, skipping...")
-                
+
         except (ContainerError, WorkspaceError) as e:
             console.print(f"   ❌ Error preparing {dev_name}: {e}")
             continue
-    
+
     if workspace_dirs:
         try:
-            success_count = vscode.launch_multiple_devcontainers(
-                workspace_dirs, 
+            success_count = vscode_integration.launch_multiple_devcontainers(
+                workspace_dirs,
                 valid_dev_names,
                 delay_between_windows=delay,
-                live=live
+                live=live,
             )
-            
+
             if success_count == 0:
                 console.print("❌ Failed to open any VS Code windows")
-                
+
         except VSCodeError as e:
             console.print(f"❌ VS Code integration error: {e}")
 
