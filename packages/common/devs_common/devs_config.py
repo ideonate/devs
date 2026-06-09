@@ -4,6 +4,7 @@ This module provides shared configuration handling for DEVS.yml files
 across the CLI and webhook packages.
 """
 
+import os
 from pathlib import Path
 from typing import Dict, Optional, List, Any
 from pydantic import BaseModel, Field
@@ -25,6 +26,7 @@ class DevsOptions(BaseModel):
     ci_branches: List[str] = ["main", "master"]  # Branches to run CI on for push events
     draft_prs: bool = False  # When enabled, instruct Claude to create/maintain PRs as drafts
     env_vars: Dict[str, Dict[str, str]] = Field(default_factory=dict)  # Environment variables
+    ssh_host: Optional[str] = None  # SSH hostname for remote container access (e.g. Tailscale MagicDNS name)
     
     def get_env_vars(self, container_name: Optional[str] = None) -> Dict[str, str]:
         """Get environment variables for a specific container or defaults.
@@ -146,19 +148,37 @@ class DevsConfigLoader:
         return DevsOptions(**merged_config)
     
     @staticmethod
-    def load_env_vars(dev_name: str, project_name: Optional[str] = None, 
+    def load_env_vars(dev_name: str, project_name: Optional[str] = None,
                       repo_path: Optional[Path] = None) -> Dict[str, str]:
         """Load only environment variables for a specific dev environment.
-        
+
         This is a convenience method for CLI usage.
-        
+
         Args:
             dev_name: Development environment/container name
             project_name: Project name in org-repo format
             repo_path: Path to repository (defaults to cwd if not provided)
-            
+
         Returns:
             Dictionary of environment variables with all overrides applied
         """
         options = DevsConfigLoader.load(project_name, repo_path)
         return options.get_env_vars(dev_name)
+
+    @staticmethod
+    def load_ssh_host(project_name: Optional[str] = None,
+                      repo_path: Optional[Path] = None) -> Optional[str]:
+        """Load the configured SSH host for remote container access.
+
+        Reads from DEVS.yml layers (repo → user default → user project-specific),
+        then falls back to the DEVS_SSH_HOST environment variable.
+
+        Args:
+            project_name: Project name in org-repo format
+            repo_path: Path to repository (defaults to cwd if not provided)
+
+        Returns:
+            SSH hostname string, or None if not configured
+        """
+        options = DevsConfigLoader.load(project_name, repo_path)
+        return options.ssh_host or os.environ.get("DEVS_SSH_HOST") or None
