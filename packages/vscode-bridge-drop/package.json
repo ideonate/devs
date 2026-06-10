@@ -2,7 +2,7 @@
   "name": "devs-bridge-drop",
   "displayName": "Devs Bridge Drop",
   "description": "Drop files between host and devcontainer via the shared bridge mount. Surfaces both host and container paths.",
-  "version": "4.0.4",
+  "version": "4.0.5",
   "publisher": "ideonate",
   "engines": {
     "vscode": "^1.85.0"
