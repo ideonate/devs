@@ -70,7 +70,7 @@
     "package": "vsce package --out devs-bridge-drop.vsix"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
+    "@types/node": "^22.0.0",
     "@types/vscode": "^1.85.0",
     "typescript": "^5.3.0",
     "@vscode/vsce": "^2.22.0"
