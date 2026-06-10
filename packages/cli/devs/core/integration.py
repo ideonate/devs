@@ -182,14 +182,23 @@ class VSCodeIntegration:
             self._print_code_commands(workspace_dir, dev_name, live, new_window, ssh_host)
 
             # No local 'code' command (e.g. a headless remote dev box reached over SSH):
-            # don't fail — the container is already prepared, so just point to the
-            # command printed above and stop here.
+            # don't fail — just point to the command printed above and stop here.
             if not self.code_available:
-                console.print(
-                    f"   ⚠️  VS Code 'code' command not found here — container is ready, "
-                    "but VS Code can't be launched from this machine. "
-                    "Run the command above from a machine with VS Code installed."
-                )
+                if ssh_host:
+                    # SSH mode is attach-only: we never created/started the container,
+                    # so we can't claim it's ready. The user must ensure it's running
+                    # on the remote host themselves.
+                    console.print(
+                        f"   ⚠️  VS Code 'code' command not found here — printed the attach "
+                        f"URI only. Make sure the container is already running on '{ssh_host}', "
+                        "then run the command above from a machine with VS Code installed."
+                    )
+                else:
+                    console.print(
+                        f"   ⚠️  VS Code 'code' command not found here — container is ready, "
+                        "but VS Code can't be launched from this machine. "
+                        "Run the command above from a machine with VS Code installed."
+                    )
                 return True
 
             if ssh_host:

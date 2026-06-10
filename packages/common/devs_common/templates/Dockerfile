@@ -35,6 +35,7 @@ RUN apt update && apt install -y less \
   vim \
   nano \
   htop \
+  tmux \
   && apt clean \
   && rm -rf /var/lib/apt/lists/*
 
