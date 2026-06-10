@@ -1,6 +1,7 @@
 """VS Code and external tool integrations."""
 
 import json
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import List, Optional
 
 from rich.console import Console
 
-from ..exceptions import VSCodeError, DependencyError
+from ..exceptions import VSCodeError
 from devs_common.core.project import Project
 from devs_common.utils.devcontainer import prepare_devcontainer_environment
 
@@ -25,13 +26,19 @@ class VSCodeIntegration:
             project: Project instance
         """
         self.project = project
-        self._check_vscode_cli()
-    
-    def _check_vscode_cli(self) -> None:
-        """Check if VS Code CLI is available.
-        
-        Raises:
-            DependencyError: If code command is not found
+        self.code_available = self._check_vscode_cli()
+
+    def _check_vscode_cli(self) -> bool:
+        """Check if the VS Code 'code' CLI is available.
+
+        This is intentionally non-fatal: on a remote/headless dev box (e.g. one you
+        only ever reach over SSH) there may be no local 'code' command, but it is still
+        useful to start the container and print the URI / command you'd run from a
+        machine that does have VS Code. Callers consult ``self.code_available`` and fall
+        back to printing the command instead of launching.
+
+        Returns:
+            True if the 'code' command is available, False otherwise.
         """
         try:
             result = subprocess.run(
@@ -40,16 +47,9 @@ class VSCodeIntegration:
                 text=True,
                 check=False
             )
-            if result.returncode != 0:
-                raise DependencyError(
-                    "VS Code 'code' command not found. Make sure VS Code is installed "
-                    "and the 'code' command is available in your PATH."
-                )
+            return result.returncode == 0
         except FileNotFoundError:
-            raise DependencyError(
-                "VS Code 'code' command not found. Make sure VS Code is installed "
-                "and the 'code' command is available in your PATH."
-            )
+            return False
     
     def generate_devcontainer_uri(
         self,
@@ -98,7 +98,51 @@ class VSCodeIntegration:
             vscode_uri = f"vscode-remote://dev-container+{workspace_hex}/workspaces/{workspace_name}"
 
         return vscode_uri
-    
+
+    def _format_code_command(
+        self,
+        workspace_dir: Path,
+        dev_name: str,
+        live: bool,
+        new_window: bool,
+        ssh_host: Optional[str],
+    ) -> str:
+        """Build the 'code' command string for opening a container.
+
+        Returned as a copy/paste-ready, shell-quoted string so it can be printed and
+        run from another machine that has VS Code installed.
+        """
+        vscode_uri = self.generate_devcontainer_uri(
+            workspace_dir, dev_name, live, attach_to_existing=True, ssh_host=ssh_host
+        )
+        cmd = ["code"]
+        if new_window:
+            cmd.append("--new-window")
+        cmd.extend(["--folder-uri", vscode_uri])
+        return " ".join(shlex.quote(part) for part in cmd)
+
+    def _print_code_commands(
+        self,
+        workspace_dir: Path,
+        dev_name: str,
+        live: bool,
+        new_window: bool,
+        ssh_host: Optional[str],
+    ) -> None:
+        """Print the 'code' command(s) for this container.
+
+        Always prints the plain (non-SSH) command. When an SSH host is set, the SSH
+        form is printed too, so you can copy whichever matches where you're running it.
+        """
+        if ssh_host:
+            ssh_cmd = self._format_code_command(workspace_dir, dev_name, live, new_window, ssh_host)
+            console.print(f"   📋 VS Code command (via SSH: {ssh_host}):")
+            console.print(f"      {ssh_cmd}")
+
+        plain_cmd = self._format_code_command(workspace_dir, dev_name, live, new_window, None)
+        console.print(f"   📋 VS Code command:")
+        console.print(f"      {plain_cmd}")
+
     def launch_devcontainer(
         self,
         workspace_dir: Path,
@@ -127,17 +171,31 @@ class VSCodeIntegration:
                 workspace_dir, dev_name, live, attach_to_existing=True, ssh_host=ssh_host
             )
 
-            if ssh_host:
-                console.print(f"   🚀 Opening VS Code for: {dev_name} (via SSH: {ssh_host})")
-            else:
-                console.print(f"   🚀 Opening VS Code for: {dev_name}")
-
             cmd = ["code"]
 
             if new_window:
                 cmd.append("--new-window")
 
             cmd.extend(["--folder-uri", vscode_uri])
+
+            # Always print the command(s) so they can be copied and run elsewhere.
+            self._print_code_commands(workspace_dir, dev_name, live, new_window, ssh_host)
+
+            # No local 'code' command (e.g. a headless remote dev box reached over SSH):
+            # don't fail — the container is already prepared, so just point to the
+            # command printed above and stop here.
+            if not self.code_available:
+                console.print(
+                    f"   ⚠️  VS Code 'code' command not found here — container is ready, "
+                    "but VS Code can't be launched from this machine. "
+                    "Run the command above from a machine with VS Code installed."
+                )
+                return True
+
+            if ssh_host:
+                console.print(f"   🚀 Opening VS Code for: {dev_name} (via SSH: {ssh_host})")
+            else:
+                console.print(f"   🚀 Opening VS Code for: {dev_name}")
 
             # Set environment variables using shared function
             container_workspace_name = self.project.get_workspace_name(dev_name)
@@ -217,7 +275,7 @@ class VSCodeIntegration:
                 console.print(f"   ❌ Failed to launch {dev_name}: {e}")
                 continue
 
-        if success_count > 0:
+        if success_count > 0 and self.code_available:
             console.print("")
             console.print(f"💡 VS Code windows should open shortly with titles: '<dev-name> - {self.project.info.directory.name}'")
 

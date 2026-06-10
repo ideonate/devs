@@ -20,12 +20,32 @@ class TestVSCodeIntegration:
             assert integration.project == mock_project
 
     def test_init_vscode_not_found(self, mock_project):
-        """Test VSCodeIntegration when VS Code not found."""
+        """VSCodeIntegration is non-fatal when the 'code' command is missing.
+
+        On a headless remote dev box there may be no local 'code' command; we still
+        want to construct the integration (and later print the command) rather than
+        abort.
+        """
         with patch('subprocess.run') as mock_run:
             mock_run.side_effect = FileNotFoundError()
-            with pytest.raises(DependencyError) as exc_info:
-                VSCodeIntegration(mock_project)
-            assert "code" in str(exc_info.value)
+            integration = VSCodeIntegration(mock_project)
+            assert integration.code_available is False
+
+    def test_launch_devcontainer_prints_command_when_code_missing(self, mock_project):
+        """When 'code' is unavailable, launch prints the command and reports success."""
+        with patch('subprocess.run') as mock_run:
+            mock_run.side_effect = FileNotFoundError()
+            integration = VSCodeIntegration(mock_project)
+
+        with patch('subprocess.Popen') as mock_popen:
+            result = integration.launch_devcontainer(Path("/tmp/workspace"), "alice")
+
+        # Treated as handled, and no 'code' process was launched.
+        assert result is True
+        assert not any(
+            c.args and c.args[0] and c.args[0][0] == "code"
+            for c in mock_popen.call_args_list
+        )
 
     def test_generate_devcontainer_uri_attach(self, mock_project):
         """Test devcontainer URI generation for attaching to existing container."""
