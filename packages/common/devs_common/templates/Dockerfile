@@ -144,6 +144,18 @@ RUN ARCH=$(dpkg --print-architecture) && \
   rm /tmp/vscode-cli.tar.gz && \
   chmod +x /usr/local/bin/code
 
+# Install Tailscale (static binaries) so each devcontainer can join the tailnet
+# as its own node in userspace-networking mode — see scripts/start-tailscale.sh.
+# Pinned for reproducible builds; bump as needed.
+ARG TAILSCALE_VERSION=1.98.4
+RUN ARCH=$(dpkg --print-architecture) && \
+  curl -fSL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+    "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${ARCH}.tgz" -o /tmp/tailscale.tgz && \
+  tar -xzf /tmp/tailscale.tgz -C /tmp && \
+  mv "/tmp/tailscale_${TAILSCALE_VERSION}_${ARCH}/tailscale" "/tmp/tailscale_${TAILSCALE_VERSION}_${ARCH}/tailscaled" /usr/local/bin/ && \
+  rm -rf /tmp/tailscale.tgz "/tmp/tailscale_${TAILSCALE_VERSION}_${ARCH}" && \
+  chmod +x /usr/local/bin/tailscale /usr/local/bin/tailscaled
+
 # Set up environment variables and aliases for Claude and Codex
 RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
@@ -164,7 +176,8 @@ RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
 # Copy and set up scripts
 COPY scripts/ /usr/local/bin/
 COPY sudo-scripts/ /usr/local/bin/
-RUN chmod +x /usr/local/bin/*.sh /usr/local/bin/*.py
+RUN chmod +x /usr/local/bin/*.sh /usr/local/bin/*.py && \
+  ln -sf /usr/local/bin/ts.sh /usr/local/bin/ts
 COPY sudo-scripts/ /tmp/sudo-scripts-list/
 RUN echo "DEBUG: Files that need sudo:" && ls -la /tmp/sudo-scripts-list/ && \
   { echo "# Allow node user to run sudo scripts without password"; \

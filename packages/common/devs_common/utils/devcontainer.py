@@ -54,6 +54,9 @@ def prepare_devcontainer_environment(
         'DEVCONTAINER_NAME': dev_name,
         'GIT_REMOTE_URL': git_remote_url,
         'WORKSPACE_FOLDER_NAME': workspace_folder_name,
+        # org-repo form (e.g. "myorg-myapp"); used to build a tailnet
+        # hostname like <project>-<dev>, stable across live/copy modes.
+        'DEVS_PROJECT_NAME': project_name,
     })
     
     # Set environment mount path (uses project-specific if exists, else default)

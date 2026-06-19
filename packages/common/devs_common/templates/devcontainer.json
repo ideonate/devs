@@ -93,6 +93,8 @@
     "LC_ALL": "en_US.UTF-8",
     "GIT_REMOTE_URL": "${localEnv:GIT_REMOTE_URL}",
     "WORKSPACE_FOLDER_NAME": "${localEnv:WORKSPACE_FOLDER_NAME}",
+    "DEVCONTAINER_NAME": "${localEnv:DEVCONTAINER_NAME}",
+    "DEVS_PROJECT_NAME": "${localEnv:DEVS_PROJECT_NAME}",
     "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}",
     "DEVS_LIVE_MODE": "${localEnv:DEVS_LIVE_MODE}",
     "DEVS_ENV_MOUNT_PATH": "${localEnv:DEVS_ENV_MOUNT_PATH}",

@@ -37,6 +37,8 @@ run_step "setup-devs-env.sh" "/usr/local/bin/setup-devs-env.sh"
 #run_step "init-firewall.sh" "sudo /usr/local/bin/init-firewall.sh"
 run_step "setup-workspace.sh" "/usr/local/bin/setup-workspace.sh"
 run_step "start-services.sh" "sudo /usr/local/bin/start-services.sh"
+# Optional: join the tailnet + serve a port. Non-fatal — no auth key => no-op.
+run_step "start-tailscale.sh" "/usr/local/bin/start-tailscale.sh" || true
 
 # GitHub auth setup is optional, so handle it separately
 echo "📋 Running gh auth setup-git..."
