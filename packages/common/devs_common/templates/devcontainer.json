@@ -102,6 +102,7 @@
   },
   "workspaceFolder": "/workspaces/${localEnv:WORKSPACE_FOLDER_NAME}",
   "postCreateCommand": "/usr/local/bin/post-create-wrapper.sh",
+  "postStartCommand": "/usr/local/bin/post-start.sh",
   "forwardPorts": [],
   "portsAttributes": {
     "3306": {

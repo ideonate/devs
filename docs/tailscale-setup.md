@@ -120,6 +120,47 @@ ssh node@<project>-<dev>.<tailnet>.ts.net      # e.g. ssh node@myorg-myapp-alice
 ```
 or add a `Host` entry (`HostName …ts.net`, `User node`) and point VS Code Remote-SSH at it.
 
+## Split-DNS / MagicDNS hostname resolution
+
+Because containers join with `--accept-dns=false` (Tailscale never touches the system
+resolver), tailnet *routing* works but **DNS doesn't** — split-DNS hostnames configured
+on your tailnet (e.g. internal `*.example.com` zones, other nodes' `*.ts.net` names) fail
+to resolve even though their IPs are reachable. Symptom:
+
+```
+$ curl http://internal-app.example.com:9000/
+curl: (6) Could not resolve host: internal-app.example.com
+```
+
+The fix is wired into the template: `scripts/post-start.sh` (a `postStartCommand`
+orchestrator, gated on `TS_ENABLE`) calls the root helper `sudo-scripts/setup-magicdns.sh`,
+which **prepends the MagicDNS resolver `100.100.100.100` to `/etc/resolv.conf`** as the
+first nameserver, leaving the ISP/host nameservers below it.
+
+- It runs on **every start** (not `postCreate`) because Docker regenerates
+  `/etc/resolv.conf` each time the container starts.
+- MagicDNS answers the split-DNS + `ts.net` zones authoritatively; for any other name it
+  returns **SERVFAIL**, and glibc falls through to the next nameserver — so public DNS
+  (github.com, pip, npm, …) keeps working. This SERVFAIL-vs-NXDOMAIN behaviour is why
+  *prepend* is safe and why we do **not** use `--accept-dns=true` (which would make
+  MagicDNS SERVFAIL every non-tailnet name with no upstream to fall back to).
+- It's a no-op unless `tailscaled` is up, and idempotent (won't double-prepend).
+
+Tailnet-wide **Split DNS Routes** are an admin-console setting (DNS page), not something
+the container configures — `tailscale dns status` should list them.
+
+**Verify** (after a rebuild, since the sudoers entry is generated at image build):
+```bash
+getent hosts internal-app.example.com      # resolves to a 100.x tailnet IP
+cat /etc/resolv.conf                        # 100.100.100.100 first, ISP servers below
+getent hosts github.com                     # public DNS still works (SERVFAIL fallthrough)
+```
+
+To unblock an already-running container before rebuilding (ephemeral — gone on next start):
+```bash
+sudo sed -i '1i nameserver 100.100.100.100' /etc/resolv.conf
+```
+
 ## Notes & troubleshooting
 
 - **Funnel is off by default** and double-gated: only fires with `TS_FUNNEL=1` *and* a `funnel`

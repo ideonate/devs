@@ -380,6 +380,28 @@ devs vscode sally --ssh myhost.tailnet.ts.net
 > SSH **keys** into the workspace (`packages/common/devs_common/core/workspace.py`). That
 > is about credentials inside the container and has nothing to do with the `--ssh` flag.
 
+### Tailscale Split-DNS / MagicDNS Resolution
+
+Containers join the tailnet with `--accept-dns=false` (see
+`templates/scripts/start-tailscale.sh`), so Tailscale never edits the system resolver:
+tailnet *routing* works but tailnet **DNS** (split-DNS zones, other nodes' `*.ts.net`
+names) fails to resolve — `curl: (6) Could not resolve host`. The template fixes this by
+**prepending the MagicDNS resolver `100.100.100.100`** as the first nameserver in
+`/etc/resolv.conf`, leaving the ISP servers below it (MagicDNS SERVFAILs unknown names and
+glibc falls through, so public DNS still works — this is why we prepend rather than use
+`--accept-dns=true`).
+
+- **`templates/scripts/post-start.sh`** — unprivileged `postStartCommand` orchestrator;
+  sources the devs env file and gates on `TS_ENABLE`, then calls the root helper.
+- **`templates/sudo-scripts/setup-magicdns.sh`** — root NOPASSWD helper that does the
+  in-place prepend (idempotent; no-op unless `tailscaled` is up).
+- Wired via `postStartCommand` (not `postCreate`) because Docker regenerates
+  `/etc/resolv.conf` on **every** container start, so the prepend must re-run each start.
+- The NOPASSWD sudoers entry is auto-generated from `sudo-scripts/` at **image build**, so
+  the helper only becomes runnable after a devcontainer **rebuild**.
+
+Full rationale and verification steps are in `docs/tailscale-setup.md`.
+
 ### Example Workflow
 
 ```bash
