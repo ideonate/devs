@@ -422,6 +422,34 @@ class ContainerManager:
             
             raise ContainerError(f"Failed to ensure container running for {dev_name}: {e}")
     
+    def _deregister_tailnet_node(self, container_name: str, container_id: str) -> None:
+        """Best-effort tailnet cleanup when a container is destroyed (not just stopped).
+
+        Ephemeral Tailscale nodes auto-reap when the container stops, but that lags a
+        few minutes — long enough that an immediate recreate gets a clash-suffixed name
+        (…-eamonn-1). A graceful ``tailscale logout`` while the container is STILL UP
+        deregisters the node now, freeing the name for reuse. Then prune the writeback
+        handshake file start-tailscale.sh left in the env mount (nothing else reaps it;
+        the ``devs vscode`` resolver only reads files for containers that still exist, so
+        a missed prune is self-correcting). Never raises — teardown must not be blocked
+        by tailnet cleanup, and non-tailnet containers simply no-op here.
+        """
+        # 1. Graceful logout while the daemon is still alive (frees the tailnet name now).
+        try:
+            self.docker.exec_command(container_name, "sudo -n /usr/local/bin/ts-cli.sh logout")
+        except Exception:
+            pass  # no tailscale in this container / daemon down / exec unavailable
+
+        # 2. Prune the handshake file (keyed by the container's short id == its hostname).
+        try:
+            nodes_dir = get_env_mount_path(self.project.info.name) / "ts-nodes"
+            if nodes_dir.is_dir():
+                for handshake in nodes_dir.glob("*.json"):
+                    if container_id and container_id.startswith(handshake.stem):
+                        handshake.unlink()
+        except Exception:
+            pass
+
     def stop_container(self, dev_name: str, remove: bool = True) -> bool:
         """Stop a container by labels, optionally removing it.
 
@@ -441,6 +469,11 @@ class ContainerManager:
             if existing_containers:
                 for container_info in existing_containers:
                     container_name = container_info['name']
+
+                    if remove:
+                        # Free the tailnet node + handshake BEFORE stopping — logout
+                        # needs the container's tailscaled still running.
+                        self._deregister_tailnet_node(container_name, container_info.get('id', ''))
 
                     try:
                         self.docker.stop_container(container_name)
@@ -600,7 +633,10 @@ class ContainerManager:
         for container in containers:
             try:
                 console.print(f"   🗑️  Removing aborted container: {container.name} ({container.status})")
-                
+
+                # Best-effort tailnet cleanup (logout if still up + prune handshake file).
+                self._deregister_tailnet_node(container.name, container.container_id or '')
+
                 # Stop container first if it's running
                 if container.status.lower() in ['running', 'restarting']:
                     console.print(f"   🛑 Stopping running container: {container.name}")
