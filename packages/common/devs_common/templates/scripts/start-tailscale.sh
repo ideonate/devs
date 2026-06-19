@@ -93,6 +93,29 @@ dnsname=$("${TS[@]}" status --json 2>/dev/null | jq -r '.Self.DNSName // empty' 
 echo "✅ On tailnet as: ${dnsname:-$HOSTNAME_TS}"
 [ -n "$SSH_ON" ] && echo "🔑 Tailscale SSH on — connect with: ssh node@${dnsname:-$HOSTNAME_TS}"
 
+# Writeback handshake: record this node's resolved tailnet identity into the
+# host-shared env mount (a rw bind mount), keyed by our docker container id (the
+# container's $HOSTNAME, which `docker inspect --format '{{.Config.Hostname}}'`
+# returns on the host). Lets `devs vscode` join container -> tailnet node by
+# container id with a cheap `docker inspect` (no `docker exec`) and use the REAL
+# resolved name — immune to tailnet clash-suffixing (…-eamonn-1) and TS_HOSTNAME
+# overrides. Pruned by `devs clean`; stale files are simply never read.
+if [ -n "${dnsname:-}" ] && [ -d /home/node/.devs-env ]; then
+  cid="${HOSTNAME:-$(hostname 2>/dev/null)}"
+  ssh_flag=false; [ -n "$SSH_ON" ] && ssh_flag=true
+  nodes_dir=/home/node/.devs-env/ts-nodes
+  if mkdir -p "$nodes_dir" 2>/dev/null && \
+     jq -n --arg dnsname "$dnsname" --arg short "${dnsname%%.*}" \
+           --arg container_id "$cid" --arg dev "${DEVCONTAINER_NAME:-}" \
+           --argjson ssh "$ssh_flag" \
+       '{dnsname:$dnsname, short:$short, container_id:$container_id, dev:$dev, ssh:$ssh}' \
+       > "$nodes_dir/$cid.json" 2>/dev/null; then
+    echo "📝 Tailnet handshake → .devs-env/ts-nodes/$cid.json"
+  else
+    echo "⚠️  Could not write tailnet handshake file (continuing)."
+  fi
+fi
+
 # Optionally publish a port.
 if [ -n "${TS_SERVE_PORT:-}" ]; then
   case "${TS_FUNNEL:-}" in

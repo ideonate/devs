@@ -11,6 +11,7 @@ from rich.console import Console
 
 from ..exceptions import VSCodeError
 from devs_common.core.project import Project
+from devs_common.utils.config_hash import get_env_mount_path
 from devs_common.utils.devcontainer import prepare_devcontainer_environment
 
 console = Console()
@@ -51,6 +52,41 @@ class VSCodeIntegration:
         except FileNotFoundError:
             return False
     
+    def resolve_tailnet_ssh_host(self, dev_name: str) -> Optional[str]:
+        """Discover a container's own tailnet SSH name via the writeback handshake.
+
+        Joins docker <-> tailnet by docker container id, WITHOUT `docker exec`:
+        ``docker inspect`` the container for its hostname (== its short container id,
+        == the ``$HOSTNAME`` start-tailscale.sh keyed its handshake file by), then read
+        that file out of the host-shared env mount. Returns the short MagicDNS name
+        (e.g. ``devs-acme-app-eamonn-1``) only when the container is up AND Tailscale
+        SSH is on; otherwise None (caller falls back to local mode).
+        """
+        container_name = self.project.get_container_name(dev_name)
+        try:
+            inspect = subprocess.run(
+                ["docker", "inspect", "--format", "{{.Config.Hostname}}", container_name],
+                capture_output=True, text=True, check=False,
+            )
+        except FileNotFoundError:
+            return None  # no docker here
+        if inspect.returncode != 0:
+            return None  # container doesn't exist / not inspectable
+        container_id = inspect.stdout.strip()
+        if not container_id:
+            return None
+
+        handshake = get_env_mount_path(self.project.info.name) / "ts-nodes" / f"{container_id}.json"
+        if not handshake.exists():
+            return None
+        try:
+            data = json.loads(handshake.read_text())
+        except (OSError, ValueError):
+            return None
+        if not data.get("ssh"):
+            return None  # on the tailnet but not accepting SSH
+        return data.get("short") or None
+
     def generate_devcontainer_uri(
         self,
         workspace_dir: Path,
@@ -66,38 +102,34 @@ class VSCodeIntegration:
             dev_name: Development environment name
             live: Whether to use live mode (mount current directory)
             attach_to_existing: Whether to attach to existing container (vs create new one)
-            ssh_host: If set, generate a Remote-SSH + attached-container URI for this host.
-                      The host can be a Tailscale MagicDNS name or any SSH-reachable hostname.
+            ssh_host: If set, generate a plain Remote-SSH folder URI for this host.
+                      In the devs+Tailscale model the container IS its own SSH host
+                      (you SSH straight into it — there's no separate Docker daemon to
+                      attach through), so this is NOT an attached-container URI.
 
         Returns:
             VS Code devcontainer URI
         """
+        # IMPORTANT: In live mode, use the actual host folder name because devcontainer CLI
+        # mounts the host directory directly and VS Code must match that path.
+        workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
+
+        if ssh_host:
+            # Direct Remote-SSH INTO the container. With Tailscale the container is its
+            # own tailnet node running Tailscale SSH, so VS Code opens the in-container
+            # workspace folder over SSH — no Docker host, no attach. Wrapping this in an
+            # attached-container URI would make VS Code SSH in and then hunt for a Docker
+            # daemon that isn't there.
+            return f"vscode-remote://ssh-remote+{ssh_host}/workspaces/{workspace_name}"
+
         if attach_to_existing:
             container_name = self.project.get_container_name(dev_name)
-            workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
+            container_hex = container_name.encode("utf-8").hex()
+            return f"vscode-remote://attached-container+{container_hex}/workspaces/{workspace_name}"
 
-            if ssh_host:
-                # JSON-encoded container info that includes the SSH host so VS Code's
-                # Dev Containers extension connects through Remote-SSH first.
-                # Container name is prefixed with "/" as Docker returns it in Names field.
-                container_info = {
-                    "containerName": f"/{container_name}",
-                    "settings": {"host": f"ssh://{ssh_host}"},
-                }
-                container_hex = json.dumps(container_info, separators=(",", ":")).encode("utf-8").hex()
-            else:
-                container_hex = container_name.encode("utf-8").hex()
-
-            vscode_uri = f"vscode-remote://attached-container+{container_hex}/workspaces/{workspace_name}"
-        else:
-            # Original behavior: create new container from devcontainer.json
-            workspace_hex = workspace_dir.as_posix().encode("utf-8").hex()
-            # IMPORTANT: In live mode, use the actual host folder name because devcontainer CLI
-            # mounts the host directory directly and VS Code must match that path.
-            workspace_name = workspace_dir.name if live else self.project.get_workspace_name(dev_name)
-            vscode_uri = f"vscode-remote://dev-container+{workspace_hex}/workspaces/{workspace_name}"
-
-        return vscode_uri
+        # Create new container from devcontainer.json
+        workspace_hex = workspace_dir.as_posix().encode("utf-8").hex()
+        return f"vscode-remote://dev-container+{workspace_hex}/workspaces/{workspace_name}"
 
     def _format_code_command(
         self,
@@ -129,15 +161,17 @@ class VSCodeIntegration:
         new_window: bool,
         ssh_host: Optional[str],
     ) -> None:
-        """Print the 'code' command(s) for this container.
+        """Print the 'code' command for this container.
 
-        Always prints the plain (non-SSH) command. When an SSH host is set, the SSH
-        form is printed too, so you can copy whichever matches where you're running it.
+        When an SSH host is set we print only the Remote-SSH command (the plain
+        attached-container command wouldn't work from another machine and is just
+        noise). Otherwise we print the local attached-container command.
         """
         if ssh_host:
             ssh_cmd = self._format_code_command(workspace_dir, dev_name, live, new_window, ssh_host)
-            console.print(f"   📋 VS Code command (via SSH: {ssh_host}):")
+            console.print(f"   📋 VS Code command (Remote-SSH: {ssh_host}):")
             console.print(f"      {ssh_cmd}")
+            return
 
         plain_cmd = self._format_code_command(workspace_dir, dev_name, live, new_window, None)
         console.print(f"   📋 VS Code command:")
@@ -244,6 +278,7 @@ class VSCodeIntegration:
         delay_between_windows: float = 2.0,
         live: bool = False,
         ssh_host: Optional[str] = None,
+        ssh_hosts: Optional[dict] = None,
     ) -> int:
         """Launch multiple devcontainers in separate VS Code windows.
 
@@ -252,7 +287,10 @@ class VSCodeIntegration:
             dev_names: List of development environment names
             delay_between_windows: Delay between opening windows (seconds)
             live: Whether to use live mode (mount current directory)
-            ssh_host: If set, connect via Remote-SSH to this host then attach to each container.
+            ssh_host: If set, connect every dev via direct Remote-SSH to this host.
+            ssh_hosts: Optional per-dev override mapping ``dev_name -> ssh host``
+                (each container is its own tailnet host, so they differ). Falls back
+                to ``ssh_host`` for any dev not present in the map.
 
         Returns:
             Number of successfully launched windows
@@ -260,10 +298,11 @@ class VSCodeIntegration:
         if len(workspace_dirs) != len(dev_names):
             raise VSCodeError("Workspace directories and dev names lists must have same length")
 
-        if ssh_host:
+        ssh_hosts = ssh_hosts or {}
+        if ssh_host or ssh_hosts:
             console.print(
                 f"📂 Opening {len(dev_names)} devcontainers in VS Code "
-                f"(via SSH: {ssh_host}) for project: {self.project.info.name}"
+                f"(via Remote-SSH) for project: {self.project.info.name}"
             )
         else:
             console.print(f"📂 Opening {len(dev_names)} devcontainers in VS Code for project: {self.project.info.name}")
@@ -271,9 +310,10 @@ class VSCodeIntegration:
         success_count = 0
 
         for workspace_dir, dev_name in zip(workspace_dirs, dev_names):
+            host = ssh_hosts.get(dev_name, ssh_host)
             try:
                 if self.launch_devcontainer(
-                    workspace_dir, dev_name, new_window=True, live=live, ssh_host=ssh_host
+                    workspace_dir, dev_name, new_window=True, live=live, ssh_host=host
                 ):
                     success_count += 1
 
