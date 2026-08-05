@@ -1,7 +1,8 @@
 #!/bin/bash
 # Join this devcontainer to the user's tailnet as its own node, and optionally
-# publish a port over HTTPS (serve/funnel) and/or accept Tailscale SSH. Invoked
-# (as the node user) from post-create-wrapper.sh. Safe no-op unless TS_ENABLE=1.
+# publish a port over HTTPS (serve/funnel) and/or accept Tailscale SSH. Invoked (as
+# the node user) from post-create-wrapper.sh and post-start.sh — the latter so the
+# node comes back after a restart. Safe no-op unless TS_ENABLE=1.
 #
 # This orchestrator runs unprivileged and does the env/gating/hostname logic; the
 # privileged bits go through root sudo-scripts (start-tailscaled.sh / ts-cli.sh),
@@ -16,8 +17,21 @@
 #                  "1"/"true"/"yes". A key alone does NOT enable Tailscale, so an
 #                  auth key can live in the shared default .env harmlessly until a
 #                  given project sets TS_ENABLE=1.
-#   TS_AUTHKEY     (required when enabled) ephemeral, tagged auth key from the
-#                  Tailscale admin console. Enabled but no key => warn + exit 0.
+#   TS_AUTHKEY     PREFERRED key: a reusable, tagged, NON-ephemeral key from the
+#                  Tailscale admin console. Non-ephemeral is deliberate — the node
+#                  survives going offline (WAN blip / host sleep) and just reconnects,
+#                  so you can rely on SSH-ing into it. (An *ephemeral* node is instead
+#                  garbage-collected by the control plane shortly after it disconnects;
+#                  if that happens while the container keeps running, tailscaled wedges
+#                  retrying a dead node key — "PollNetMap: initial fetch failed 404:
+#                  node not found" — until the next bring-up.)
+#   TS_AUTHKEY_EPHEMERAL
+#                  FALLBACK key, used only when TS_AUTHKEY is unset: a reusable,
+#                  tagged, EPHEMERAL key. Gives a throwaway node that auto-cleans when
+#                  the container goes away (no stale-node clutter), accepting the
+#                  mid-life-GC caveat above. Natural home: the shared default .env, so
+#                  any container still joins the tailnet even without a per-project
+#                  stable key. With NEITHER set (and TS_ENABLE=1) => warn + exit 0.
 #   TS_HOSTNAME    tailnet hostname. Default: <DEVS_PROJECT_NAME>-<DEVCONTAINER_NAME>
 #                  (e.g. myorg-myapp-alice) -> <name>.<tailnet>.ts.net.
 #                  Dev name alone isn't unique across projects, hence the prefix.
@@ -46,9 +60,18 @@ case "${TS_ENABLE:-}" in
     exit 0 ;;
 esac
 
-if [ -z "${TS_AUTHKEY:-}" ]; then
-  echo "⚠️  TS_ENABLE is set but TS_AUTHKEY is missing — skipping Tailscale."
-  echo "    Add an ephemeral, tagged key to a mounted .env (e.g. ~/.devs/envs/default/.env)."
+# Pick the auth key: prefer the stable (non-ephemeral) TS_AUTHKEY; fall back to an
+# ephemeral throwaway key. KEY_MODE is just for logging — the node's actual
+# ephemerality is baked into whichever key was minted, not set here.
+if [ -n "${TS_AUTHKEY:-}" ]; then
+  AUTHKEY="$TS_AUTHKEY"; KEY_MODE="stable (non-ephemeral)"
+elif [ -n "${TS_AUTHKEY_EPHEMERAL:-}" ]; then
+  AUTHKEY="$TS_AUTHKEY_EPHEMERAL"; KEY_MODE="ephemeral (fallback)"
+else
+  echo "⚠️  TS_ENABLE is set but no key found — skipping Tailscale."
+  echo "    Set TS_AUTHKEY (reusable, tagged, non-ephemeral) for a stable node,"
+  echo "    or TS_AUTHKEY_EPHEMERAL (reusable, tagged, ephemeral) for a throwaway one,"
+  echo "    in a mounted .env (e.g. ~/.devs/envs/default/.env)."
   exit 0
 fi
 
@@ -79,11 +102,11 @@ TAGS="${TS_TAGS:-tag:devcontainer}"
 echo "🔌 Ensuring tailscaled is running (userspace networking, root)…"
 sudo -n /usr/local/bin/start-tailscaled.sh
 
-up_args=(--authkey="$TS_AUTHKEY" --hostname="$HOSTNAME_TS"
+up_args=(--authkey="$AUTHKEY" --hostname="$HOSTNAME_TS"
          --advertise-tags="$TAGS" --accept-dns=false --accept-routes=false)
 [ -n "$SSH_ON" ] && up_args+=(--ssh)
 
-echo "🔗 tailscale up as '$HOSTNAME_TS' (tags: $TAGS${SSH_ON:+, ssh})…"
+echo "🔗 tailscale up as '$HOSTNAME_TS' [$KEY_MODE] (tags: $TAGS${SSH_ON:+, ssh})…"
 if ! "${TS[@]}" up "${up_args[@]}"; then
   echo "⚠️  tailscale up failed — see /var/log/tailscaled.log. Container continues without Tailscale."
   exit 0
