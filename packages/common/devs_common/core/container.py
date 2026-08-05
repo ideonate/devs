@@ -942,10 +942,11 @@ class ContainerManager:
         return self.exec_command(
             dev_name=dev_name,
             workspace_dir=workspace_dir,
-            # `--full-auto` was removed from the Codex CLI; these two flags are the
-            # current spelling of what it did (write inside the workspace, never stop
-            # to ask). Passing the old flag now aborts with "unexpected argument".
-            command="codex --sandbox workspace-write --ask-for-approval never",
+            # `--full-auto` was removed from the Codex CLI (passing it now aborts with
+            # "unexpected argument"). This is the flag Codex intends for externally
+            # sandboxed environments, which a devcontainer is — and it matches the
+            # `claude --dangerously-skip-permissions` alias sitting beside it.
+            command="codex --dangerously-bypass-approvals-and-sandbox",
             stdin_input=prompt,
             debug=debug,
             stream=stream,
