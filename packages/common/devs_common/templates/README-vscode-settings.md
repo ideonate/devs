@@ -30,6 +30,10 @@ unset; the profile is always defined.
 
 ### Notes on the tmux settings
 
+- The profile's args are a bare `new-session` — deliberately **not** `new-session -A -s
+  <name>`. The `-A` form attaches to the named session if it exists, so every "New
+  Terminal" lands you back in the *same* session instead of opening a new one. Reattaching
+  to existing sessions is the auto-reattach extension's job, not the profile's.
 - `~/.tmux.conf` (written in the Dockerfile) sets `mouse on`, 50k scrollback, and
   `set-titles` so tab titles show the running command. Existing sessions keep their old
   config — `tmux source-file ~/.tmux.conf` then start a new session, or `tmux kill-server`.

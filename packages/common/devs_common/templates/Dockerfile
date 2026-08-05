@@ -145,8 +145,10 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 # Install Claude CLI via native installer
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-# Install OpenAI Codex CLI
-RUN npm install -g @openai/codex
+# Install OpenAI Codex CLI. Pinned: an unpinned install silently followed upstream
+# flag changes, which is how the old `--full-auto` alias below ended up broken.
+ARG CODEX_CLI_VERSION=0.144.6
+RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}"
 
 # Install cloudflared for tunnel support (proxies all HTTP methods correctly)
 # Install VS Code CLI for tunnel support (needs root for /usr/local/bin)
@@ -184,7 +186,8 @@ RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export CODEX_CONFIG_HOME=\"/home/node/codexconfig\"" >> "$shell_rc" && \
   echo "export PATH=\"/home/node/.local/bin:\$PATH\"" >> "$shell_rc" && \
   echo "alias claude=\"claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
-  echo "alias codex=\"/usr/local/share/npm-global/bin/codex --full-auto\"" >> "$shell_rc" && \
+  echo "alias codex=\"/usr/local/share/npm-global/bin/codex --dangerously-bypass-approvals-and-sandbox\"" >> "$shell_rc" && \
+  echo "alias codex-normal=\"/usr/local/share/npm-global/bin/codex\"" >> "$shell_rc" && \
   echo "" >> "$shell_rc" && \
   echo "# Auto-activate Python venv if it exists" >> "$shell_rc" && \
   echo "if [ -f /home/node/.devs-venv/workspace-venv/bin/activate ]; then" >> "$shell_rc" && \

@@ -45,8 +45,7 @@
     },
     "tmux": {
       "path": "tmux",
-      "args": ["new-session", "-A", "-s", "main"],
-      "icon": "terminal-tmux"
+      "args": ["new-session"]
     }
   },
   "terminal.integrated.macOptionClickForcesSelection": true,
