@@ -392,7 +392,8 @@ glibc falls through, so public DNS still works — this is why we prepend rather
 `--accept-dns=true`).
 
 - **`templates/scripts/post-start.sh`** — unprivileged `postStartCommand` orchestrator;
-  sources the devs env file and gates on `TS_ENABLE`, then calls the root helper.
+  deploys VS Code settings, then sources the devs env file, gates on `TS_ENABLE`, re-runs
+  `start-tailscale.sh` and calls the root MagicDNS helper.
 - **`templates/sudo-scripts/setup-magicdns.sh`** — root NOPASSWD helper that does the
   in-place prepend (idempotent; no-op unless `tailscaled` is up).
 - Wired via `postStartCommand` (not `postCreate`) because Docker regenerates
@@ -401,6 +402,41 @@ glibc falls through, so public DNS still works — this is why we prepend rather
   the helper only becomes runnable after a devcontainer **rebuild**.
 
 Full rationale and verification steps are in `docs/tailscale-setup.md`.
+
+`postStartCommand` is a devcontainer-CLI concept — a plain `docker start` skips it. Since
+`ContainerManager` resumes an already-built container with the raw Docker API,
+`_run_post_start()` (`packages/common/devs_common/core/container.py`) execs the script
+itself after those starts, so the restart path behaves the same as `devcontainer up`.
+
+### VS Code Settings & tmux
+
+VS Code settings live in `templates/machine-settings.json`, baked into the image at
+`~/.vscode-server/data/Machine/settings.json` — **not** in `devcontainer.json` under
+`customizations.vscode.settings`. That block is applied by the Dev Containers extension
+only, so a Remote-SSH connection (how you reach a container over Tailscale SSH) got neither
+settings nor extensions. Don't reintroduce a `settings` block in `devcontainer.json`: the
+Dev Containers extension writes it over the same machine-settings file and the two drift.
+
+For the same reason, `ideonate.vscode-tmux-auto-reattach` and `ideonate.devs-bridge-drop`
+are unzipped into the image from the Marketplace at build time and registered via
+`templates/register-vscode-extensions.js`, which writes the `extensions.json` registry VS
+Code trusts instead of scanning the directory. They remain in `devcontainer.json`'s
+extensions array too, for the Dev Containers path.
+
+**tmux is opt-in and off by default.** The base settings define a `tmux` terminal profile
+(so it's always available from the dropdown) but leave the default profile as `zsh` and
+`tmuxAutoReattach.runOnStartup` as `false`. Setting `DEVS_TMUX=1` makes
+`templates/scripts/setup-vscode-settings.sh` merge `machine-settings.tmux.json` over the
+base at container start — flipping the default profile to tmux, enabling auto-reattach,
+`tabs.title: ${sequence}` and disabling persistent terminal sessions. Unsetting it reverts
+on the next start; neither direction needs a rebuild.
+
+`DEVS_TMUX` can come from `DEVS.yml` `env_vars:`, `devs start … --env DEVS_TMUX=1`, or the
+mounted `~/.devs/envs/<project>/.env`. The first two ride in via `remoteEnv`, which is
+fixed at container creation — changing them takes effect only on a recreate. The `.env`
+route is a bind mount the script sources at each start, so it works on a plain restart.
+
+Details and the tmux-specific gotchas are in `templates/README-vscode-settings.md`.
 
 ### Example Workflow
 
@@ -477,6 +513,9 @@ flake8 devs tests      # Linting
 - `DEVS_PROJECT_PREFIX`: Container name prefix (default: `dev`)
 - `DEVS_CLAUDE_CONFIG_DIR`: Claude config directory (default: `~/.devs/claudeconfig`)
 - `DEVS_CODEX_CONFIG_DIR`: Codex config directory (default: `~/.devs/codexconfig`)
+- `DEVS_TMUX`: Opt-in (`1`/`true`/`yes`) — make tmux the default terminal profile in the
+  container and auto-reattach sessions on window load. **Off by default.** See "VS Code
+  settings & tmux" below.
 
 #### GitHub Integration
 

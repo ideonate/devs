@@ -22,55 +22,14 @@
         "ms-python.black-formatter",
         "ms-python.isort",
         "Anthropic.claude-code",
-        "ideonate.devs-bridge-drop"
-      ],
-      "settings": {
-        "editor.formatOnSave": false,
-        "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "editor.codeActionsOnSave": {
-          "source.fixAll.eslint": "explicit"
-        },
-        "editor.detectIndentation": false,
-        "editor.insertSpaces": true,
-        "editor.tabSize": 2,
-        "[python]": {
-          "editor.formatOnSave": true,
-          "editor.formatOnType": true,
-          "editor.tabSize": 4,
-          "editor.codeActionsOnSave": {
-            "source.organizeImports": "never"
-          }
-        },
-        "python.defaultInterpreterPath": "/home/node/.devs-venv/workspace-venv/bin/python",
-        "python.terminal.activateEnvironment": true,
-        "python.interpreter.infoVisibility": "never",
-        "python.venvFolders": [".devs-venv"],
-        "python.languageServer": "Pylance",
-        "python.analysis.typeCheckingMode": "off",
-        "python.analysis.autoImportCompletions": true,
-        "python.analysis.diagnosticSeverityOverrides": {
-          "reportUnusedImport": "information",
-          "reportUnusedVariable": "information"
-        },
-        "pylint.enabled": false,
-        "gitlens.mode": "zen",
-        "python.analysis.diagnosticMode": "openFilesOnly",
-        "settingsSync.ignoredExtensions": [],
-        "settingsSync.keybindingsPerPlatform": false,
-        "extensions.autoCheckUpdates": false,
-        "extensions.autoUpdate": false,
-        "extensions.ignoreRecommendations": true,
-        "terminal.integrated.defaultProfile.linux": "zsh",
-        "terminal.integrated.profiles.linux": {
-          "bash": {
-            "path": "bash",
-            "icon": "terminal-bash"
-          },
-          "zsh": {
-            "path": "zsh"
-          }
-        }
-      }
+        "ideonate.devs-bridge-drop",
+        "ideonate.vscode-tmux-auto-reattach"
+      ]
+      // VS Code settings live in .devcontainer/machine-settings.json — baked into
+      // the image via Dockerfile so they apply for both Dev Containers and SSH
+      // remote (Tailscale SSH never reads devcontainer.json). Don't add a
+      // "settings" block back here: the Dev Containers extension writes it over
+      // the same machine-settings file, and the two would drift.
     }
   },
   "remoteUser": "node",
@@ -84,7 +43,11 @@
     // "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-extensions,target=/home/node/.vscode-server/extensions,type=volume",
     // .vscode-server includes extension state which we don't want to keep
     // "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-data,target=/home/node/.vscode-server,type=volume",
-    "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-downloads,target=/home/node/.vscode-extensions-cache-volume,type=volume"
+    "source=${localEnv:WORKSPACE_FOLDER_NAME}-vscode-downloads,target=/home/node/.vscode-extensions-cache-volume,type=volume",
+    // Persist the tailnet node identity so the container keeps one stable 100.x
+    // and hostname across rebuilds — otherwise every rebuild mints a new node and
+    // your saved VS Code SSH host stops resolving.
+    "source=${localEnv:WORKSPACE_FOLDER_NAME}-tailscale-state,target=/var/lib/tailscale,type=volume"
   ],
   "remoteEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",
@@ -97,6 +60,9 @@
     "DEVS_PROJECT_NAME": "${localEnv:DEVS_PROJECT_NAME}",
     "DEVS_DEBUG": "${localEnv:DEVS_DEBUG}",
     "DEVS_LIVE_MODE": "${localEnv:DEVS_LIVE_MODE}",
+    // Opt-in: makes tmux the default terminal profile and enables auto-reattach.
+    // Off unless set to 1/true/yes — see scripts/setup-vscode-settings.sh.
+    "DEVS_TMUX": "${localEnv:DEVS_TMUX}",
     "DEVS_ENV_MOUNT_PATH": "${localEnv:DEVS_ENV_MOUNT_PATH}",
     "DEVS_BRIDGE_MOUNT_PATH": "${localEnv:DEVS_BRIDGE_MOUNT_PATH}"
   },

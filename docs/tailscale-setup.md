@@ -36,7 +36,9 @@ Do these once, **in order** (the key dialog won't offer the tag until the ACL is
 2. **Enable HTTPS + MagicDNS** for the tailnet (DNS page) — required for `tailscale serve`.
 3. **Generate an auth key** — Settings → Keys → **Generate auth key** (the *Auth keys* section,
    **not** *API access tokens*):
-   - **Reusable** ✓ · **Ephemeral** ✓ (stopped containers auto-drop off the tailnet)
+   - **Reusable** ✓ · **Ephemeral** ✗ — a non-ephemeral node survives disconnects, which is
+     what `TS_AUTHKEY` wants (see Configuration below). Mint a second, *ephemeral* key for
+     `TS_AUTHKEY_EPHEMERAL` if you also want throwaway nodes that auto-drop off the tailnet.
    - **Tags:** `tag:devcontainer`
    - Copy the **`tskey-auth-…`** value (shown once).
 
@@ -50,12 +52,24 @@ Do these once, **in order** (the key dialog won't offer the tag until the ACL is
 | Var | Purpose | Default |
 |-----|---------|---------|
 | `TS_ENABLE` | master switch, opt-in (`1`/`true`/`yes`) | off |
-| `TS_AUTHKEY` | the `tskey-auth-…` key (required when enabled) | — |
+| `TS_AUTHKEY` | preferred `tskey-auth-…` key: reusable, tagged, **non-ephemeral** | — |
+| `TS_AUTHKEY_EPHEMERAL` | fallback key used only when `TS_AUTHKEY` is unset: reusable, tagged, **ephemeral** | — |
 | `TS_HOSTNAME` | tailnet node name → `<name>.<tailnet>.ts.net` | `<project>-<dev>` |
 | `TS_TAGS` | advertised ACL tags | `tag:devcontainer` |
 | `TS_SERVE_PORT` | local port to auto-publish over HTTPS | unset (none) |
 | `TS_FUNNEL` | `1` ⇒ expose `TS_SERVE_PORT` to the **public internet** instead of tailnet-only | off |
 | `TS_SSH` | `1` ⇒ accept Tailscale SSH into the container (see below) | off |
+
+Prefer a **non-ephemeral** key. An ephemeral node is garbage-collected by the control plane
+shortly after it disconnects; if that happens while the container keeps running, `tailscaled`
+wedges retrying a dead node key (*"PollNetMap: initial fetch failed 404: node not found"*)
+until the next bring-up. `TS_AUTHKEY_EPHEMERAL` exists for the throwaway case — a natural
+home is the shared `default/.env` so any container still joins the tailnet without a
+per-project stable key. With neither set (and `TS_ENABLE=1`), the bring-up warns and no-ops.
+
+The container's `/var/lib/tailscale` is a named volume (`<workspace>-tailscale-state`), so the
+node keeps one identity and 100.x address across rebuilds — a saved VS Code SSH host stays
+valid. Note `devs clean` logs the node out but does not delete that volume.
 
 **Where to put them** (devs reads both; split by secrecy):
 
@@ -133,12 +147,18 @@ curl: (6) Could not resolve host: internal-app.example.com
 ```
 
 The fix is wired into the template: `scripts/post-start.sh` (a `postStartCommand`
-orchestrator, gated on `TS_ENABLE`) calls the root helper `sudo-scripts/setup-magicdns.sh`,
+orchestrator, gated on `TS_ENABLE`) re-runs `start-tailscale.sh` and then calls the root
+helper `sudo-scripts/setup-magicdns.sh`,
 which **prepends the MagicDNS resolver `100.100.100.100` to `/etc/resolv.conf`** as the
 first nameserver, leaving the ISP/host nameservers below it.
 
 - It runs on **every start** (not `postCreate`) because Docker regenerates
-  `/etc/resolv.conf` each time the container starts.
+  `/etc/resolv.conf` each time the container starts. The same hook re-joins the tailnet:
+  a host reboot or `docker start` re-runs only PID 1, so `tailscaled` and the node (and
+  Tailscale SSH) would otherwise be gone until the next rebuild. `start-tailscaled.sh`
+  probes for a live daemon rather than trusting the socket file — the socket survives on
+  the writable layer, and a stale one used to make every `tailscale up` fail after a
+  restart.
 - MagicDNS answers the split-DNS + `ts.net` zones authoritatively; for any other name it
   returns **SERVFAIL**, and glibc falls through to the next nameserver — so public DNS
   (github.com, pip, npm, …) keeps working. This SERVFAIL-vs-NXDOMAIN behaviour is why

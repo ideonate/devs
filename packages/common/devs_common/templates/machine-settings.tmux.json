@@ -1,0 +1,6 @@
+{
+  "terminal.integrated.defaultProfile.linux": "tmux",
+  "tmuxAutoReattach.runOnStartup": true,
+  "terminal.integrated.tabs.title": "${sequence}",
+  "terminal.integrated.enablePersistentSessions": false
+}

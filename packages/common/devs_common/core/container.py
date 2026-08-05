@@ -332,6 +332,7 @@ class ContainerManager:
                     # Container exists but not running with matching config, just restart it
                     console.print(f"   🔄 Restarting stopped container...")
                     self.docker.start_container(existing_container['name'])
+                    self._run_post_start(existing_container['name'])
                     console.print(f"   ✅ Container restarted successfully")
                     return True
             else:
@@ -422,6 +423,22 @@ class ContainerManager:
             
             raise ContainerError(f"Failed to ensure container running for {dev_name}: {e}")
     
+    def _run_post_start(self, container_name: str) -> None:
+        """Run the container's postStart hook after a raw Docker start.
+
+        ``postStartCommand`` is a devcontainer-CLI concept: it fires on ``devcontainer
+        up`` and on a Dev Containers attach, but a plain ``docker start`` (which is how
+        we resume an already-built container) runs only PID 1 and skips it entirely.
+        Without this the hook's whole point is lost on the commonest restart path —
+        tailscaled and the tailnet node stay down, and VS Code settings aren't
+        re-deployed. The script is idempotent, so running it again is harmless. Never
+        raises: a container without the devs template simply has no such script.
+        """
+        try:
+            self.docker.exec_command(container_name, "/usr/local/bin/post-start.sh")
+        except Exception:
+            pass  # not a devs-template container / exec unavailable
+
     def _deregister_tailnet_node(self, container_name: str, container_id: str) -> None:
         """Best-effort tailnet cleanup when a container is destroyed (not just stopped).
 
@@ -700,6 +717,7 @@ class ContainerManager:
                 container_id = existing_containers[0].get('name', container_name)
                 console.print(f"   ▶️  Starting stopped container: {container_id}")
                 self.docker.start_container(container_id)
+                self._run_post_start(container_id)
         else:
             # Ensure container is running (may create/restart as needed, but never auto-rebuild)
             if not self.ensure_container_running(dev_name, workspace_dir, check_rebuild=False, debug=debug, live=live, extra_env=extra_env):

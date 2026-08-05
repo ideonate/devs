@@ -88,10 +88,32 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 ENV DEVCONTAINER=true
 
 # Create workspace and config directories and set permissions
-RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/codexconfig /home/node/.vscode-server/extensions && \
+RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/codexconfig \
+      /home/node/.vscode-server/extensions \
+      /home/node/.vscode-server/data/Machine && \
   echo '[]' > /home/node/.vscode-server/extensions/extensions.json && \
   chown -R node:node /workspaces /home/node /home/node/.vscode-server && \
   chmod 755 /workspaces
+
+# Pre-install workspace-kind VS Code extensions so they're available on first connect.
+# devcontainer.json's extensions list is only auto-installed by the Dev Containers
+# extension; over an SSH remote it's silently skipped.
+RUN for EXT in vscode-tmux-auto-reattach devs-bridge-drop; do \
+      curl -fSL --retry 3 --compressed \
+        "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/ideonate/vsextensions/${EXT}/latest/vspackage" \
+        -o /tmp/ext.vsix && \
+      unzip -q /tmp/ext.vsix "extension/package.json" -d /tmp/ext-meta && \
+      VERSION=$(node -e "console.log(require('/tmp/ext-meta/extension/package.json').version)") && \
+      EXT_DIR="/home/node/.vscode-server/extensions/ideonate.${EXT}-${VERSION}" && \
+      mkdir -p "${EXT_DIR}" && \
+      unzip -q /tmp/ext.vsix "extension/*" -d /tmp/ext && \
+      cp -r /tmp/ext/extension/. "${EXT_DIR}/" && \
+      rm -rf /tmp/ext.vsix /tmp/ext /tmp/ext-meta; \
+    done && \
+    chown -R node:node /home/node/.vscode-server/extensions/
+COPY register-vscode-extensions.js /tmp/
+RUN node /tmp/register-vscode-extensions.js && rm /tmp/register-vscode-extensions.js && \
+    chown node:node /home/node/.vscode-server/extensions/extensions.json
 
 WORKDIR /workspaces
 
@@ -172,6 +194,27 @@ RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export TEST_RESULTS_FOLDER=\"/home/node/bridge/test-results\"" >> "$shell_rc"; \
   done
 
+# tmux defaults: mouse scrolling, deep scrollback, and live tab titles. Pairs with the
+# ideonate.vscode-tmux-auto-reattach extension (liveTitles mode). Present regardless of
+# DEVS_TMUX — this only shapes tmux when you actually run it.
+RUN printf '%s\n' \
+  'set -g mouse on' \
+  'set -g history-limit 50000' \
+  'bind m set -g mouse \; display "mouse #{?mouse,on,off}"' \
+  'set -g set-titles on' \
+  "set -g set-titles-string '#{session_name}: #{pane_current_command}'" \
+  > /home/node/.tmux.conf && \
+  chown node:node /home/node/.tmux.conf
+
+# VS Code settings live here rather than in devcontainer.json's
+# customizations.vscode.settings, because that block is only applied by the Dev
+# Containers extension — a Remote-SSH connection (e.g. over Tailscale SSH) never reads
+# devcontainer.json. Baking them as machine settings covers both paths. Both files also
+# land in /etc/devcontainer-config/ so scripts/setup-vscode-settings.sh can re-deploy
+# them at container start with the optional tmux overlay (DEVS_TMUX=1) applied.
+# See templates/README-vscode-settings.md.
+COPY --chown=node:node machine-settings.json /home/node/.vscode-server/data/Machine/settings.json
+COPY machine-settings.json machine-settings.tmux.json /etc/devcontainer-config/
 
 # Copy and set up scripts
 COPY scripts/ /usr/local/bin/
