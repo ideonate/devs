@@ -942,7 +942,10 @@ class ContainerManager:
         return self.exec_command(
             dev_name=dev_name,
             workspace_dir=workspace_dir,
-            command="codex --full-auto",
+            # `--full-auto` was removed from the Codex CLI; these two flags are the
+            # current spelling of what it did (write inside the workspace, never stop
+            # to ask). Passing the old flag now aborts with "unexpected argument".
+            command="codex --sandbox workspace-write --ask-for-approval never",
             stdin_input=prompt,
             debug=debug,
             stream=stream,

@@ -184,7 +184,7 @@ RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export CODEX_CONFIG_HOME=\"/home/node/codexconfig\"" >> "$shell_rc" && \
   echo "export PATH=\"/home/node/.local/bin:\$PATH\"" >> "$shell_rc" && \
   echo "alias claude=\"claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
-  echo "alias codex=\"/usr/local/share/npm-global/bin/codex --full-auto\"" >> "$shell_rc" && \
+  echo "alias codex=\"/usr/local/share/npm-global/bin/codex --sandbox workspace-write --ask-for-approval never\"" >> "$shell_rc" && \
   echo "" >> "$shell_rc" && \
   echo "# Auto-activate Python venv if it exists" >> "$shell_rc" && \
   echo "if [ -f /home/node/.devs-venv/workspace-venv/bin/activate ]; then" >> "$shell_rc" && \
