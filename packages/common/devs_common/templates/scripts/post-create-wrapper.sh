@@ -40,6 +40,16 @@ run_step "start-services.sh" "sudo /usr/local/bin/start-services.sh"
 # Optional: join the tailnet + serve a port. Non-fatal — no auth key => no-op.
 run_step "start-tailscale.sh" "/usr/local/bin/start-tailscale.sh" || true
 
+# setup-devs-env.sh runs through run_step in a subshell, so variables it exports
+# do not reach this wrapper. Load the mounted environment here as well so GH_TOKEN
+# is available while gh configures git's credential helper.
+if [ -f /home/node/.devs-env/.env ]; then
+    set -a
+    # shellcheck disable=SC1091 -- this file is supplied by the devs bind mount
+    source /home/node/.devs-env/.env
+    set +a
+fi
+
 # GitHub auth setup is optional, so handle it separately
 echo "📋 Running gh auth setup-git..."
 if output=$(gh auth setup-git 2>&1); then
