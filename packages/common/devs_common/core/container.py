@@ -433,9 +433,34 @@ class ContainerManager:
         tailscaled and the tailnet node stay down, and VS Code settings aren't
         re-deployed. The script is idempotent, so running it again is harmless. Never
         raises: a container without the devs template simply has no such script.
+
+        The hook's identity env (``DEVS_PROJECT_NAME``/``DEVCONTAINER_NAME``) comes from
+        devcontainer.json ``remoteEnv``, which only the devcontainer CLI injects — a raw
+        exec sees neither. Without them start-tailscale.sh falls through to its
+        ``devcontainer`` default and the node rejoins the tailnet as ``devs-devcontainer``
+        (then clash-suffixed ``-1``, ``-2``…) instead of ``devs-<project>-<dev>`` — so
+        every name anyone SSHes to breaks on each host reboot. Re-derive them from the
+        labels set at creation, which are the container's own record of that identity.
         """
+        environment = {}
         try:
-            self.docker.exec_command(container_name, "/usr/local/bin/post-start.sh")
+            labels = self.docker.get_container_labels(container_name)
+            project = labels.get("devs.project", "")
+            dev = labels.get("devs.dev", "")
+            if project and dev:
+                environment = {
+                    "DEVS_PROJECT_NAME": project,
+                    "DEVCONTAINER_NAME": dev,
+                }
+        except Exception:
+            pass  # fall back to the hook's own defaults
+
+        try:
+            self.docker.exec_command(
+                container_name,
+                "/usr/local/bin/post-start.sh",
+                environment=environment or None,
+            )
         except Exception:
             pass  # not a devs-template container / exec unavailable
 

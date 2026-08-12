@@ -170,6 +170,25 @@ class DockerClient:
         except DockerException as e:
             raise DockerError(f"Error finding containers by labels: {e}")
     
+    def get_container_labels(self, name: str) -> Dict[str, str]:
+        """Get a single container's labels.
+
+        Args:
+            name: Container name or id
+
+        Returns:
+            The container's label dictionary
+
+        Raises:
+            DockerError: If the container is missing or inspection fails
+        """
+        try:
+            return self.client.containers.get(name).labels or {}
+        except NotFound:
+            raise DockerError(f"Container {name} not found")
+        except DockerException as e:
+            raise DockerError(f"Error inspecting container {name}: {e}")
+
     def rename_container(self, old_name: str, new_name: str) -> None:
         """Rename a container.
         
@@ -188,26 +207,37 @@ class DockerClient:
         except DockerException as e:
             raise DockerError(f"Error renaming container {old_name} to {new_name}: {e}")
     
-    def exec_command(self, container_name: str, command: str, workdir: Optional[str] = None) -> bool:
+    def exec_command(
+        self,
+        container_name: str,
+        command: str,
+        workdir: Optional[str] = None,
+        environment: Optional[Dict[str, str]] = None,
+    ) -> bool:
         """Execute a command in a container.
-        
+
         Args:
             container_name: Container name
             command: Command to execute
             workdir: Working directory for command
-            
+            environment: Extra env vars for this exec only. A raw exec inherits the
+                image's baked-in env but NOT devcontainer.json ``remoteEnv``, which the
+                devcontainer CLI injects per-exec — pass anything the command needs from
+                there explicitly.
+
         Returns:
             True if command succeeded
-            
+
         Raises:
             DockerError: If execution fails
         """
         try:
             container = self.client.containers.get(container_name)
-            
+
             exec_result = container.exec_run(
-                command, 
+                command,
                 workdir=workdir,
+                environment=environment,
                 tty=False,
                 stream=False
             )
