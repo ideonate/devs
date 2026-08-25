@@ -135,6 +135,24 @@ echo 'env_vars:
     SECRET_KEY: "user_secret"' > ~/.devs/envs/myorg-myrepo/DEVS.yml
 ```
 
+### Optional startup hooks
+
+Place executable scripts in `~/.devs/envs/<project>/autoexec/` to run them in
+lexical filename order whenever the devcontainer starts. If a project-specific
+environment directory does not exist, `~/.devs/envs/default/autoexec/` is used.
+The directory's presence is the opt-in; projects without it are unaffected.
+
+Hooks inherit the mounted `.env` variables plus `DEVS_PROJECT_NAME` and
+`DEVCONTAINER_NAME`. A failing hook is reported, but does not prevent later
+hooks from running or the container from starting. Hooks should be idempotent
+because they run on initial creation and again after every restart.
+
+```bash
+mkdir -p ~/.devs/envs/default/autoexec
+cp my-startup-hook.sh ~/.devs/envs/default/autoexec/10-my-startup-hook.sh
+chmod +x ~/.devs/envs/default/autoexec/10-my-startup-hook.sh
+```
+
 📖 **[See example-usage.md for detailed examples and scenarios](example-usage.md)**
 
 ## Development
