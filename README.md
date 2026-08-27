@@ -138,14 +138,15 @@ echo 'env_vars:
 ### Optional startup hooks
 
 Place executable scripts in `~/.devs/envs/<project>/autoexec/` to run them in
-lexical filename order whenever the devcontainer starts. If a project-specific
-environment directory does not exist, `~/.devs/envs/default/autoexec/` is used.
-The directory's presence is the opt-in; projects without it are unaffected.
+lexical filename order from the template's `postCreateCommand`. If a
+project-specific environment directory does not exist,
+`~/.devs/envs/default/autoexec/` is used. The directory's presence is the
+opt-in; projects without it are unaffected.
 
 Hooks inherit the mounted `.env` variables plus `DEVS_PROJECT_NAME` and
-`DEVCONTAINER_NAME`. A failing hook is reported, but does not prevent later
-hooks from running or the container from starting. Hooks should be idempotent
-because they run on initial creation and again after every restart.
+`DEVCONTAINER_NAME`. A failing hook is reported without preventing later hooks
+from running, and makes the post-create step fail after the remaining hooks have
+finished. Hooks should tolerate being rerun when a container is rebuilt.
 
 ```bash
 mkdir -p ~/.devs/envs/default/autoexec

@@ -21,13 +21,6 @@ fi
 # before the TS_ENABLE gate below, which exits when Tailscale is off.
 /usr/local/bin/setup-vscode-settings.sh || true
 
-# Optional per-user/per-project startup hooks. The mounted env directory is
-# project-specific when ~/.devs/envs/<project>/ exists, otherwise it is the
-# shared ~/.devs/envs/default profile. Hooks are executable files in autoexec/
-# and run in lexical order. Keep failures non-fatal so a broken convenience
-# hook cannot make the devcontainer unusable.
-/usr/local/bin/run-autoexec.sh || true
-
 # Gate on the same master switch as the rest of the Tailscale wiring.
 case "${TS_ENABLE:-}" in
   1|true|yes) ;;

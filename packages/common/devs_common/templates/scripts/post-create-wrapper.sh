@@ -34,6 +34,7 @@ run_step() {
 # Run each step with error handling
 run_step "setup-vscode-cache" "sudo /usr/local/bin/setup-vscode-cache.sh"
 run_step "setup-devs-env.sh" "/usr/local/bin/setup-devs-env.sh"
+run_step "run-autoexec.sh" "/usr/local/bin/run-autoexec.sh"
 #run_step "init-firewall.sh" "sudo /usr/local/bin/init-firewall.sh"
 run_step "setup-workspace.sh" "/usr/local/bin/setup-workspace.sh"
 run_step "start-services.sh" "sudo /usr/local/bin/start-services.sh"
