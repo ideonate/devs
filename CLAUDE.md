@@ -6,6 +6,44 @@ This file provides guidance to Claude Code when working with the `devs` project 
 
 `devs` is now a multi-package monorepo containing tools for managing multiple named devcontainers for any project. The main CLI tool allows developers to run commands like `devs start sally bob` to create multiple development environments with distinct names, then `devs vscode sally` to launch VS Code connected to specific containers.
 
+## This repository is PUBLIC
+
+`ideonate/devs` is public, and ships to PyPI and the VS Code Marketplace. Anything
+committed here is world-readable forever — including commit messages, which cannot
+be quietly corrected once pushed.
+
+**Never name a private repo, org, customer, internal host or colleague** in code,
+comments, docs, commit messages, PR titles or bodies, issue text, test fixtures, or
+example output. `devs` is a tool used against private repos, so this comes up
+constantly: the fix is to describe the *constraint* generically rather than its
+source.
+
+Use the project's own public identity for every worked example:
+
+| Instead of | Use |
+|---|---|
+| a private org/repo (`acme-corp/secret-app`) | `ideonate/devs`, or `myorg/myapp` |
+| a real colleague's dev-name | `sally`, `bob`, `charlie` |
+| a real container name | `dev-ideonate-devs-sally` |
+| a real workspace folder | `ideonate-devs-sally`, or `myorg-myapp-alice` |
+| an internal hostname, tailnet name or URL | `example.com`, `myhost.internal` |
+
+When a change here is motivated by something seen in a private repo, say *what the
+behaviour has to be* and why, never *where it was observed*. "A hook that needs a
+running database has to run after start-services.sh" is fine; naming the repo whose
+hook that is, is not.
+
+Before committing, check the diff **and** the message:
+
+```bash
+git diff --cached | grep -inE '<private-org>|<private-repo>|<colleague>'
+git log -1 --format=%B | grep -inE '<private-org>|<private-repo>|<colleague>'
+```
+
+If something private has already been pushed, say so rather than rewriting public
+history unilaterally — a force-push is not a redaction, and mirrors and forks keep
+the old objects.
+
 ## Repository Structure
 
 This is a **multi-package monorepo** with the following structure:
