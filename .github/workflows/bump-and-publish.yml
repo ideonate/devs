@@ -105,7 +105,7 @@ jobs:
           # Pinned to the major that last published successfully, so a new vsce
           # release can't change publishing underneath us. If this step fails,
           # publish-extension.yml retries it without re-bumping or re-publishing PyPI.
-          npx --yes @vscode/vsce@3 publish --packagePath "$VSIX" --pat "$VSCE_PAT"
+          npx --yes @vscode/vsce@3 publish --packagePath "$VSIX"  # reads VSCE_PAT from env
 
       - name: Create GitHub release with .vsix asset
         env:
