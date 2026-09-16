@@ -40,6 +40,10 @@
         return rawName.replace(/^\d{8}-\d{6}(?:-\d+)?-/, '');
     }
 
+    // Name of the docker host, so a UI running on another machine (e.g. over
+    // Remote-SSH) makes clear which machine the host path is on.
+    let hostname = null;
+
     function renderEntry(entry) {
         const li = document.createElement('li');
         li.className = 'entry';
@@ -47,23 +51,35 @@
         const { head, tail } = splitForEllipsis(display);
         const dragHandle = (p) =>
             `<span class="drag-handle" draggable="true" data-path="${escapeHtml(p)}" title="Drag this path into an editor or host terminal">⠿</span>`;
+        // A ready-to-paste command for a terminal on the machine running VS Code.
+        const scpCommand = entry.hostPath && hostname
+            ? `scp ${hostname}:${/\s/.test(entry.hostPath) ? `'${entry.hostPath.replace(/'/g, `'\\''`)}'` : entry.hostPath} .`
+            : null;
+        const scpAction = scpCommand
+            ? `<button class="copy" data-path="${escapeHtml(scpCommand)}" data-label="scp" title="Copy: ${escapeHtml(scpCommand)}">scp</button>`
+            : '';
         const hostActions = entry.hostPath
-            ? `${dragHandle(entry.hostPath)}<button class="copy" data-path="${escapeHtml(entry.hostPath)}" title="${escapeHtml(entry.hostPath)}">Copy</button>`
+            ? `${dragHandle(entry.hostPath)}<button class="copy" data-path="${escapeHtml(entry.hostPath)}" title="Copy ${escapeHtml(entry.hostPath)}">Path</button>${scpAction}`
             : `<span class="unavail">unavailable</span>`;
         li.innerHTML = `
-            <div class="name-wrap" title="${escapeHtml(entry.name)}">
-                <span class="name-head">${escapeHtml(head)}</span><span class="name-tail">${escapeHtml(tail)}</span>
+            <div class="entry-head">
+                <div class="entry-title">
+                    <div class="name-wrap" title="${escapeHtml(entry.name)}">
+                        <span class="name-head">${escapeHtml(head)}</span><span class="name-tail">${escapeHtml(tail)}</span>
+                    </div>
+                    <div class="meta">${escapeHtml(entry.origin === 'host' ? 'from host' : 'from container')} · ${formatSize(entry.size)} · ${formatTime(entry.timestamp)}</div>
+                </div>
+                <button class="download" data-path="${escapeHtml(entry.containerPath)}" title="Save a copy on the machine running VS Code">Download</button>
             </div>
-            <div class="meta">${escapeHtml(entry.origin === 'host' ? 'from host' : 'from container')} · ${formatSize(entry.size)} · ${formatTime(entry.timestamp)}</div>
             <div class="actions">
                 <span class="action-label">Container</span>
                 ${dragHandle(entry.containerPath)}
-                <button class="copy" data-path="${escapeHtml(entry.containerPath)}" title="${escapeHtml(entry.containerPath)}">Copy</button>
+                <button class="copy" data-path="${escapeHtml(entry.containerPath)}" title="Copy ${escapeHtml(entry.containerPath)}">Path</button>
                 <button class="send" data-path="${escapeHtml(entry.containerPath)}" title="Send path to active VS Code terminal">Send</button>
-                <button class="reveal" data-path="${escapeHtml(entry.containerPath)}" title="Reveal in VS Code explorer">Open</button>
+                <button class="reveal" data-path="${escapeHtml(entry.containerPath)}" title="Open in a VS Code editor">Open</button>
             </div>
             <div class="actions">
-                <span class="action-label">Host</span>
+                <span class="action-label" title="${escapeHtml(hostname ? `Path on docker host ${hostname}` : 'Path on docker host')}">${escapeHtml(hostname || 'Host')}</span>
                 ${hostActions}
             </div>
         `;
@@ -87,10 +103,13 @@
         if (!p) return;
         if (target.classList.contains('copy')) {
             vscode.postMessage({ type: 'copy', path: p });
+            const label = target.dataset.label || 'Path';
             target.textContent = 'Copied';
-            setTimeout(() => { target.textContent = 'Copy'; }, 1200);
+            setTimeout(() => { target.textContent = label; }, 1200);
         } else if (target.classList.contains('reveal')) {
             vscode.postMessage({ type: 'reveal', path: p });
+        } else if (target.classList.contains('download')) {
+            vscode.postMessage({ type: 'download', path: p });
         } else if (target.classList.contains('send')) {
             vscode.postMessage({ type: 'sendToTerminal', path: p });
             target.textContent = 'Sent';
@@ -205,11 +224,27 @@
         });
     });
 
+    function saveLocally(name, dataBase64) {
+        const binary = atob(dataBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        const url = URL.createObjectURL(new Blob([bytes]));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name || 'download';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+
     window.addEventListener('message', (event) => {
         const msg = event.data;
         if (!msg || typeof msg !== 'object') return;
+        if ('hostname' in msg) hostname = msg.hostname || null;
         if (msg.type === 'history') renderAll(msg.entries || []);
         if (msg.type === 'entry' && msg.entry) prependEntry(msg.entry);
+        if (msg.type === 'download' && msg.dataBase64) saveLocally(msg.name, msg.dataBase64);
     });
 
     vscode.postMessage({ type: 'ready' });

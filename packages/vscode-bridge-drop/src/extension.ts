@@ -7,6 +7,17 @@ const BRIDGE_CONTAINER_DIR = '/home/node/bridge';
 const DROPPED_SUBDIR = 'dropped';
 const HISTORY_KEY = 'devsBridge.history';
 const HISTORY_LIMIT = 50;
+// Downloads travel to the webview as one base64 message; past this size ask
+// before tying up the window, and suggest scp instead.
+const DOWNLOAD_WARN_BYTES = 200 * 1024 * 1024;
+// Written into the bridge dir by `devs` on the host (see write_bridge_info in
+// devs_common/utils/devcontainer.py).
+const BRIDGE_INFO_FILE = '.devs-bridge.json';
+
+interface HostInfo {
+    hostPath: string;
+    hostname: string | null;
+}
 
 interface DropEntry {
     name: string;
@@ -23,7 +34,7 @@ interface IncomingFile {
 }
 
 interface IncomingMessage {
-    type: 'dropFiles' | 'dropUris' | 'copy' | 'reveal' | 'clear' | 'ready' | 'debug' | 'pickFiles' | 'sendToTerminal';
+    type: 'dropFiles' | 'dropUris' | 'copy' | 'reveal' | 'clear' | 'ready' | 'debug' | 'pickFiles' | 'sendToTerminal' | 'download';
     files?: IncomingFile[];
     uris?: string[];
     path?: string;
@@ -62,6 +73,7 @@ export function deactivate() {}
 
 class BridgeViewProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
+    private hostInfo?: Promise<HostInfo | null>;
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -86,7 +98,7 @@ class BridgeViewProvider implements vscode.WebviewViewProvider {
     private async handleMessage(msg: IncomingMessage) {
         switch (msg.type) {
             case 'ready':
-                this.postHistory();
+                await this.postHistory();
                 return;
             case 'dropFiles':
                 if (msg.files) {
@@ -109,13 +121,11 @@ class BridgeViewProvider implements vscode.WebviewViewProvider {
                 }
                 return;
             case 'reveal':
+                // Open in an editor rather than revealInExplorer: the bridge dir is
+                // outside the workspace, where reveal silently does nothing.
+                // vscode.open picks the right editor (image preview, binary prompt).
                 if (msg.path) {
-                    const uri = vscode.Uri.file(msg.path);
-                    try {
-                        await vscode.commands.executeCommand('revealInExplorer', uri);
-                    } catch {
-                        await vscode.window.showTextDocument(uri);
-                    }
+                    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(msg.path));
                 }
                 return;
             case 'clear':
@@ -132,12 +142,34 @@ class BridgeViewProvider implements vscode.WebviewViewProvider {
                     term.sendText(text, false);
                 }
                 return;
+            case 'download':
+                if (msg.path) {
+                    await this.download(msg.path);
+                }
+                return;
             case 'debug':
                 if (msg.message) {
                     vscode.window.showWarningMessage(`Bridge: ${msg.message}`);
                 }
                 return;
         }
+    }
+
+    // The webview runs wherever the VS Code UI runs (e.g. the laptop, when the
+    // container is reached over Remote-SSH), and webviews may start downloads.
+    // Handing it the bytes lets the browser save them via the local Save dialog.
+    private async download(containerPath: string) {
+        const stat = await fs.stat(containerPath);
+        if (stat.size > DOWNLOAD_WARN_BYTES) {
+            const choice = await vscode.window.showWarningMessage(
+                `${path.basename(containerPath)} is ${Math.round(stat.size / (1024 * 1024))} MB. Downloading it through VS Code may be slow; scp is faster for large files.`,
+                'Download anyway',
+            );
+            if (choice !== 'Download anyway') return;
+        }
+        const buf = await fs.readFile(containerPath);
+        const name = path.basename(containerPath).replace(/^\d{8}-\d{6}(?:-\d+)?-/, '');
+        this.view?.webview.postMessage({ type: 'download', name, dataBase64: buf.toString('base64') });
     }
 
     async copyToBridge(uri: vscode.Uri): Promise<void> {
@@ -232,16 +264,44 @@ class BridgeViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private hostPathFor(containerPath: string): string | null {
-        const hostBase = process.env.DEVS_BRIDGE_MOUNT_PATH;
-        if (!hostBase) return null;
+    // DEVS_BRIDGE_MOUNT_PATH comes from remoteEnv, which only the Dev Containers
+    // extension applies. Over Remote-SSH into the container it is unset, so fall
+    // back to the info file devs leaves in the bridge dir. Re-read until found,
+    // so running `devs start` on the host fixes an open window without a reload.
+    private getHostInfo(): Promise<HostInfo | null> {
+        if (!this.hostInfo) {
+            this.hostInfo = this.loadHostInfo().then((info) => {
+                if (!info) this.hostInfo = undefined;
+                return info;
+            });
+        }
+        return this.hostInfo;
+    }
+
+    private async loadHostInfo(): Promise<HostInfo | null> {
+        let fromFile: { host_path?: unknown; hostname?: unknown } = {};
+        try {
+            fromFile = JSON.parse(await fs.readFile(path.join(BRIDGE_CONTAINER_DIR, BRIDGE_INFO_FILE), 'utf8'));
+        } catch {
+            // Missing or unreadable: rely on the env var alone.
+        }
+        const hostPath = process.env.DEVS_BRIDGE_MOUNT_PATH
+            || (typeof fromFile.host_path === 'string' ? fromFile.host_path : '');
+        if (!hostPath) return null;
+        const hostname = typeof fromFile.hostname === 'string' && fromFile.hostname ? fromFile.hostname : null;
+        return { hostPath, hostname };
+    }
+
+    private async hostPathFor(containerPath: string): Promise<string | null> {
+        const info = await this.getHostInfo();
+        if (!info) return null;
         const rel = path.relative(BRIDGE_CONTAINER_DIR, containerPath);
         if (rel.startsWith('..')) return null;
-        return path.join(hostBase, rel);
+        return path.join(info.hostPath, rel);
     }
 
     private async recordAndNotify(name: string, containerPath: string, origin: 'host' | 'container', size: number) {
-        const hostPath = this.hostPathFor(containerPath);
+        const hostPath = await this.hostPathFor(containerPath);
         const entry: DropEntry = {
             name,
             containerPath,
@@ -257,7 +317,7 @@ class BridgeViewProvider implements vscode.WebviewViewProvider {
         await vscode.env.clipboard.writeText(containerPath);
         vscode.window.setStatusBarMessage(`Bridge: copied path for ${name}`, 3000);
 
-        this.postEntry(entry);
+        await this.postEntry(entry);
     }
 
     private getHistory(): DropEntry[] {
@@ -266,15 +326,20 @@ class BridgeViewProvider implements vscode.WebviewViewProvider {
 
     async clearHistory() {
         await this.context.workspaceState.update(HISTORY_KEY, []);
-        this.postHistory();
+        await this.postHistory();
     }
 
-    private postHistory() {
-        this.view?.webview.postMessage({ type: 'history', entries: this.getHistory() });
+    private async postHistory() {
+        // Entries recorded before the host path was known were stored with null.
+        const entries = await Promise.all(this.getHistory().map(async (e) =>
+            e.hostPath ? e : { ...e, hostPath: await this.hostPathFor(e.containerPath) }));
+        const hostname = (await this.getHostInfo())?.hostname ?? null;
+        this.view?.webview.postMessage({ type: 'history', entries, hostname });
     }
 
-    private postEntry(entry: DropEntry) {
-        this.view?.webview.postMessage({ type: 'entry', entry });
+    private async postEntry(entry: DropEntry) {
+        const hostname = (await this.getHostInfo())?.hostname ?? null;
+        this.view?.webview.postMessage({ type: 'entry', entry, hostname });
     }
 
     private renderHtml(webview: vscode.Webview): string {
@@ -288,7 +353,6 @@ class BridgeViewProvider implements vscode.WebviewViewProvider {
             `style-src ${webview.cspSource} 'unsafe-inline'`,
             `script-src 'nonce-${nonce}'`,
         ].join('; ');
-        const hostBase = process.env.DEVS_BRIDGE_MOUNT_PATH ?? '';
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -296,7 +360,7 @@ class BridgeViewProvider implements vscode.WebviewViewProvider {
     <meta http-equiv="Content-Security-Policy" content="${csp}">
     <link rel="stylesheet" href="${styleUri}">
 </head>
-<body data-host-base="${escapeAttr(hostBase)}">
+<body>
     <div id="dropzone" tabindex="0">
         <div class="dz-title">Drop files here</div>
         <div class="dz-sub">From your host OS (drag from Finder / Explorer)</div>
@@ -323,8 +387,4 @@ function randomNonce(): string {
         s += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return s;
-}
-
-function escapeAttr(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

@@ -2,7 +2,7 @@
 
 VS Code extension that turns the `devs` bridge mount into a bidirectional drop target.
 
-Drop a file from your host OS onto the **Bridge** panel and it lands in `/home/node/bridge/dropped/...` inside the container. Right-click a container-side file in the VS Code explorer → "Copy to Bridge" and it lands in the same place. Either way, the entry shows both the **container path** and the **host path** with copy buttons, and the container path is auto-copied to your clipboard.
+Drop a file from your host OS onto the **Bridge** panel and it lands in `/home/node/bridge/dropped/...` inside the container. Right-click a container-side file in the VS Code explorer → "Copy to Bridge" and it lands in the same place. Either way, the entry shows both the **container path** and the **host path** with **Path** buttons that copy them, and the container path is auto-copied to your clipboard. **Download** saves a copy on the machine running VS Code (via its normal Save dialog) — useful when that's a laptop connected over Remote-SSH rather than the docker host.
 
 See the project-root `CLAUDE.md` for design notes (why a webview rather than a TreeView, why drag-into-terminal isn't fixable, etc.).
 
@@ -51,6 +51,6 @@ Stages the `.vsix` at `packages/common/devs_common/templates/extensions/devs-bri
 ## Behaviour
 
 - Files are written to `/home/node/bridge/dropped/<YYYYMMDD-HHmmss>-<sanitized-name>` (collision-safe).
-- The host-side path is derived from `DEVS_BRIDGE_MOUNT_PATH`, which the `devs` CLI passes through as a `remoteEnv` var. If unset (e.g. raw devcontainer CLI), only the container path is shown.
+- The host-side path is derived from `DEVS_BRIDGE_MOUNT_PATH`, which the `devs` CLI passes through as a `remoteEnv` var. Remote-SSH connections straight into the container don't get `remoteEnv`, so `devs` also writes `.devs-bridge.json` (host path + docker host name) into the bridge dir, and the extension falls back to that. The Host row is labelled with the docker host's name, and its **scp** button copies `scp <hostname>:<host path> .`. If neither is available (e.g. raw devcontainer CLI), only the container path is shown.
 - Drop history is persisted in workspace state, capped at 50 entries.
 - Folder drops are not supported — files only.

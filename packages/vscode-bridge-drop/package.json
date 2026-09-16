@@ -19,7 +19,7 @@
         {
           "id": "devsBridge",
           "title": "Bridge",
-          "icon": "media/icon.svg"
+          "icon": "$(arrow-swap)"
         }
       ]
     },

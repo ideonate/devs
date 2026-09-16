@@ -1,7 +1,9 @@
 """DevContainer CLI wrapper utilities."""
 
+import json
 import os
 import re
+import socket
 import sys
 import subprocess
 from pathlib import Path
@@ -80,6 +82,7 @@ def prepare_devcontainer_environment(
     bridge_mount_path = Path.home() / '.devs' / 'bridge' / f"{project_name}-{dev_name}"
     bridge_mount_path.mkdir(parents=True, exist_ok=True)
     env['DEVS_BRIDGE_MOUNT_PATH'] = str(bridge_mount_path)
+    write_bridge_info(bridge_mount_path)
 
     # Pass debug mode to container scripts
     if debug:
@@ -102,6 +105,25 @@ def prepare_devcontainer_environment(
         env.update(extra_env)
 
     return env
+
+
+BRIDGE_INFO_FILENAME = '.devs-bridge.json'
+
+
+def write_bridge_info(bridge_mount_path: Path) -> None:
+    """Record the bridge's host-side location inside the bridge itself.
+
+    The bridge-drop extension shows the host path for each dropped file. It
+    reads DEVS_BRIDGE_MOUNT_PATH when set, but that arrives via remoteEnv, which
+    only the Dev Containers extension applies — a Remote-SSH session straight
+    into the container never sees it. The bridge dir is mounted in the
+    container regardless of how VS Code connects, so the info lives there too.
+    """
+    info = {'host_path': str(bridge_mount_path), 'hostname': socket.gethostname()}
+    try:
+        (bridge_mount_path / BRIDGE_INFO_FILENAME).write_text(json.dumps(info, indent=2) + '\n')
+    except OSError as e:
+        console.print(f"[yellow]Warning: could not write bridge info: {e}[/yellow]")
 
 
 def parse_docker_error(error_output: str) -> Tuple[Optional[str], Optional[str]]:

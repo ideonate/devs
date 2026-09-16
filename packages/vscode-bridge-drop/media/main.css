@@ -107,6 +107,32 @@ ul#entries {
     background-color: var(--vscode-editor-background);
 }
 
+.entry-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.entry-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.entry-head .download {
+    flex: 0 0 auto;
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: none;
+    border-radius: 3px;
+    padding: 2px 10px;
+    cursor: pointer;
+    font-size: 0.85em;
+}
+
+.entry-head .download:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
 .name-wrap {
     display: flex;
     align-items: baseline;
@@ -136,6 +162,7 @@ ul#entries {
 
 .actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
     margin-top: 4px;
@@ -147,6 +174,9 @@ ul#entries {
     letter-spacing: 0.04em;
     color: var(--vscode-descriptionForeground);
     flex: 0 0 70px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .actions button {
