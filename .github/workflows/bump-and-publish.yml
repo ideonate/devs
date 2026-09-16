@@ -102,8 +102,9 @@ jobs:
             exit 0
           fi
           VSIX=packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix
-          # Pinned: vsce 4.0.0 hangs on the gallery upload ("Request timeout:
-          # /_apis/gallery") where 3.x publishes in seconds.
+          # Pinned to the major that last published successfully, so a new vsce
+          # release can't change publishing underneath us. If this step fails,
+          # publish-extension.yml retries it without re-bumping or re-publishing PyPI.
           npx --yes @vscode/vsce@3 publish --packagePath "$VSIX" --pat "$VSCE_PAT"
 
       - name: Create GitHub release with .vsix asset

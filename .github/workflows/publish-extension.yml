@@ -1,0 +1,65 @@
+name: Publish VS Code Extension
+
+# Publishes the current devs-bridge-drop version (from package.json) to the
+# VS Code Marketplace and attaches the .vsix to its GitHub release, without
+# bumping versions or touching PyPI. Use it to retry the Marketplace step when
+# bump-and-publish.yml fails there after PyPI has already been published.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish-extension:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Build VS Code extension (devs-bridge-drop.vsix)
+        id: build
+        run: |
+          ./scripts/build-extension.sh
+          echo "version=$(node -p "require('./packages/vscode-bridge-drop/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Marketplace token
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "ERROR: VSCE_PAT secret not set." >&2
+            exit 1
+          fi
+          # Fails fast on an expired or under-scoped token, which otherwise
+          # can surface only as a publish timeout.
+          timeout 120 npx --yes @vscode/vsce@3 verify-pat ideonate
+
+      - name: Publish extension to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          VSIX=packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix
+          npx --yes @vscode/vsce@3 publish --packagePath "$VSIX"
+
+      - name: Create GitHub release with .vsix asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.build.outputs.version }}"
+          TAG="v${VERSION}"
+          VSIX=packages/common/devs_common/templates/extensions/devs-bridge-drop.vsix
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$VSIX" --clobber
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "Automated release for v${VERSION}. Includes devs-bridge-drop.vsix." \
+              "$VSIX"
+          fi
