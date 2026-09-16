@@ -155,11 +155,17 @@ RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}"
 # tag for the same reason as Codex above; bump HERMES_AGENT_VERSION to upgrade. Setup
 # wizard, browser and computer-use extras are skipped — the agent is driven through
 # OpenRouter: put OPENROUTER_API_KEY in ~/.devs/envs/<project>/.env (or DEVS.yml
-# env_vars) and Hermes auto-selects OpenRouter. Pick a model with HERMES_INFERENCE_MODEL.
+# env_vars). The default model is an open-weights model that is strong at agentic coding
+# but far cheaper than the flagship Hermes would otherwise pick; override it per container
+# with HERMES_INFERENCE_MODEL (the aliases below and `devs hermes` pass it as --model,
+# since `hermes chat` ignores that env var), or rebuild with a different HERMES_DEFAULT_MODEL.
 ARG HERMES_AGENT_VERSION=v2026.9.14
+ARG HERMES_DEFAULT_MODEL=z-ai/glm-5.3
 RUN curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_AGENT_VERSION}/scripts/install.sh" \
     | bash -s -- --branch "${HERMES_AGENT_VERSION}" --non-interactive --skip-setup \
       --skip-browser --skip-computer-use && \
+  /home/node/.local/bin/hermes config set model.provider openrouter && \
+  /home/node/.local/bin/hermes config set model.default "${HERMES_DEFAULT_MODEL}" && \
   /home/node/.local/bin/hermes --version
 
 # Install cloudflared for tunnel support (proxies all HTTP methods correctly)
@@ -200,8 +206,8 @@ RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "alias claude=\"claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
   echo "alias codex=\"/usr/local/share/npm-global/bin/codex -c check_for_update_on_startup=false --dangerously-bypass-approvals-and-sandbox\"" >> "$shell_rc" && \
   echo "alias codex-normal=\"/usr/local/share/npm-global/bin/codex -c check_for_update_on_startup=false\"" >> "$shell_rc" && \
-  echo "alias hermes=\"/home/node/.local/bin/hermes --yolo\"" >> "$shell_rc" && \
-  echo "alias hermes-normal=\"/home/node/.local/bin/hermes\"" >> "$shell_rc" && \
+  echo "alias hermes='/home/node/.local/bin/hermes --yolo \${HERMES_INFERENCE_MODEL:+--model=\$HERMES_INFERENCE_MODEL}'" >> "$shell_rc" && \
+  echo "alias hermes-normal='/home/node/.local/bin/hermes \${HERMES_INFERENCE_MODEL:+--model=\$HERMES_INFERENCE_MODEL}'" >> "$shell_rc" && \
   echo "" >> "$shell_rc" && \
   echo "# Auto-activate Python venv if it exists" >> "$shell_rc" && \
   echo "if [ -f /home/node/.devs-venv/workspace-venv/bin/activate ]; then" >> "$shell_rc" && \

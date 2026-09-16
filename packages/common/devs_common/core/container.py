@@ -1005,8 +1005,10 @@ class ContainerManager:
             workspace_dir=workspace_dir,
             # `--query-file -` reads the prompt from stdin; `--oneshot` answers and exits
             # rather than seeding an interactive session. `--yolo` skips dangerous-command
-            # approvals, matching the claude/codex invocations above.
-            command="hermes --yolo chat --oneshot --query-file -",
+            # approvals, matching the claude/codex invocations above. `hermes chat` ignores
+            # HERMES_INFERENCE_MODEL, so forward it as --model when set; otherwise the
+            # model baked into the image's Hermes config is used.
+            command="hermes --yolo chat --oneshot --query-file - ${HERMES_INFERENCE_MODEL:+--model=$HERMES_INFERENCE_MODEL}",
             stdin_input=prompt,
             debug=debug,
             stream=stream,

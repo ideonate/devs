@@ -712,7 +712,7 @@ def hermes(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: 
     Example: devs hermes sally "Summarize this codebase"
     Example: devs hermes sally "Fix the tests" --reset-workspace
     Example: devs hermes sally "Fix the tests" --live  # Run with current directory
-    Example: devs hermes sally "Fix the tests" --env HERMES_INFERENCE_MODEL=moonshotai/kimi-k2
+    Example: devs hermes sally "Fix the tests" --env HERMES_INFERENCE_MODEL=deepseek/deepseek-v4-pro-0813
     Example: devs hermes --auth                        # Show auth setup instructions
     """
     # Handle authentication mode
@@ -725,7 +725,7 @@ def hermes(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: 
         console.print("Add it to [cyan]~/.devs/envs/default/.env[/cyan] (or a project-specific env dir):")
         console.print("   [dim]OPENROUTER_API_KEY=<key>[/dim]")
         console.print("")
-        console.print("Optionally choose a model (any OpenRouter model id):")
+        console.print("The default model is [cyan]z-ai/glm-5.3[/cyan]. To use another OpenRouter model:")
         console.print("   [dim]HERMES_INFERENCE_MODEL=<provider/model>[/dim]")
         console.print("")
         console.print("The env file is mounted into every devcontainer and loaded on each shell.")

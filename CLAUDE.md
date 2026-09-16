@@ -341,10 +341,12 @@ All three commands support `--reset-workspace`, `--live`, and `--env` options.
 **Hermes Agent** is installed in the template image (pinned via the `HERMES_AGENT_VERSION`
 build arg) and needs no login step: put `OPENROUTER_API_KEY=...` in
 `~/.devs/envs/<org-repo>/.env` (or `~/.devs/envs/default/.env`, or DEVS.yml `env_vars`) and
-Hermes auto-selects OpenRouter. Set `HERMES_INFERENCE_MODEL` to choose an OpenRouter model id
-— otherwise Hermes uses its own configured default, which may be an expensive flagship model.
-Inside the container, `hermes` is aliased to `hermes --yolo` (`hermes-normal` keeps approval
-prompts). Hermes state (`~/.hermes`) is not bind-mounted, so sessions and memory reset on
+Hermes uses OpenRouter. The image's Hermes config defaults to `z-ai/glm-5.3` (open weights,
+strong at agentic coding, far cheaper than a flagship; change it with the `HERMES_DEFAULT_MODEL`
+build arg). Set `HERMES_INFERENCE_MODEL` to use another OpenRouter model id per container —
+`hermes chat` ignores that env var itself, so the `hermes` alias and `devs hermes` forward it
+as `--model`. Inside the container, `hermes` is aliased to `hermes --yolo` (`hermes-normal`
+keeps approval prompts). Hermes state (`~/.hermes`) is not bind-mounted, so sessions and memory reset on
 rebuild. Note that Hermes exits 0 even when the API call fails, so `devs hermes` reports
 success on e.g. a bad key — read the output.
 
