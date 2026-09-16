@@ -324,16 +324,29 @@ The `--live` flag mounts the current directory directly into the container witho
 
 ### AI Assistant Commands
 
-Both Claude (Anthropic) and Codex (OpenAI) are supported with similar interfaces:
+Claude (Anthropic), Codex (OpenAI) and Hermes Agent (Nous Research, open source) are
+supported with similar interfaces:
 
 - `devs claude <name> "<prompt>"` - Execute Claude CLI in devcontainer
 - `devs codex <name> "<prompt>"` - Execute OpenAI Codex CLI in devcontainer
+- `devs hermes <name> "<prompt>"` - Execute Hermes Agent in devcontainer (via OpenRouter)
+- `devs hermes --auth` - Show how to configure the OpenRouter key for Hermes
 - `devs claude --auth` - Set up Claude authentication (interactive)
 - `devs codex --auth` - Set up Codex authentication (interactive)
 - `devs claude --auth --api-key <KEY>` - Set up Claude with API key
 - `devs codex --auth --api-key <KEY>` - Set up Codex with API key
 
-Both commands support `--reset-workspace`, `--live`, and `--env` options.
+All three commands support `--reset-workspace`, `--live`, and `--env` options.
+
+**Hermes Agent** is installed in the template image (pinned via the `HERMES_AGENT_VERSION`
+build arg) and needs no login step: put `OPENROUTER_API_KEY=...` in
+`~/.devs/envs/<org-repo>/.env` (or `~/.devs/envs/default/.env`, or DEVS.yml `env_vars`) and
+Hermes auto-selects OpenRouter. Set `HERMES_INFERENCE_MODEL` to choose an OpenRouter model id
+— otherwise Hermes uses its own configured default, which may be an expensive flagship model.
+Inside the container, `hermes` is aliased to `hermes --yolo` (`hermes-normal` keeps approval
+prompts). Hermes state (`~/.hermes`) is not bind-mounted, so sessions and memory reset on
+rebuild. Note that Hermes exits 0 even when the API call fails, so `devs hermes` reports
+success on e.g. a bad key — read the output.
 
 ### VS Code Tunnels
 

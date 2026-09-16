@@ -696,6 +696,97 @@ def _handle_codex_auth(api_key: str, debug: bool) -> None:
 
 
 @cli.command()
+@click.argument('dev_name', required=False)
+@click.argument('prompt', required=False)
+@click.option('--auth', is_flag=True, help='Show Hermes (OpenRouter) authentication setup instructions')
+@click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
+@click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
+@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
+@debug_option
+def hermes(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
+    """Execute Hermes Agent (Nous Research) in devcontainer or show authentication setup.
+
+    DEV_NAME: Development environment name
+    PROMPT: Prompt to send to Hermes
+
+    Example: devs hermes sally "Summarize this codebase"
+    Example: devs hermes sally "Fix the tests" --reset-workspace
+    Example: devs hermes sally "Fix the tests" --live  # Run with current directory
+    Example: devs hermes sally "Fix the tests" --env HERMES_INFERENCE_MODEL=moonshotai/kimi-k2
+    Example: devs hermes --auth                        # Show auth setup instructions
+    """
+    # Handle authentication mode
+    if auth:
+        console.print("🔐 Hermes Agent authentication for devcontainers")
+        console.print("")
+        console.print("Hermes runs against OpenRouter. Create an API key at:")
+        console.print("   [cyan]https://openrouter.ai/keys[/cyan]")
+        console.print("")
+        console.print("Add it to [cyan]~/.devs/envs/default/.env[/cyan] (or a project-specific env dir):")
+        console.print("   [dim]OPENROUTER_API_KEY=<key>[/dim]")
+        console.print("")
+        console.print("Optionally choose a model (any OpenRouter model id):")
+        console.print("   [dim]HERMES_INFERENCE_MODEL=<provider/model>[/dim]")
+        console.print("")
+        console.print("The env file is mounted into every devcontainer and loaded on each shell.")
+        return
+
+    # Validate required arguments for execution mode
+    if not dev_name or not prompt:
+        raise click.UsageError("DEV_NAME and PROMPT are required unless using --auth")
+
+    check_dependencies()
+    project = get_project()
+
+    # Load environment variables from DEVS.yml and merge with CLI --env flags
+    devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
+    cli_env = parse_env_vars(env) if env else {}
+    extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
+
+    if extra_env:
+        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
+
+    container_manager = ContainerManager(project, config)
+    workspace_manager = WorkspaceManager(project, config)
+
+    try:
+        # Ensure workspace exists (handles live mode and reset internally)
+        workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
+
+        # Execute Hermes (ensure_container_running is called internally)
+        console.print(f"🤖 Executing Hermes in {dev_name}...")
+        if reset_workspace and not live:
+            console.print("🗑️  Workspace contents reset")
+        console.print(f"📝 Prompt: {prompt}")
+        console.print("")
+
+        success, output, error, _ = container_manager.exec_hermes(
+            dev_name=dev_name,
+            workspace_dir=workspace_dir,
+            prompt=prompt,
+            debug=debug,
+            stream=True,
+            live=live,
+            extra_env=extra_env
+        )
+
+        console.print("")  # Add spacing after streamed output
+        if success:
+            console.print("✅ Hermes execution completed")
+        else:
+            console.print("❌ Hermes execution failed")
+            if error:
+                console.print("")
+                console.print("🚫 Error:")
+                console.print(error)
+            sys.exit(1)
+
+    except (ContainerError, WorkspaceError) as e:
+        console.print(f"❌ Error executing Hermes in {dev_name}: {e}")
+        sys.exit(1)
+
+
+@cli.command()
 @click.argument('dev_name')
 @click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
 @click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')

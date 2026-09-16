@@ -68,24 +68,6 @@ check_github_token_setup() {
         git config --global core.trustctime false
         echo "✅ Git core.trustctime set to false (prevents timezone-related rebase issues)"
         
-        # Ensure it's available in all shell sessions for the node user
-        if ! grep -q "source /home/node/.devs-env/.env" /home/node/.zshrc 2>/dev/null; then
-            echo "# Load devs environment variables" >> /home/node/.zshrc
-            echo "if [ -f /home/node/.devs-env/.env ]; then" >> /home/node/.zshrc
-            echo "    set -a" >> /home/node/.zshrc
-            echo "    source /home/node/.devs-env/.env" >> /home/node/.zshrc
-            echo "    set +a" >> /home/node/.zshrc
-            echo "fi" >> /home/node/.zshrc
-        fi
-        if ! grep -q "source /home/node/.devs-env/.env" /home/node/.bashrc 2>/dev/null; then
-            echo "# Load devs environment variables" >> /home/node/.bashrc
-            echo "if [ -f /home/node/.devs-env/.env ]; then" >> /home/node/.bashrc
-            echo "    set -a" >> /home/node/.bashrc
-            echo "    source /home/node/.devs-env/.env" >> /home/node/.bashrc
-            echo "    set +a" >> /home/node/.bashrc
-            echo "fi" >> /home/node/.bashrc
-        fi
-        
         # Test if gh CLI can authenticate
         if command -v gh >/dev/null 2>&1; then
             if gh auth status >/dev/null 2>&1; then
@@ -104,10 +86,45 @@ check_github_token_setup() {
     fi
 }
 
+# Load the mounted env file in every shell for the node user. This used to happen only
+# when GH_TOKEN was set, which left other keys in the file (e.g. OPENROUTER_API_KEY for
+# Hermes) invisible to interactive shells and to `devs <agent>` execs.
+setup_env_file_sourcing() {
+    local rc
+    for rc in /home/node/.zshrc /home/node/.bashrc; do
+        if ! grep -q "source /home/node/.devs-env/.env" "$rc" 2>/dev/null; then
+            {
+                echo "# Load devs environment variables"
+                echo "if [ -f /home/node/.devs-env/.env ]; then"
+                echo "    set -a"
+                echo "    source /home/node/.devs-env/.env"
+                echo "    set +a"
+                echo "fi"
+            } >> "$rc"
+        fi
+    done
+}
+
+# Report whether Hermes Agent has an inference provider key
+check_hermes_setup() {
+    if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+        echo "✅ OpenRouter API key (OPENROUTER_API_KEY) is available - Hermes Agent is ready"
+    else
+        echo "ℹ️  No OpenRouter API key (OPENROUTER_API_KEY) configured"
+        echo "   To use Hermes Agent, add OPENROUTER_API_KEY=your_key to"
+        echo "   ~/.devs/envs/<project-name>/.env (or ~/.devs/envs/default/.env)"
+    fi
+}
+
 # Check SSH access (configured during build)
 check_ssh_setup
 
 # Check GitHub token access (configured via mounted env files)
 check_github_token_setup
+
+setup_env_file_sourcing
+
+# check_github_token_setup sourced the env file, so OPENROUTER_API_KEY is visible here
+check_hermes_setup
 
 echo "Devs environment setup complete!"

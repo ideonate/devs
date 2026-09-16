@@ -36,6 +36,7 @@ RUN apt update && apt install -y less \
   nano \
   htop \
   tmux \
+  ripgrep \
   && apt clean \
   && rm -rf /var/lib/apt/lists/*
 
@@ -150,6 +151,17 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 ARG CODEX_CLI_VERSION=0.144.6
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}"
 
+# Install Hermes Agent (Nous Research's open-source coding agent). Pinned to a release
+# tag for the same reason as Codex above; bump HERMES_AGENT_VERSION to upgrade. Setup
+# wizard, browser and computer-use extras are skipped — the agent is driven through
+# OpenRouter: put OPENROUTER_API_KEY in ~/.devs/envs/<project>/.env (or DEVS.yml
+# env_vars) and Hermes auto-selects OpenRouter. Pick a model with HERMES_INFERENCE_MODEL.
+ARG HERMES_AGENT_VERSION=v2026.9.14
+RUN curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_AGENT_VERSION}/scripts/install.sh" \
+    | bash -s -- --branch "${HERMES_AGENT_VERSION}" --non-interactive --skip-setup \
+      --skip-browser --skip-computer-use && \
+  /home/node/.local/bin/hermes --version
+
 # Install cloudflared for tunnel support (proxies all HTTP methods correctly)
 # Install VS Code CLI for tunnel support (needs root for /usr/local/bin)
 # Using the standalone CLI which supports the 'tunnel' command
@@ -180,7 +192,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
   rm -rf /tmp/tailscale.tgz "/tmp/tailscale_${TAILSCALE_VERSION}_${ARCH}" && \
   chmod +x /usr/local/bin/tailscale /usr/local/bin/tailscaled
 
-# Set up environment variables and aliases for Claude and Codex
+# Set up environment variables and aliases for Claude, Codex and Hermes
 RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
   echo "export CODEX_CONFIG_HOME=\"/home/node/codexconfig\"" >> "$shell_rc" && \
@@ -188,6 +200,8 @@ RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "alias claude=\"claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
   echo "alias codex=\"/usr/local/share/npm-global/bin/codex -c check_for_update_on_startup=false --dangerously-bypass-approvals-and-sandbox\"" >> "$shell_rc" && \
   echo "alias codex-normal=\"/usr/local/share/npm-global/bin/codex -c check_for_update_on_startup=false\"" >> "$shell_rc" && \
+  echo "alias hermes=\"/home/node/.local/bin/hermes --yolo\"" >> "$shell_rc" && \
+  echo "alias hermes-normal=\"/home/node/.local/bin/hermes\"" >> "$shell_rc" && \
   echo "" >> "$shell_rc" && \
   echo "# Auto-activate Python venv if it exists" >> "$shell_rc" && \
   echo "if [ -f /home/node/.devs-venv/workspace-venv/bin/activate ]; then" >> "$shell_rc" && \

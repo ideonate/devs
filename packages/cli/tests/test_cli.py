@@ -223,6 +223,31 @@ class TestCLI:
         assert "Codex CLI not found" in result.output
         assert "npm install -g @openai/codex" in result.output
 
+    def test_hermes_command_help(self):
+        """Test hermes command help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ['hermes', '--help'])
+
+        assert result.exit_code == 0
+        assert "Execute Hermes Agent" in result.output
+        assert "--auth" in result.output
+
+    def test_hermes_auth_shows_instructions(self):
+        """Test hermes --auth shows OpenRouter setup instructions."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ['hermes', '--auth'])
+
+        assert result.exit_code == 0
+        assert "OPENROUTER_API_KEY" in result.output
+
+    def test_hermes_missing_args(self):
+        """Test hermes command without required args (not using --auth)."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ['hermes'])
+
+        assert result.exit_code != 0
+        assert "DEV_NAME and PROMPT are required unless using --auth" in result.output
+
     def test_codex_missing_args(self):
         """Test codex command without required args (not using --auth)."""
         runner = CliRunner()

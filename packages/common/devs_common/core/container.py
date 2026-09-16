@@ -979,6 +979,41 @@ class ContainerManager:
             extra_env=extra_env
         )
 
+    def exec_hermes(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str, int]:
+        """Execute Nous Research's Hermes Agent CLI in the container.
+
+        Hermes picks OpenRouter automatically when OPENROUTER_API_KEY is set in the
+        container environment (e.g. via the mounted devs env file).
+
+        Args:
+            dev_name: Development environment name
+            workspace_dir: Workspace directory path
+            prompt: Prompt to send to Hermes
+            debug: Show debug output for devcontainer operations
+            stream: Stream output to console in real-time
+            live: Whether the container is in live mode
+            extra_env: Additional environment variables to pass to container
+
+        Returns:
+            Tuple of (success, stdout, stderr, exit_code)
+
+        Raises:
+            ContainerError: If Hermes execution fails
+        """
+        return self.exec_command(
+            dev_name=dev_name,
+            workspace_dir=workspace_dir,
+            # `--query-file -` reads the prompt from stdin; `--oneshot` answers and exits
+            # rather than seeding an interactive session. `--yolo` skips dangerous-command
+            # approvals, matching the claude/codex invocations above.
+            command="hermes --yolo chat --oneshot --query-file -",
+            stdin_input=prompt,
+            debug=debug,
+            stream=stream,
+            live=live,
+            extra_env=extra_env
+        )
+
     def _get_tunnel_name(self, dev_name: str) -> str:
         """Generate a VS Code tunnel name for this project/dev combo."""
         container_name = self.project.get_container_name(
