@@ -96,12 +96,14 @@ class TestLiveMode:
         # Mock VSCodeIntegration
         with patch('devs.cli.VSCodeIntegration') as mock_vscode:
             mock_vscode_instance = Mock()
+            mock_vscode_instance.resolve_tailnet_ssh_host.return_value = None  # not on the tailnet
             mock_vscode_instance.launch_multiple_devcontainers.return_value = 1
             mock_vscode.return_value = mock_vscode_instance
             
             # Run command
             runner = CliRunner()
-            result = runner.invoke(cli, ['vscode', 'test-dev', '--live'])
+            with patch('devs.cli.DevsConfigLoader.load_ssh_host', return_value=None):
+                result = runner.invoke(cli, ['vscode', 'test-dev', '--live'], env={'DEVS_SSH_HOST': None})
             
             # Verify live mode was passed
             mock_container.ensure_container_running.assert_called_once()
@@ -135,12 +137,7 @@ class TestLiveMode:
         runner = CliRunner()
         result = runner.invoke(cli, ['shell', 'test-dev', '--live'])
         
-        # Verify live mode was passed
-        mock_container.ensure_container_running.assert_called_once()
-        call_args = mock_container.ensure_container_running.call_args
-        assert call_args.kwargs.get('live') is True
-        
-        # Verify exec_shell was called with live=True
+        # Verify exec_shell was called with live=True (it starts the container internally)
         mock_container.exec_shell.assert_called_once()
         call_args = mock_container.exec_shell.call_args
         assert call_args.kwargs.get('live') is True

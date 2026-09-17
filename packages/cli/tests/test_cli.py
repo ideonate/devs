@@ -29,7 +29,7 @@ class TestCLI:
         result = runner.invoke(cli, ['--version'])
         
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert "devs-cli" in result.output
     
     def test_start_command_help(self):
         """Test start command help."""
@@ -55,7 +55,7 @@ class TestCLI:
         result = runner.invoke(cli, ['stop', '--help'])
         
         assert result.exit_code == 0
-        assert "Stop and remove devcontainers" in result.output
+        assert "Stop devcontainers" in result.output
         assert "DEV_NAMES" in result.output
     
     def test_shell_command_help(self):

@@ -32,7 +32,7 @@ class TestStopCommand:
         assert result.exit_code == 0
         assert "Stopping" in result.output
         assert "alice" in result.output
-        mock_container_manager.stop_container.assert_called_once_with("alice")
+        mock_container_manager.stop_container.assert_called_once_with("alice", remove=False)
 
     @patch('devs.cli.get_project')
     @patch('devs.cli.ContainerManager')
@@ -77,7 +77,7 @@ class TestStopCommand:
 
         # Verify it completes
         assert result.exit_code == 0
-        mock_container_manager.stop_container.assert_called_once_with("alice")
+        mock_container_manager.stop_container.assert_called_once_with("alice", remove=False)
 
     @patch('devs.cli.get_project')
     @patch('devs.cli.ContainerManager')
@@ -120,7 +120,7 @@ class TestStopCommand:
 
         # The command may fail or show error
         # Just verify it was called
-        mock_container_manager.stop_container.assert_called_once_with("alice")
+        mock_container_manager.stop_container.assert_called_once_with("alice", remove=False)
 
     @patch('devs.cli.get_project')
     @patch('devs.cli.ContainerManager')

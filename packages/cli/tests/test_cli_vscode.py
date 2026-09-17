@@ -1,5 +1,4 @@
 """Integration tests for the 'vscode' command."""
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -12,7 +11,14 @@ from devs.exceptions import VSCodeError, WorkspaceError
 
 
 class TestVSCodeCommand:
-    """Test suite for 'devs vscode' command."""
+    """Test suite for 'devs vscode' command in local mode (no SSH host)."""
+
+    @pytest.fixture(autouse=True)
+    def no_ssh_host(self, monkeypatch):
+        """Keep these tests on the local path: no --ssh from env or DEVS.yml."""
+        monkeypatch.delenv('DEVS_SSH_HOST', raising=False)
+        with patch('devs.cli.DevsConfigLoader.load_ssh_host', return_value=None):
+            yield
 
     @patch('devs.cli.get_project')
     @patch('devs.cli.ContainerManager')
@@ -36,6 +42,7 @@ class TestVSCodeCommand:
         mock_container_manager_class.return_value = mock_container_manager
 
         mock_vscode = Mock()
+        mock_vscode.resolve_tailnet_ssh_host.return_value = None  # not on the tailnet
         mock_vscode.launch_multiple_devcontainers.return_value = 1
         mock_vscode_class.return_value = mock_vscode
 
@@ -68,6 +75,7 @@ class TestVSCodeCommand:
         mock_container_manager_class.return_value = mock_container_manager
 
         mock_vscode = Mock()
+        mock_vscode.resolve_tailnet_ssh_host.return_value = None  # not on the tailnet
         mock_vscode.launch_multiple_devcontainers.return_value = 1
         mock_vscode_class.return_value = mock_vscode
 
@@ -100,6 +108,7 @@ class TestVSCodeCommand:
         mock_container_manager_class.return_value = mock_container_manager
 
         mock_vscode = Mock()
+        mock_vscode.resolve_tailnet_ssh_host.return_value = None  # not on the tailnet
         mock_vscode_class.return_value = mock_vscode
 
         # Run command
@@ -126,7 +135,7 @@ class TestVSCodeCommand:
         mock_workspace_manager_class.return_value = mock_workspace_manager
 
         mock_container_manager_class.return_value = Mock()
-        mock_vscode_class.return_value = Mock()
+        mock_vscode_class.return_value = Mock(**{'resolve_tailnet_ssh_host.return_value': None})
 
         # Run command
         result = cli_runner.invoke(cli, ['vscode', 'alice'])
@@ -156,6 +165,7 @@ class TestVSCodeCommand:
         mock_container_manager_class.return_value = mock_container_manager
 
         mock_vscode = Mock()
+        mock_vscode.resolve_tailnet_ssh_host.return_value = None  # not on the tailnet
         mock_vscode.launch_multiple_devcontainers.return_value = 1
         mock_vscode_class.return_value = mock_vscode
 
@@ -187,6 +197,7 @@ class TestVSCodeCommand:
         mock_container_manager_class.return_value = mock_container_manager
 
         mock_vscode = Mock()
+        mock_vscode.resolve_tailnet_ssh_host.return_value = None  # not on the tailnet
         mock_vscode.launch_multiple_devcontainers.side_effect = VSCodeError("Failed to open")
         mock_vscode_class.return_value = mock_vscode
 
@@ -220,6 +231,7 @@ class TestVSCodeCommand:
         mock_container_manager_class.return_value = mock_container_manager
 
         mock_vscode = Mock()
+        mock_vscode.resolve_tailnet_ssh_host.return_value = None  # not on the tailnet
         mock_vscode.launch_multiple_devcontainers.return_value = 1
         mock_vscode_class.return_value = mock_vscode
 
@@ -251,6 +263,7 @@ class TestVSCodeCommand:
         mock_container_manager_class.return_value = mock_container_manager
 
         mock_vscode = Mock()
+        mock_vscode.resolve_tailnet_ssh_host.return_value = None  # not on the tailnet
         mock_vscode.launch_multiple_devcontainers.return_value = 1
         mock_vscode_class.return_value = mock_vscode
 
@@ -351,7 +364,8 @@ class TestVSCodeSSHMode:
         mock_vscode.launch_multiple_devcontainers.return_value = 1
         mock_vscode_class.return_value = mock_vscode
 
-        result = cli_runner.invoke(cli, ['vscode', 'alice'])
+        # DEVS_SSH_HOST in the caller's environment would take priority over DEVS.yml
+        result = cli_runner.invoke(cli, ['vscode', 'alice'], env={'DEVS_SSH_HOST': None})
 
         assert result.exit_code == 0
         mock_container_manager_class.assert_not_called()
@@ -382,15 +396,12 @@ class TestSSHURIGeneration:
         assert decoded == 'dev-test-org-repo-alice'
         assert '/workspaces/test-org-repo-alice' in uri
 
-    def test_ssh_uri_contains_json_with_host(self):
-        """SSH URI encodes JSON with containerName (leading /) and settings.host."""
+    def test_ssh_uri_is_direct_remote_ssh(self):
+        """SSH URI opens the container's workspace directly over Remote-SSH (no attach)."""
         vsi = self._make_vsi()
         workspace_dir = Path('/home/user/.devs/workspaces/test-org-repo-alice')
         uri = vsi.generate_devcontainer_uri(workspace_dir, 'alice', ssh_host='myhost.ts.net')
-        hex_part = uri.split('attached-container+')[1].split('/')[0]
-        decoded = json.loads(bytes.fromhex(hex_part).decode('utf-8'))
-        assert decoded['containerName'] == '/dev-test-org-repo-alice'
-        assert decoded['settings']['host'] == 'ssh://myhost.ts.net'
+        assert uri == 'vscode-remote://ssh-remote+myhost.ts.net/workspaces/test-org-repo-alice'
 
     def test_ssh_uri_workspace_path_correct(self):
         """SSH URI workspace path matches the devs naming convention."""
@@ -404,6 +415,4 @@ class TestSSHURIGeneration:
         vsi = self._make_vsi()
         workspace_dir = Path('/home/user/.devs/workspaces/test-org-repo-alice')
         uri = vsi.generate_devcontainer_uri(workspace_dir, 'alice', ssh_host='myhost.ts.net:2222')
-        hex_part = uri.split('attached-container+')[1].split('/')[0]
-        decoded = json.loads(bytes.fromhex(hex_part).decode('utf-8'))
-        assert decoded['settings']['host'] == 'ssh://myhost.ts.net:2222'
+        assert uri.startswith('vscode-remote://ssh-remote+myhost.ts.net:2222/')

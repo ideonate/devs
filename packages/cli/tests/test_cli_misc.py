@@ -288,7 +288,7 @@ class TestShellCommand:
 
         # Container manager raises error
         mock_container_manager = Mock()
-        mock_container_manager.ensure_container_running.side_effect = ContainerError("Container failed")
+        mock_container_manager.exec_shell.side_effect = ContainerError("Container failed")
         mock_container_manager_class.return_value = mock_container_manager
 
         # Run command
