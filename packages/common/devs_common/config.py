@@ -12,6 +12,7 @@ class BaseConfig(ABC):
     # Default directories shared across CLI and webhook
     CLAUDE_CONFIG_DIR = Path.home() / ".devs" / "claudeconfig"
     CODEX_CONFIG_DIR = Path.home() / ".devs" / "codexconfig"
+    HERMES_CONFIG_DIR = Path.home() / ".devs" / "hermesconfig"
 
     def __init__(self) -> None:
         """Initialize base configuration."""
@@ -24,6 +25,9 @@ class BaseConfig(ABC):
 
         codex_config_env = os.getenv("DEVS_CODEX_CONFIG_DIR")
         self.codex_config_dir = Path(codex_config_env) if codex_config_env else self.CODEX_CONFIG_DIR
+
+        hermes_config_env = os.getenv("DEVS_HERMES_CONFIG_DIR")
+        self.hermes_config_dir = Path(hermes_config_env) if hermes_config_env else self.HERMES_CONFIG_DIR
 
     @property
     def workspaces_dir(self) -> Path:
@@ -100,3 +104,5 @@ class BaseConfig(ABC):
         self.bridge_dir.mkdir(parents=True, exist_ok=True)
         self.claude_config_dir.mkdir(parents=True, exist_ok=True)
         self.codex_config_dir.mkdir(parents=True, exist_ok=True)
+        # Bind-mounted into containers, so it must exist before `devcontainer up`
+        self.hermes_config_dir.mkdir(parents=True, exist_ok=True)

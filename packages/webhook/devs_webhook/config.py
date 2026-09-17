@@ -107,6 +107,12 @@ class WebhookConfig(BaseSettings, BaseConfig):
         default_factory=lambda: Path.home() / ".devs" / "codexconfig",
         description="Directory for Codex configuration (shared with CLI)"
     )
+
+    # Hermes Agent settings (shared with CLI for interoperability)
+    hermes_config_dir: Path = Field(
+        default_factory=lambda: Path.home() / ".devs" / "hermesconfig",
+        description="Directory for Hermes Agent data: sessions, memory, config (shared with CLI)"
+    )
     
     # Server settings
     webhook_host: str = Field(default="0.0.0.0", description="Host to bind webhook server")

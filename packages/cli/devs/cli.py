@@ -585,54 +585,32 @@ def _handle_codex_auth(api_key: str, debug: bool) -> None:
         console.print("🔐 Setting up Codex authentication...")
         console.print(f"   Configuration will be saved to: {config.codex_config_dir}")
 
+        # Codex reads its state directory from CODEX_HOME (default ~/.codex); pointing it
+        # at the directory that is bind-mounted into containers shares the login with them.
+        env = os.environ.copy()
+        env['CODEX_HOME'] = str(config.codex_config_dir)
+
         if api_key:
-            # Set API key directly using Codex CLI
             console.print("   Using provided API key...")
-
-            # Set CODEX_CONFIG_HOME to our config directory and run auth with API key
-            env = os.environ.copy()
-            env['CODEX_CONFIG_HOME'] = str(config.codex_config_dir)
-
-            cmd = ['codex', 'auth', '--api-key', api_key]
-
-            if debug:
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-                console.print(f"[dim]CODEX_CONFIG_HOME: {config.codex_config_dir}[/dim]")
-
-            result = subprocess.run(
-                cmd,
-                env=env,
-                capture_output=True,
-                text=True
-            )
-
-            if result.returncode != 0:
-                error_msg = result.stderr or result.stdout or "Unknown error"
-                raise Exception(f"Codex authentication failed: {error_msg}")
-
+            # The key goes in on stdin so it never shows up in the process list
+            cmd = ['codex', 'login', '--with-api-key']
         else:
-            # Interactive authentication
             console.print("   Starting interactive authentication...")
             console.print("   Follow the prompts to authenticate with Codex")
             console.print("")
+            cmd = ['codex', 'login']
 
-            # Set CODEX_CONFIG_HOME to our config directory
-            env = os.environ.copy()
-            env['CODEX_CONFIG_HOME'] = str(config.codex_config_dir)
+        if debug:
+            console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+            console.print(f"[dim]CODEX_HOME: {config.codex_config_dir}[/dim]")
 
-            cmd = ['codex', 'auth']
-
-            if debug:
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-                console.print(f"[dim]CODEX_CONFIG_HOME: {config.codex_config_dir}[/dim]")
-
-            # Run interactively
-            result = subprocess.run(
-                cmd,
-                env=env,
-                check=False
-            )
-
+        if api_key:
+            result = subprocess.run(cmd, env=env, input=api_key, capture_output=True, text=True)
+            if result.returncode != 0:
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                raise Exception(f"Codex authentication failed: {error_msg}")
+        else:
+            result = subprocess.run(cmd, env=env, check=False)
             if result.returncode != 0:
                 raise Exception("Codex authentication was cancelled or failed")
 

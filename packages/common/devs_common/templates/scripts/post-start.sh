@@ -21,6 +21,9 @@ fi
 # before the TS_ENABLE gate below, which exits when Tailscale is off.
 /usr/local/bin/setup-vscode-settings.sh || true
 
+# Hermes Agent's default model, seeded into its host-persisted config if none is set yet.
+/usr/local/bin/setup-hermes.sh || true
+
 # Gate on the same master switch as the rest of the Tailscale wiring.
 case "${TS_ENABLE:-}" in
   1|true|yes) ;;

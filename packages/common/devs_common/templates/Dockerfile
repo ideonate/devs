@@ -89,7 +89,7 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 ENV DEVCONTAINER=true
 
 # Create workspace and config directories and set permissions
-RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/codexconfig \
+RUN mkdir -p /workspaces /home/node/claudeconfig /home/node/codexconfig /home/node/hermesconfig \
       /home/node/.vscode-server/extensions \
       /home/node/.vscode-server/data/Machine && \
   echo '[]' > /home/node/.vscode-server/extensions/extensions.json && \
@@ -154,19 +154,33 @@ RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}"
 # Install Hermes Agent (Nous Research's open-source coding agent). Pinned to a release
 # tag for the same reason as Codex above; bump HERMES_AGENT_VERSION to upgrade. Setup
 # wizard, browser and computer-use extras are skipped — the agent is driven through
-# OpenRouter: put OPENROUTER_API_KEY in ~/.devs/envs/<project>/.env (or DEVS.yml
-# env_vars). The default model is an open-weights model that is strong at agentic coding
-# but far cheaper than the flagship Hermes would otherwise pick; override it per container
-# with HERMES_INFERENCE_MODEL (the aliases below and `devs hermes` pass it as --model,
-# since `hermes chat` ignores that env var), or rebuild with a different HERMES_DEFAULT_MODEL.
+# OpenRouter: put OPENROUTER_API_KEY in ~/.devs/envs/<project>/.env (or DEVS.yml env_vars).
+#
+# The code goes in /home/node/.hermes-agent and the data dir (HERMES_HOME: sessions,
+# memory, skills, config.yaml) in /home/node/hermesconfig, which devcontainer.json
+# bind-mounts from ~/.devs/hermesconfig so it persists across rebuilds like claudeconfig
+# and codexconfig. The installer's default puts the code *inside* HERMES_HOME, where the
+# mount would hide it. Because config.yaml lives on the host, the default model can't be
+# baked in here: scripts/setup-hermes.sh seeds HERMES_DEFAULT_MODEL into it at container
+# start if no model is configured yet. HERMES_INFERENCE_MODEL overrides it per container.
 ARG HERMES_AGENT_VERSION=v2026.9.14
 ARG HERMES_DEFAULT_MODEL=z-ai/glm-5.3
-RUN curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_AGENT_VERSION}/scripts/install.sh" \
-    | bash -s -- --branch "${HERMES_AGENT_VERSION}" --non-interactive --skip-setup \
-      --skip-browser --skip-computer-use && \
-  /home/node/.local/bin/hermes config set model.provider openrouter && \
-  /home/node/.local/bin/hermes config set model.default "${HERMES_DEFAULT_MODEL}" && \
-  /home/node/.local/bin/hermes --version
+ENV HERMES_HOME=/home/node/hermesconfig \
+    HERMES_DEFAULT_MODEL=${HERMES_DEFAULT_MODEL}
+# Download first rather than `curl | bash`: /bin/sh has no pipefail, so a failed
+# download (e.g. a GitHub 429) would otherwise run an empty script and "succeed".
+# The installer also seeds a data dir (~85 MB: its own uv, skills, a sample config.yaml);
+# the mount would hide it anyway, so point that at a scratch dir and delete it. Hermes
+# re-syncs bundled skills into the mounted HERMES_HOME on first run.
+RUN curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+      "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_AGENT_VERSION}/scripts/install.sh" \
+      -o /tmp/hermes-install.sh && \
+  HERMES_HOME=/tmp/hermes-build-home bash /tmp/hermes-install.sh \
+    --branch "${HERMES_AGENT_VERSION}" --dir /home/node/.hermes-agent \
+    --hermes-home /tmp/hermes-build-home \
+    --non-interactive --skip-setup --skip-browser --skip-computer-use && \
+  HERMES_HOME=/tmp/hermes-build-home /home/node/.local/bin/hermes --version && \
+  rm -rf /tmp/hermes-install.sh /tmp/hermes-build-home
 
 # Install cloudflared for tunnel support (proxies all HTTP methods correctly)
 # Install VS Code CLI for tunnel support (needs root for /usr/local/bin)
@@ -201,7 +215,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Set up environment variables and aliases for Claude, Codex and Hermes
 RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
   echo "export CLAUDE_CONFIG_DIR=\"/home/node/claudeconfig\"" >> "$shell_rc" && \
-  echo "export CODEX_CONFIG_HOME=\"/home/node/codexconfig\"" >> "$shell_rc" && \
+  echo "export CODEX_HOME=\"/home/node/codexconfig\"" >> "$shell_rc" && \
   echo "export PATH=\"/home/node/.local/bin:\$PATH\"" >> "$shell_rc" && \
   echo "alias claude=\"claude --dangerously-skip-permissions\"" >> "$shell_rc" && \
   echo "alias codex=\"/usr/local/share/npm-global/bin/codex -c check_for_update_on_startup=false --dangerously-bypass-approvals-and-sandbox\"" >> "$shell_rc" && \

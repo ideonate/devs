@@ -178,10 +178,10 @@ class TestCLI:
         # Verify subprocess was called with correct arguments
         mock_subprocess.assert_called_once()
         call_args = mock_subprocess.call_args
-        assert 'codex' in call_args[0][0]
-        assert 'auth' in call_args[0][0]
-        assert '--api-key' in call_args[0][0]
-        assert 'test-key-123' in call_args[0][0]
+        assert call_args[0][0] == ['codex', 'login', '--with-api-key']
+        # Key is passed on stdin, not argv, and login state goes to the mounted dir
+        assert call_args.kwargs['input'] == 'test-key-123'
+        assert call_args.kwargs['env']['CODEX_HOME'] == '/tmp/test-codex-config'
 
     @patch('devs.cli.subprocess.run')
     @patch('devs.cli.config')
@@ -203,9 +203,8 @@ class TestCLI:
         # Verify subprocess was called for interactive auth
         mock_subprocess.assert_called_once()
         call_args = mock_subprocess.call_args
-        assert 'codex' in call_args[0][0]
-        assert 'auth' in call_args[0][0]
-        assert '--api-key' not in call_args[0][0]
+        assert call_args[0][0] == ['codex', 'login']
+        assert call_args.kwargs['env']['CODEX_HOME'] == '/tmp/test-codex-config'
 
     @patch('devs.cli.subprocess.run')
     @patch('devs.cli.config')

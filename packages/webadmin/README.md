@@ -76,6 +76,7 @@ Each running container shows a tunnel panel:
 | `DEVS_REPO_CACHE_DIR` | `~/.devs/repocache` | Repository cache directory |
 | `DEVS_CLAUDE_CONFIG_DIR` | `~/.devs/claudeconfig` | Claude config directory |
 | `DEVS_CODEX_CONFIG_DIR` | `~/.devs/codexconfig` | Codex config directory |
+| `DEVS_HERMES_CONFIG_DIR` | `~/.devs/hermesconfig` | Hermes Agent data directory |
 | `GH_TOKEN` / `GITHUB_TOKEN` | (none) | GitHub token for private repos |
 
 ### Shared Directories
