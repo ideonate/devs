@@ -338,6 +338,14 @@ supported with similar interfaces:
 
 All three commands support `--reset-workspace`, `--live`, and `--env` options.
 
+**Adding another agent**: the agents share one code path. `devs_common/agents.py` holds an
+`AgentSpec` per agent (name, display name, and the in-container shell command that reads the
+prompt from stdin); `ContainerManager.exec_agent(name, ...)` runs it, and `cli.py` builds each
+`devs <agent>` command with `_add_agent_command(name, auth_help, handle_auth, ...)`. So a new
+agent is: install it in `templates/Dockerfile`, add an `AgentSpec`, and register the command
+with a function that handles `--auth`. `packages/cli/tests/test_agents.py` checks every
+registered agent has a working command.
+
 **Hermes Agent** is installed in the template image (pinned via the `HERMES_AGENT_VERSION`
 build arg) and needs no login step: put `OPENROUTER_API_KEY=...` in
 `~/.devs/envs/<org-repo>/.env` (or `~/.devs/envs/default/.env`, or DEVS.yml `env_vars`) and

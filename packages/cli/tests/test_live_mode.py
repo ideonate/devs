@@ -161,7 +161,7 @@ class TestLiveMode:
         
         mock_container = Mock()
         mock_container.ensure_container_running.return_value = True
-        mock_container.exec_claude = Mock(return_value=(True, "output", ""))
+        mock_container.exec_agent = Mock(return_value=(True, "output", ""))
         mock_container_mgr.return_value = mock_container
         
         mock_workspace = Mock()
@@ -172,14 +172,9 @@ class TestLiveMode:
         runner = CliRunner()
         result = runner.invoke(cli, ['claude', 'test-dev', 'test prompt', '--live'])
         
-        # Verify live mode was passed
-        mock_container.ensure_container_running.assert_called_once()
-        call_args = mock_container.ensure_container_running.call_args
-        assert call_args.kwargs.get('live') is True
-        
-        # Verify exec_claude was called with live=True
-        mock_container.exec_claude.assert_called_once()
-        call_args = mock_container.exec_claude.call_args
+        # Verify exec_agent was called with live=True (it starts the container internally)
+        mock_container.exec_agent.assert_called_once()
+        call_args = mock_container.exec_agent.call_args
         assert call_args.kwargs.get('live') is True
         
         # Verify workspace.create_workspace was called with live=True and reset_contents=False

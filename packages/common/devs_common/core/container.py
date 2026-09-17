@@ -5,9 +5,10 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 import subprocess
 
+from ..agents import AgentSpec, get_agent
 from ..config import BaseConfig
 
 
@@ -915,13 +916,14 @@ class ContainerManager:
         except (DockerError, subprocess.SubprocessError) as e:
             raise ContainerError(f"Failed to exec command in {dev_name}: {e}")
     
-    def exec_claude(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str, int]:
-        """Execute Claude CLI in the container.
+    def exec_agent(self, agent: Union[str, AgentSpec], dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str, int]:
+        """Execute a coding agent (Claude, Codex, Hermes, ...) in the container.
 
         Args:
+            agent: Agent name from ``devs_common.agents.AGENTS``, or an ``AgentSpec``
             dev_name: Development environment name
             workspace_dir: Workspace directory path
-            prompt: Prompt to send to Claude
+            prompt: Prompt to send to the agent (passed on stdin)
             debug: Show debug output for devcontainer operations
             stream: Stream output to console in real-time
             live: Whether the container is in live mode
@@ -931,84 +933,14 @@ class ContainerManager:
             Tuple of (success, stdout, stderr, exit_code)
 
         Raises:
-            ContainerError: If Claude execution fails
+            ValueError: If the agent name is not registered
+            ContainerError: If agent execution fails
         """
-        # Simply delegate to exec_command with the Claude command and prompt as stdin
+        spec = get_agent(agent) if isinstance(agent, str) else agent
         return self.exec_command(
             dev_name=dev_name,
             workspace_dir=workspace_dir,
-            command="claude --dangerously-skip-permissions -p",
-            stdin_input=prompt,
-            debug=debug,
-            stream=stream,
-            live=live,
-            extra_env=extra_env
-        )
-
-    def exec_codex(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str, int]:
-        """Execute OpenAI Codex CLI in the container.
-
-        Args:
-            dev_name: Development environment name
-            workspace_dir: Workspace directory path
-            prompt: Prompt to send to Codex
-            debug: Show debug output for devcontainer operations
-            stream: Stream output to console in real-time
-            live: Whether the container is in live mode
-            extra_env: Additional environment variables to pass to container
-
-        Returns:
-            Tuple of (success, stdout, stderr, exit_code)
-
-        Raises:
-            ContainerError: If Codex execution fails
-        """
-        # Simply delegate to exec_command with the Codex command and prompt as stdin
-        return self.exec_command(
-            dev_name=dev_name,
-            workspace_dir=workspace_dir,
-            # `--full-auto` was removed from the Codex CLI (passing it now aborts with
-            # "unexpected argument"). This is the flag Codex intends for externally
-            # sandboxed environments, which a devcontainer is — and it matches the
-            # `claude --dangerously-skip-permissions` alias sitting beside it.
-            command="codex --dangerously-bypass-approvals-and-sandbox",
-            stdin_input=prompt,
-            debug=debug,
-            stream=stream,
-            live=live,
-            extra_env=extra_env
-        )
-
-    def exec_hermes(self, dev_name: str, workspace_dir: Path, prompt: str, debug: bool = False, stream: bool = True, live: bool = False, extra_env: Optional[Dict[str, str]] = None) -> tuple[bool, str, str, int]:
-        """Execute Nous Research's Hermes Agent CLI in the container.
-
-        Hermes picks OpenRouter automatically when OPENROUTER_API_KEY is set in the
-        container environment (e.g. via the mounted devs env file).
-
-        Args:
-            dev_name: Development environment name
-            workspace_dir: Workspace directory path
-            prompt: Prompt to send to Hermes
-            debug: Show debug output for devcontainer operations
-            stream: Stream output to console in real-time
-            live: Whether the container is in live mode
-            extra_env: Additional environment variables to pass to container
-
-        Returns:
-            Tuple of (success, stdout, stderr, exit_code)
-
-        Raises:
-            ContainerError: If Hermes execution fails
-        """
-        return self.exec_command(
-            dev_name=dev_name,
-            workspace_dir=workspace_dir,
-            # `--query-file -` reads the prompt from stdin; `--oneshot` answers and exits
-            # rather than seeding an interactive session. `--yolo` skips dangerous-command
-            # approvals, matching the claude/codex invocations above. `hermes chat` ignores
-            # HERMES_INFERENCE_MODEL, so forward it as --model when set; otherwise the
-            # model baked into the image's Hermes config is used.
-            command="hermes --yolo chat --oneshot --query-file - ${HERMES_INFERENCE_MODEL:+--model=$HERMES_INFERENCE_MODEL}",
+            command=spec.command,
             stdin_input=prompt,
             debug=debug,
             stream=stream,

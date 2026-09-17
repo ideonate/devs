@@ -319,7 +319,7 @@ class TestClaudeCommand:
 
         mock_container_manager = Mock()
         mock_container_manager.ensure_container_running.return_value = True
-        mock_container_manager.exec_claude.return_value = (True, "Claude response", None, None)
+        mock_container_manager.exec_agent.return_value = (True, "Claude response", None, None)
         mock_container_manager_class.return_value = mock_container_manager
 
         # Run command
@@ -328,7 +328,7 @@ class TestClaudeCommand:
         # Verify
         assert result.exit_code == 0
         assert "Executing Claude in alice" in result.output
-        mock_container_manager.exec_claude.assert_called_once()
+        mock_container_manager.exec_agent.assert_called_once()
 
     @patch('devs.cli.get_project')
     @patch('devs.cli.WorkspaceManager')
@@ -349,7 +349,7 @@ class TestClaudeCommand:
 
         # Container manager raises error
         mock_container_manager = Mock()
-        mock_container_manager.ensure_container_running.side_effect = ContainerError("Container failed")
+        mock_container_manager.exec_agent.side_effect = ContainerError("Container failed")
         mock_container_manager_class.return_value = mock_container_manager
 
         # Run command
@@ -376,7 +376,7 @@ class TestClaudeCommand:
 
         mock_container_manager = Mock()
         mock_container_manager.ensure_container_running.return_value = True
-        mock_container_manager.exec_claude.return_value = (True, "Claude response", None, None)
+        mock_container_manager.exec_agent.return_value = (True, "Claude response", None, None)
         mock_container_manager_class.return_value = mock_container_manager
 
         # Run command with env vars
