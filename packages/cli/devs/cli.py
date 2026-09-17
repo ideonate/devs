@@ -379,9 +379,21 @@ def stop(dev_names: tuple) -> None:
 
     container_manager = ContainerManager(project, config)
 
+    failed = []
     for dev_name in dev_names:
         console.print(f"   Stopping: {dev_name}")
-        container_manager.stop_container(dev_name, remove=False)
+        # Keep going past a failure so one bad container doesn't leave the rest running.
+        # stop_container reports Docker errors and missing containers itself, returning False.
+        try:
+            stopped = container_manager.stop_container(dev_name, remove=False)
+        except ContainerError as e:
+            console.print(f"   ❌ Error stopping {dev_name}: {e}")
+            stopped = False
+        if stopped is False:
+            failed.append(dev_name)
+
+    if failed:
+        sys.exit(1)
 
 
 @cli.command()

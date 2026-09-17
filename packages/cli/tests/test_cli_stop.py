@@ -13,6 +13,24 @@ class TestStopCommand:
 
     @patch('devs.cli.get_project')
     @patch('devs.cli.ContainerManager')
+    def test_stop_exits_nonzero_when_stop_fails(self, mock_container_manager_class, mock_get_project,
+                                                cli_runner, temp_project):
+        """stop_container returns False (container missing or Docker error) -> exit 1."""
+        mock_project = Mock()
+        mock_project.info.name = "test-org-test-repo"
+        mock_get_project.return_value = mock_project
+
+        mock_container_manager = Mock()
+        mock_container_manager.stop_container.side_effect = [False, True]
+        mock_container_manager_class.return_value = mock_container_manager
+
+        result = cli_runner.invoke(cli, ['stop', 'alice', 'bob'])
+
+        assert result.exit_code == 1
+        assert mock_container_manager.stop_container.call_count == 2
+
+    @patch('devs.cli.get_project')
+    @patch('devs.cli.ContainerManager')
     def test_stop_single_container(self, mock_container_manager_class, mock_get_project,
                                   cli_runner, temp_project):
         """Test stopping a single container."""
@@ -112,15 +130,16 @@ class TestStopCommand:
         mock_get_project.return_value = mock_project
 
         mock_container_manager = Mock()
-        mock_container_manager.stop_container.side_effect = ContainerError("Failed to stop")
+        mock_container_manager.stop_container.side_effect = [ContainerError("Failed to stop"), True]
         mock_container_manager_class.return_value = mock_container_manager
 
-        # Run command - CLI doesn't catch this exception currently
-        result = cli_runner.invoke(cli, ['stop', 'alice'])
+        result = cli_runner.invoke(cli, ['stop', 'alice', 'bob'])
 
-        # The command may fail or show error
-        # Just verify it was called
-        mock_container_manager.stop_container.assert_called_once_with("alice", remove=False)
+        # The error is reported, bob is still stopped, and the command exits non-zero
+        assert result.exit_code == 1
+        assert "Error stopping alice: Failed to stop" in result.output
+        assert mock_container_manager.stop_container.call_count == 2
+        mock_container_manager.stop_container.assert_called_with("bob", remove=False)
 
     @patch('devs.cli.get_project')
     @patch('devs.cli.ContainerManager')
