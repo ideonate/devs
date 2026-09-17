@@ -313,7 +313,7 @@ The `--live` flag mounts the current directory directly into the container witho
 - `devs start <name...>` - Start named devcontainers
 - `devs vscode <name...>` - Open devcontainers in VS Code
 - `devs tunnel <name>` - Start VS Code tunnel for remote access (see VS Code Tunnels below)
-- `devs stop <name...>` - Stop and remove devcontainers
+- `devs stop <name...>` - Stop devcontainers (they can be restarted; `devs clean` removes them)
 - `devs shell <name>` - Open shell in devcontainer
 - `devs list` - List active devcontainers for current project
 - `devs status` - Show project and dependency status
@@ -375,43 +375,49 @@ devs tunnel mydev
 # Open VS Code and connect via Remote Explorer > Tunnels
 ```
 
-### Remote-SSH Attach Mode (`devs vscode --ssh`)
+### Direct Remote-SSH Mode (`devs vscode --ssh`)
 
-`devs vscode <name> --ssh <host>` attaches your local VS Code to a container that is
-**already running** on a remote Docker host reachable over SSH (e.g. a Tailscale
-MagicDNS name). It is the SSH-based alternative to tunnels for connecting to remote
-containers.
+`devs vscode <name> --ssh <host>` opens your local VS Code **directly inside** a container
+that is **already running** and reachable over SSH. With the Tailscale template
+(`TS_ENABLE=1`, `TS_SSH=1`) each container is its own tailnet node running Tailscale SSH,
+so `<host>` is the *container's* tailnet name (`devs-<project>-<dev>`, e.g.
+`devs-myorg-myapp-alice`), not the Docker host. It is the SSH-based alternative to tunnels
+for reaching remote containers. See `docs/tailscale-setup.md`.
 
 **This mode is connection-only — it does NOT provision anything.** It is easy to assume
 `--ssh` means "SSH into the host first, *then* set up / start the devcontainer there."
 It does **not** do that. There is no remote-provisioning path in `devs`: the CLI only ever
 talks to the **local** Docker daemon when creating/starting containers.
 
-When `--ssh` is set, `devs vscode`:
+When `devs vscode` uses SSH for a dev, it:
 - Skips `ContainerManager` and `WorkspaceManager` entirely — no container is created,
   started, or rebuilt, and no workspace is copied or synced (local or remote).
-- Only constructs a VS Code Remote-SSH + attached-container URI:
-  `vscode-remote://attached-container+<hex>/workspaces/<name>`, where `<hex>` encodes
-  `{"containerName": "/dev-<org>-<repo>-<name>", "settings": {"host": "ssh://<host>"}}`.
-  See `generate_devcontainer_uri()` in `packages/cli/devs/core/integration.py`.
+- Only constructs a plain Remote-SSH folder URI:
+  `vscode-remote://ssh-remote+<host>/workspaces/<name>`. It is deliberately **not** an
+  attached-container URI: that would make VS Code SSH in and then look for a Docker daemon
+  inside the container. See `generate_devcontainer_uri()` in
+  `packages/cli/devs/core/integration.py`.
 
-**You are responsible for starting the container on the remote host yourself** before
-running `--ssh` — e.g. SSH into the remote machine and run `devs start <name>` there, or
-point a remote Docker context at it. If the container is not already running on `<host>`,
-the VS Code attach will fail.
+**You are responsible for starting the container yourself** before connecting — e.g. SSH
+into the remote machine and run `devs start <name>` there. If the container isn't up and
+accepting Tailscale SSH, the VS Code connection fails.
 
-The host can be set three ways (highest priority first): the `--ssh` flag, the
-`DEVS_SSH_HOST` env var, or `ssh_host` in `DEVS.yml`.
+The host comes from (highest priority first): the `--ssh` flag, the `DEVS_SSH_HOST` env
+var, or `ssh_host` in `DEVS.yml`. **Without any of those, `devs vscode` auto-discovers it**:
+for a container running on this machine that has joined the tailnet with SSH on,
+`start-tailscale.sh` writes a handshake file into the env mount, and
+`VSCodeIntegration.resolve_tailnet_ssh_host()` reads it. Devs that don't resolve use normal
+local mode.
 
 **Example workflow:**
 ```bash
-# On the remote host (over SSH), start the container there:
+# On the remote host (over SSH), start the container there with Tailscale SSH on:
 ssh myhost.tailnet.ts.net
-devs start sally          # runs against the REMOTE machine's local Docker
+devs start sally --env TS_ENABLE=1 --env TS_SSH=1
 exit
 
-# Back on your laptop, attach VS Code to that already-running remote container:
-devs vscode sally --ssh myhost.tailnet.ts.net
+# Back on your laptop, open VS Code straight into that container over the tailnet:
+devs vscode sally --ssh devs-myorg-myapp-sally
 ```
 
 > Note: there is also a separate, unrelated `.devcontainer/.ssh` mechanism that copies
