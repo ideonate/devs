@@ -5,6 +5,7 @@ import sys
 import subprocess
 import traceback
 from functools import wraps
+from typing import Callable, Sequence
 from importlib.metadata import version, PackageNotFoundError
 
 import click
@@ -14,6 +15,7 @@ from rich.table import Table
 from .config import config
 from .core import Project, ContainerManager, WorkspaceManager
 from .core.integration import VSCodeIntegration, ExternalToolIntegration
+from devs_common.agents import AgentSpec, get_agent
 from devs_common.devs_config import DevsConfigLoader
 from devs_common.utils.repo_cache import RepoCache
 from .exceptions import (
@@ -436,46 +438,8 @@ def shell(dev_name: str, live: bool, env: tuple, debug: bool) -> None:
         sys.exit(1)
 
 
-@cli.command()
-@click.argument('dev_name', required=False)
-@click.argument('prompt', required=False)
-@click.option('--auth', is_flag=True, help='Show Claude authentication setup instructions')
-@click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
-@click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
-@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
-@debug_option
-def claude(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
-    """Execute Claude CLI in devcontainer or set up authentication.
-
-    DEV_NAME: Development environment name
-    PROMPT: Prompt to send to Claude
-
-    Example: devs claude sally "Summarize this codebase"
-    Example: devs claude sally "Fix the tests" --reset-workspace
-    Example: devs claude sally "Fix the tests" --live  # Run with current directory
-    Example: devs claude sally "Start the server" --env QUART_PORT=5001
-    Example: devs claude --auth                        # Show auth setup instructions
-    """
-    # Handle authentication mode
-    if auth:
-        console.print("🔐 Claude authentication for devcontainers")
-        console.print("")
-        console.print("1. Generate a token (on a machine with a browser):")
-        console.print("   [cyan]claude setup-token[/cyan]")
-        console.print("")
-        console.print("2. Add the token to your environment:")
-        console.print("   [cyan]export CLAUDE_CODE_OAUTH_TOKEN=<token>[/cyan]")
-        console.print("")
-        console.print("   Or add it to [cyan]~/.devs/envs/default/.env[/cyan]:")
-        console.print("   [dim]CLAUDE_CODE_OAUTH_TOKEN=<token>[/dim]")
-        console.print("")
-        console.print("The token will be automatically passed to all devcontainers.")
-        return
-
-    # Validate required arguments for execution mode
-    if not dev_name or not prompt:
-        raise click.UsageError("DEV_NAME and PROMPT are required unless using --auth")
-
+def _run_agent(agent: AgentSpec, dev_name: str, prompt: str, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
+    """Run a coding agent against a prompt in a devcontainer, streaming its output."""
     check_dependencies()
     project = get_project()
 
@@ -494,14 +458,15 @@ def claude(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: 
         # Ensure workspace exists (handles live mode and reset internally)
         workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
 
-        # Execute Claude (ensure_container_running is called internally)
-        console.print(f"🤖 Executing Claude in {dev_name}...")
+        # Execute the agent (ensure_container_running is called internally)
+        console.print(f"🤖 Executing {agent.display_name} in {dev_name}...")
         if reset_workspace and not live:
             console.print("🗑️  Workspace contents reset")
         console.print(f"📝 Prompt: {prompt}")
         console.print("")
 
-        success, output, error, _ = container_manager.exec_claude(
+        success, output, error, _ = container_manager.exec_agent(
+            agent,
             dev_name=dev_name,
             workspace_dir=workspace_dir,
             prompt=prompt,
@@ -513,9 +478,9 @@ def claude(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: 
 
         console.print("")  # Add spacing after streamed output
         if success:
-            console.print("✅ Claude execution completed")
+            console.print(f"✅ {agent.display_name} execution completed")
         else:
-            console.print("❌ Claude execution failed")
+            console.print(f"❌ {agent.display_name} execution failed")
             if error:
                 console.print("")
                 console.print("🚫 Error:")
@@ -523,98 +488,99 @@ def claude(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: 
             sys.exit(1)
 
     except (ContainerError, WorkspaceError) as e:
-        console.print(f"❌ Error executing Claude in {dev_name}: {e}")
+        console.print(f"❌ Error executing {agent.display_name} in {dev_name}: {e}")
         sys.exit(1)
 
 
+def _add_agent_command(
+    name: str,
+    auth_help: str,
+    handle_auth: Callable[..., None],
+    auth_options: Sequence[Callable] = (),
+    auth_examples: Sequence[str] = (),
+) -> None:
+    """Register a `devs <agent> DEV_NAME PROMPT` command for an agent in devs_common.agents.
 
-    except Exception as e:
-        console.print(f"❌ Failed to configure Claude authentication: {e}")
-        if debug:
-            console.print(traceback.format_exc())
-        sys.exit(1)
-
-
-@cli.command()
-@click.argument('dev_name', required=False)
-@click.argument('prompt', required=False)
-@click.option('--auth', is_flag=True, help='Set up Codex authentication for devcontainers')
-@click.option('--api-key', help='OpenAI API key to authenticate with (use with --auth)')
-@click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution')
-@click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace')
-@click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)')
-@debug_option
-def codex(dev_name: str, prompt: str, auth: bool, api_key: str, reset_workspace: bool, live: bool, env: tuple, debug: bool) -> None:
-    """Execute OpenAI Codex CLI in devcontainer or set up authentication.
-
-    DEV_NAME: Development environment name
-    PROMPT: Prompt to send to Codex
-
-    Example: devs codex sally "Summarize this codebase"
-    Example: devs codex sally "Fix the tests" --reset-workspace
-    Example: devs codex sally "Fix the tests" --live  # Run with current directory
-    Example: devs codex sally "Start the server" --env QUART_PORT=5001
-    Example: devs codex --auth                        # Interactive authentication
-    Example: devs codex --auth --api-key <YOUR_KEY>   # API key authentication
+    Args:
+        name: Agent name in the AGENTS registry
+        auth_help: Help text for the --auth flag
+        handle_auth: Called for `--auth` with debug= plus any auth_options values
+        auth_options: Extra click options that only apply to --auth (e.g. --api-key)
+        auth_examples: Extra `devs <agent> --auth ...` example lines for the help text
     """
-    # Handle authentication mode
-    if auth:
-        _handle_codex_auth(api_key=api_key, debug=debug)
-        return
+    agent = get_agent(name)
 
-    # Validate required arguments for execution mode
-    if not dev_name or not prompt:
-        raise click.UsageError("DEV_NAME and PROMPT are required unless using --auth")
+    def command(dev_name: str, prompt: str, auth: bool, reset_workspace: bool, live: bool,
+                env: tuple, debug: bool, **auth_values) -> None:
+        if auth:
+            handle_auth(debug=debug, **auth_values)
+            return
+        # Validate required arguments for execution mode
+        if not dev_name or not prompt:
+            raise click.UsageError("DEV_NAME and PROMPT are required unless using --auth")
+        _run_agent(agent, dev_name, prompt, reset_workspace, live, env, debug)
 
-    check_dependencies()
-    project = get_project()
+    examples = [
+        f'devs {name} sally "Summarize this codebase"',
+        f'devs {name} sally "Fix the tests" --reset-workspace',
+        f'devs {name} sally "Fix the tests" --live  # Run with current directory',
+        f'devs {name} sally "Start the server" --env QUART_PORT=5001',
+        f'devs {name} --auth',
+        *auth_examples,
+    ]
+    command.__name__ = name
+    command.__doc__ = (
+        f"Execute {agent.description} in devcontainer or set up authentication.\n\n"
+        f"DEV_NAME: Development environment name\n\n"
+        f"PROMPT: Prompt to send to {agent.display_name}\n\n"
+        + "\n\n".join(f"Example: {example}" for example in examples)
+    )
 
-    # Load environment variables from DEVS.yml and merge with CLI --env flags
-    devs_env = DevsConfigLoader.load_env_vars(dev_name, project.info.name)
-    cli_env = parse_env_vars(env) if env else {}
-    extra_env = merge_env_vars(devs_env, cli_env) if devs_env or cli_env else None
+    decorators = [
+        cli.command(name=name),
+        click.argument('dev_name', required=False),
+        click.argument('prompt', required=False),
+        click.option('--auth', is_flag=True, help=auth_help),
+        *auth_options,
+        click.option('--reset-workspace', is_flag=True, help='Reset workspace contents before execution'),
+        click.option('--live', is_flag=True, help='Start container with current directory mounted as workspace'),
+        click.option('--env', multiple=True, help='Environment variables to pass to container (format: VAR=value)'),
+        debug_option,
+    ]
+    for decorator in reversed(decorators):
+        command = decorator(command)
 
-    if extra_env:
-        console.print(f"🔧 Environment variables: {', '.join(f'{k}={v}' for k, v in extra_env.items())}")
 
-    container_manager = ContainerManager(project, config)
-    workspace_manager = WorkspaceManager(project, config)
+def _show_claude_auth(debug: bool) -> None:
+    """Explain how to give devcontainers a Claude token."""
+    console.print("🔐 Claude authentication for devcontainers")
+    console.print("")
+    console.print("1. Generate a token (on a machine with a browser):")
+    console.print("   [cyan]claude setup-token[/cyan]")
+    console.print("")
+    console.print("2. Add the token to your environment:")
+    console.print("   [cyan]export CLAUDE_CODE_OAUTH_TOKEN=<token>[/cyan]")
+    console.print("")
+    console.print("   Or add it to [cyan]~/.devs/envs/default/.env[/cyan]:")
+    console.print("   [dim]CLAUDE_CODE_OAUTH_TOKEN=<token>[/dim]")
+    console.print("")
+    console.print("The token will be automatically passed to all devcontainers.")
 
-    try:
-        # Ensure workspace exists (handles live mode and reset internally)
-        workspace_dir = workspace_manager.create_workspace(dev_name, reset_contents=reset_workspace, live=live)
 
-        # Execute Codex (ensure_container_running is called internally)
-        console.print(f"🤖 Executing Codex in {dev_name}...")
-        if reset_workspace and not live:
-            console.print("🗑️  Workspace contents reset")
-        console.print(f"📝 Prompt: {prompt}")
-        console.print("")
-
-        success, output, error, _ = container_manager.exec_codex(
-            dev_name=dev_name,
-            workspace_dir=workspace_dir,
-            prompt=prompt,
-            debug=debug,
-            stream=True,
-            live=live,
-            extra_env=extra_env
-        )
-
-        console.print("")  # Add spacing after streamed output
-        if success:
-            console.print("✅ Codex execution completed")
-        else:
-            console.print("❌ Codex execution failed")
-            if error:
-                console.print("")
-                console.print("🚫 Error:")
-                console.print(error)
-            sys.exit(1)
-
-    except (ContainerError, WorkspaceError) as e:
-        console.print(f"❌ Error executing Codex in {dev_name}: {e}")
-        sys.exit(1)
+def _show_hermes_auth(debug: bool) -> None:
+    """Explain how to give devcontainers an OpenRouter key for Hermes."""
+    console.print("🔐 Hermes Agent authentication for devcontainers")
+    console.print("")
+    console.print("Hermes runs against OpenRouter. Create an API key at:")
+    console.print("   [cyan]https://openrouter.ai/keys[/cyan]")
+    console.print("")
+    console.print("Add it to [cyan]~/.devs/envs/default/.env[/cyan] (or a project-specific env dir):")
+    console.print("   [dim]OPENROUTER_API_KEY=<key>[/dim]")
+    console.print("")
+    console.print("The default model is [cyan]z-ai/glm-5.3[/cyan]. To use another OpenRouter model:")
+    console.print("   [dim]HERMES_INFERENCE_MODEL=<provider/model>[/dim]")
+    console.print("")
+    console.print("The env file is mounted into every devcontainer and loaded on each shell.")
 
 
 def _handle_codex_auth(api_key: str, debug: bool) -> None:
@@ -631,54 +597,32 @@ def _handle_codex_auth(api_key: str, debug: bool) -> None:
         console.print("🔐 Setting up Codex authentication...")
         console.print(f"   Configuration will be saved to: {config.codex_config_dir}")
 
+        # Codex reads its state directory from CODEX_HOME (default ~/.codex); pointing it
+        # at the directory that is bind-mounted into containers shares the login with them.
+        env = os.environ.copy()
+        env['CODEX_HOME'] = str(config.codex_config_dir)
+
         if api_key:
-            # Set API key directly using Codex CLI
             console.print("   Using provided API key...")
-
-            # Set CODEX_CONFIG_HOME to our config directory and run auth with API key
-            env = os.environ.copy()
-            env['CODEX_CONFIG_HOME'] = str(config.codex_config_dir)
-
-            cmd = ['codex', 'auth', '--api-key', api_key]
-
-            if debug:
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-                console.print(f"[dim]CODEX_CONFIG_HOME: {config.codex_config_dir}[/dim]")
-
-            result = subprocess.run(
-                cmd,
-                env=env,
-                capture_output=True,
-                text=True
-            )
-
-            if result.returncode != 0:
-                error_msg = result.stderr or result.stdout or "Unknown error"
-                raise Exception(f"Codex authentication failed: {error_msg}")
-
+            # The key goes in on stdin so it never shows up in the process list
+            cmd = ['codex', 'login', '--with-api-key']
         else:
-            # Interactive authentication
             console.print("   Starting interactive authentication...")
             console.print("   Follow the prompts to authenticate with Codex")
             console.print("")
+            cmd = ['codex', 'login']
 
-            # Set CODEX_CONFIG_HOME to our config directory
-            env = os.environ.copy()
-            env['CODEX_CONFIG_HOME'] = str(config.codex_config_dir)
+        if debug:
+            console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+            console.print(f"[dim]CODEX_HOME: {config.codex_config_dir}[/dim]")
 
-            cmd = ['codex', 'auth']
-
-            if debug:
-                console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-                console.print(f"[dim]CODEX_CONFIG_HOME: {config.codex_config_dir}[/dim]")
-
-            # Run interactively
-            result = subprocess.run(
-                cmd,
-                env=env,
-                check=False
-            )
-
+        if api_key:
+            result = subprocess.run(cmd, env=env, input=api_key, capture_output=True, text=True)
+            if result.returncode != 0:
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                raise Exception(f"Codex authentication failed: {error_msg}")
+        else:
+            result = subprocess.run(cmd, env=env, check=False)
             if result.returncode != 0:
                 raise Exception("Codex authentication was cancelled or failed")
 
@@ -705,6 +649,25 @@ def _handle_codex_auth(api_key: str, debug: bool) -> None:
         if debug:
             console.print(traceback.format_exc())
         sys.exit(1)
+
+
+_add_agent_command(
+    "claude",
+    auth_help='Show Claude authentication setup instructions',
+    handle_auth=_show_claude_auth,
+)
+_add_agent_command(
+    "codex",
+    auth_help='Set up Codex authentication for devcontainers',
+    handle_auth=_handle_codex_auth,
+    auth_options=[click.option('--api-key', help='OpenAI API key to authenticate with (use with --auth)')],
+    auth_examples=['devs codex --auth --api-key <YOUR_KEY>   # API key authentication'],
+)
+_add_agent_command(
+    "hermes",
+    auth_help='Show Hermes (OpenRouter) authentication setup instructions',
+    handle_auth=_show_hermes_auth,
+)
 
 
 @cli.command()

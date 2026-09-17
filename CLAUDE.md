@@ -324,16 +324,53 @@ The `--live` flag mounts the current directory directly into the container witho
 
 ### AI Assistant Commands
 
-Both Claude (Anthropic) and Codex (OpenAI) are supported with similar interfaces:
+Claude (Anthropic), Codex (OpenAI) and Hermes Agent (Nous Research, open source) are
+supported with similar interfaces:
 
 - `devs claude <name> "<prompt>"` - Execute Claude CLI in devcontainer
 - `devs codex <name> "<prompt>"` - Execute OpenAI Codex CLI in devcontainer
+- `devs hermes <name> "<prompt>"` - Execute Hermes Agent in devcontainer (via OpenRouter)
+- `devs hermes --auth` - Show how to configure the OpenRouter key for Hermes
 - `devs claude --auth` - Set up Claude authentication (interactive)
 - `devs codex --auth` - Set up Codex authentication (interactive)
 - `devs claude --auth --api-key <KEY>` - Set up Claude with API key
 - `devs codex --auth --api-key <KEY>` - Set up Codex with API key
 
-Both commands support `--reset-workspace`, `--live`, and `--env` options.
+All three commands support `--reset-workspace`, `--live`, and `--env` options.
+
+**Adding another agent**: the agents share one code path. `devs_common/agents.py` holds an
+`AgentSpec` per agent (name, display name, and the in-container shell command that reads the
+prompt from stdin); `ContainerManager.exec_agent(name, ...)` runs it, and `cli.py` builds each
+`devs <agent>` command with `_add_agent_command(name, auth_help, handle_auth, ...)`. So a new
+agent is: install it in `templates/Dockerfile`, add an `AgentSpec`, and register the command
+with a function that handles `--auth`. `packages/cli/tests/test_agents.py` checks every
+registered agent has a working command.
+
+**Hermes Agent** is installed in the template image (pinned via the `HERMES_AGENT_VERSION`
+build arg) and needs no login step: put `OPENROUTER_API_KEY=...` in
+`~/.devs/envs/<org-repo>/.env` (or `~/.devs/envs/default/.env`, or DEVS.yml `env_vars`) and
+Hermes uses OpenRouter. The default model is `z-ai/glm-5.3` (open weights, strong at agentic
+coding, far cheaper than a flagship; change it with the `HERMES_DEFAULT_MODEL` build arg).
+`templates/scripts/setup-hermes.sh` writes it into Hermes' `config.yaml` at container start,
+only if no model is configured yet, so a model picked with `hermes model` sticks. Set `HERMES_INFERENCE_MODEL` to use another OpenRouter model id per container —
+`hermes chat` ignores that env var itself, so the `hermes` alias and `devs hermes` forward it
+as `--model`. Inside the container, `hermes` is aliased to `hermes --yolo` (`hermes-normal`
+keeps approval prompts). Note that Hermes exits 0 even when the API call fails, so `devs hermes` reports
+success on e.g. a bad key — read the output.
+
+**Agent state persists on the host**, shared by every container, project and the webhook:
+
+| Agent | Host dir | Container path | Env var the agent reads |
+|---|---|---|---|
+| Claude | `~/.devs/claudeconfig` | `/home/node/claudeconfig` | `CLAUDE_CONFIG_DIR` |
+| Codex | `~/.devs/codexconfig` | `/home/node/codexconfig` | `CODEX_HOME` |
+| Hermes | `~/.devs/hermesconfig` | `/home/node/hermesconfig` | `HERMES_HOME` |
+
+That covers logins, settings, session history (resumable after a rebuild) and agent memory.
+Sessions are keyed by workspace path, but memory and global history are shared across
+projects. Hermes' code is installed outside `HERMES_HOME` (`/home/node/.hermes-agent`) —
+its installer's default puts it inside, where the bind mount would hide it. `devs codex
+--auth` runs `codex login` on the host with `CODEX_HOME` set to the shared dir.
 
 ### VS Code Tunnels
 
@@ -557,6 +594,7 @@ flake8 devs tests      # Linting
 - `DEVS_PROJECT_PREFIX`: Container name prefix (default: `dev`)
 - `DEVS_CLAUDE_CONFIG_DIR`: Claude config directory (default: `~/.devs/claudeconfig`)
 - `DEVS_CODEX_CONFIG_DIR`: Codex config directory (default: `~/.devs/codexconfig`)
+- `DEVS_HERMES_CONFIG_DIR`: Hermes Agent data directory (default: `~/.devs/hermesconfig`)
 - `DEVS_TMUX`: Opt-in (`1`/`true`/`yes`) — make tmux the default terminal profile in the
   container and auto-reattach sessions on window load. **Off by default.** See "VS Code
   settings & tmux" below.
