@@ -27,7 +27,11 @@ class BaseConfig(ABC):
         self.codex_config_dir = Path(codex_config_env) if codex_config_env else self.CODEX_CONFIG_DIR
 
         hermes_config_env = os.getenv("DEVS_HERMES_CONFIG_DIR")
-        self.hermes_config_dir = Path(hermes_config_env) if hermes_config_env else self.HERMES_CONFIG_DIR
+        hermes_config_dir = Path(hermes_config_env) if hermes_config_env else self.HERMES_CONFIG_DIR
+        # Bypass __setattr__: pydantic subclasses reject attributes they don't declare as
+        # fields, and devs-webhook releases from before Hermes support don't declare this
+        # one. Their `devs-common>=` pin lets a newer devs-common be installed alongside.
+        object.__setattr__(self, "hermes_config_dir", hermes_config_dir)
 
     @property
     def workspaces_dir(self) -> Path:
