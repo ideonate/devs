@@ -474,7 +474,8 @@ glibc falls through, so public DNS still works — this is why we prepend rather
 
 - **`templates/scripts/post-start.sh`** — unprivileged `postStartCommand` orchestrator;
   deploys VS Code settings, then sources the devs env file, gates on `TS_ENABLE`, re-runs
-  `start-tailscale.sh` and calls the root MagicDNS helper.
+  `start-tailscale.sh` and calls the root MagicDNS helper, then runs the per-developer
+  `autoexec-start/` hooks (last on both sides of the gate, so they see MagicDNS).
 - **`templates/sudo-scripts/setup-magicdns.sh`** — root NOPASSWD helper that does the
   in-place prepend (idempotent; no-op unless `tailscaled` is up).
 - Wired via `postStartCommand` (not `postCreate`) because Docker regenerates

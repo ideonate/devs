@@ -154,6 +154,14 @@ cp my-startup-hook.sh ~/.devs/envs/default/autoexec/10-my-startup-hook.sh
 chmod +x ~/.devs/envs/default/autoexec/10-my-startup-hook.sh
 ```
 
+`autoexec/` runs once, when the container is created. A hook that starts
+something long-lived needs to come back after a plain restart too (host reboot,
+`devs start`), which re-runs only `postStartCommand`: put it — or a symlink to
+it, `ln -s ../autoexec/10-my-startup-hook.sh` — in a sibling `autoexec-start/`
+directory, which the template's `post-start.sh` runs on every start, after the
+tailnet is up. It runs straight after create as well, so such a hook must be
+idempotent; its failure is reported but never fails the start.
+
 📖 **[See example-usage.md for detailed examples and scenarios](example-usage.md)**
 
 ## Development
