@@ -16,6 +16,16 @@ if [ -f /home/node/.devs-env/.env ]; then
   set -a; . /home/node/.devs-env/.env; set +a
 fi
 
+# Per-developer start hooks: ~/.devs/envs/<project>/autoexec-start/ on the host.
+# The every-start counterpart of the create-time autoexec/ — for whatever a hook
+# launched that a restart kills along with everything else that isn't PID 1. Same
+# runner; no directory => no-op. Called last on either path below, so a hook that
+# needs tailnet names finds MagicDNS already in place.
+run_start_hooks() {
+  DEVS_AUTOEXEC_DIR=/home/node/.devs-env/autoexec-start /usr/local/bin/run-autoexec.sh \
+    || echo "⚠️  autoexec-start hook failed (continuing)."
+}
+
 # VS Code machine settings (+ optional tmux overlay, off unless DEVS_TMUX=1). Not
 # Tailscale-gated — it configures the editor regardless of how you connect. Must come
 # before the TS_ENABLE gate below, which exits when Tailscale is off.
@@ -29,6 +39,7 @@ case "${TS_ENABLE:-}" in
   1|true|yes) ;;
   *)
     echo "ℹ️  Tailscale not enabled (TS_ENABLE=${TS_ENABLE:-unset}) — skipping tailnet setup."
+    run_start_hooks
     exit 0 ;;
 esac
 
@@ -44,3 +55,5 @@ esac
 # container. Must run after the bring-up above (it no-ops unless tailscaled is up),
 # and on every start because Docker regenerates /etc/resolv.conf each time.
 sudo -n /usr/local/bin/setup-magicdns.sh || true
+
+run_start_hooks
