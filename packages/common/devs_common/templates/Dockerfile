@@ -237,6 +237,13 @@ RUN for shell_rc in /home/node/.zshrc /home/node/.bashrc; do \
 RUN printf '%s\n' \
   'set -g mouse on' \
   'set -g history-limit 50000' \
+  '# Pass application/tmux copy-mode selections to the outer terminal via OSC 52.' \
+  'set -g set-clipboard on' \
+  '# Pass modified keys (Shift-Enter) through to apps that ask, and ask the outer terminal for them.' \
+  'set -s extended-keys on' \
+  "set -as terminal-features '*:extkeys'" \
+  '# Esc reaches the app at once, not 500ms later.' \
+  'set -s escape-time 10' \
   'bind m set -g mouse \; display "mouse #{?mouse,on,off}"' \
   'set -g set-titles on' \
   "set -g set-titles-string '#{session_name}: #{pane_current_command}'" \
