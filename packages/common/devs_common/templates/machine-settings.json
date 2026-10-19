@@ -49,6 +49,9 @@
     }
   },
   "terminal.integrated.macOptionClickForcesSelection": true,
+  // Option-click is for selecting; don't also type arrow keys to move the cursor there
+  // (in tmux that means Up through shell history).
+  "terminal.integrated.altClickMovesCursor": false,
   "tmuxAutoReattach.runOnStartup": false,
   "tmuxAutoReattach.skipIfTerminalsOpen": true,
   "tmuxAutoReattach.listCommand": "tmux list-sessions -F \"#{session_name}\"",
