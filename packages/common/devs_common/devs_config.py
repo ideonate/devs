@@ -27,6 +27,11 @@ class DevsOptions(BaseModel):
     draft_prs: bool = False  # When enabled, instruct Claude to create/maintain PRs as drafts
     env_vars: Dict[str, Dict[str, str]] = Field(default_factory=dict)  # Environment variables
     ssh_host: Optional[str] = None  # SSH hostname for remote container access (e.g. Tailscale MagicDNS name)
+    # Read .devcontainer from the project, never the workspace. The workspace is
+    # writable from inside the container, and initializeCommand runs on the host,
+    # so without this whoever has a shell in there can run code here. For a
+    # container you don't trust; set it in ~/.devs/envs/<project>/DEVS.yml.
+    host_devcontainer: bool = False
     
     def get_env_vars(self, container_name: Optional[str] = None) -> Dict[str, str]:
         """Get environment variables for a specific container or defaults.

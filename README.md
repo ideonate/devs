@@ -135,6 +135,20 @@ echo 'env_vars:
     SECRET_KEY: "user_secret"' > ~/.devs/envs/myorg-myrepo/DEVS.yml
 ```
 
+**Containers you don't trust.** `devs start` runs `devcontainer up` on the host against
+the workspace's `.devcontainer`, and `initializeCommand` runs there as you. The workspace
+is writable from inside the container, so whoever has a shell in it can get code run on
+the host at the next start. A read-only mount over that folder doesn't stop root in the
+container, which can unmount it. Instead, set this in `~/.devs/envs/{org-repo}/DEVS.yml`:
+
+```yaml
+host_devcontainer: true
+```
+
+devs then reads `.devcontainer` from the project on the host and ignores the workspace's
+copy. Mount `.devs-env` read-only too (`...,type=bind,readonly`) so the container can't
+change that file; with nothing writable above it, that holds even for root.
+
 ### Optional startup hooks
 
 Place executable scripts in `~/.devs/envs/<project>/autoexec/` to run them in

@@ -41,6 +41,7 @@ from ..utils.docker_client import DockerClient
 from ..utils.devcontainer import DevContainerCLI
 from ..utils.devcontainer_template import get_template_dir
 from ..utils.console import get_console
+from ..devs_config import DevsConfigLoader
 from ..utils.config_hash import compute_env_config_hash, compute_devcontainer_hash, get_env_mount_path
 from .project import Project
 
@@ -349,7 +350,11 @@ class ContainerManager:
             workspace_devcontainer = workspace_dir / ".devcontainer"
             project_devcontainer = self.project.project_dir / ".devcontainer"
             
-            if workspace_devcontainer.exists():
+            if project_devcontainer.exists() and DevsConfigLoader.load(
+                self.project.info.name, self.project.project_dir
+            ).host_devcontainer:
+                config_path = project_devcontainer / "devcontainer.json"
+            elif workspace_devcontainer.exists():
                 # .devcontainer was copied to workspace, use it (config_path = None)
                 config_path = None
             elif project_devcontainer.exists():
