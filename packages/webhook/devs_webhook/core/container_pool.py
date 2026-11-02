@@ -160,7 +160,7 @@ class ContainerPool:
     async def ensure_repo_config(self, repo_name: str) -> DevsOptions:
         """Ensure repository configuration is loaded and cached.
         
-        First checks user-specific DEVS.yml files, only clones repository if needed.
+        Reads ~/.devs/envs only; the repository is never cloned for this.
         
         Args:
             repo_name: Repository name (owner/repo)
@@ -173,33 +173,12 @@ class ContainerPool:
         if cached is not None:
             return cached
 
-        # Try to load from user-specific configuration first (no cloning needed)
-        devs_options = self._try_load_user_config(repo_name)
-        
-        if devs_options is not None:
-            # Found user configuration, cache it with hash
-            project_name = repo_name.replace('/', '-')
-            config_hash = compute_env_config_hash(project_name)
-            logger.info("Repository config loaded from user-specific DEVS.yml (no cloning needed)",
-                       repo=repo_name,
-                       config_hash=config_hash[:8] + "...")
-            self.repo_configs[repo_name] = (devs_options, config_hash)
-        else:
-            # No user config found, need to clone and read repository DEVS.yml
-            logger.info("No user-specific config found, cloning repository to read DEVS.yml",
-                       repo=repo_name)
-            
-            # Calculate repo path
-            repo_path = self.config.repo_cache_dir / repo_name.replace('/', '-')
-            
-            # Clone repository and read config
-            devs_options = await self._ensure_repository_cloned(repo_name, repo_path)
+        # Config lives only in ~/.devs/envs, so this never needs a clone
+        devs_options = self._read_devs_options(repo_name)
+        project_name = repo_name.replace('/', '-')
+        config_hash = compute_env_config_hash(project_name)
+        self.repo_configs[repo_name] = (devs_options, config_hash)
 
-            # Cache the config with hash
-            project_name = repo_name.replace('/', '-')
-            config_hash = compute_env_config_hash(project_name)
-            self.repo_configs[repo_name] = (devs_options, config_hash)
-        
         # Update single-queue assignment tracking if needed
         if devs_options.single_queue and repo_name not in self.single_queue_assignments:
             # We'll assign a container when the first task is actually queued
@@ -233,10 +212,7 @@ class ContainerPool:
         if not default_devs_yml.exists() and not project_devs_yml.exists():
             return None
         
-        # Load configuration without repository files (user configs only)
-        # Create a fake path that doesn't exist to skip repository DEVS.yml
-        fake_repo_path = Path("/dev/null/fake_repo_path")
-        devs_options = DevsConfigLoader.load(project_name=project_name, repo_path=fake_repo_path)
+        devs_options = DevsConfigLoader.load(project_name=project_name)
         
         logger.info("Loaded user-specific DEVS.yml configuration",
                    repo=repo_name,
@@ -249,35 +225,28 @@ class ContainerPool:
         
         return devs_options
     
-    def _read_devs_options(self, repo_path: Path, repo_name: str) -> DevsOptions:
-        """Read and parse DEVS.yml options from multiple sources.
-        
-        Uses the shared DevsConfigLoader to load from:
-        1. ~/.devs/envs/{org-repo}/DEVS.yml (user-specific overrides)
-        2. ~/.devs/envs/default/DEVS.yml (user defaults)  
-        3. {repo_path}/DEVS.yml (repository configuration)
-        
+    def _read_devs_options(self, repo_name: str) -> DevsOptions:
+        """Read DEVS.yml options for a repository from ~/.devs/envs.
+
+        1. ~/.devs/envs/{org-repo}/DEVS.yml (project settings)
+        2. ~/.devs/envs/default/DEVS.yml (user defaults)
+
+        A DEVS.yml committed to the repository is ignored.
+
         Args:
-            repo_path: Path to repository
             repo_name: Repository name (org/repo format)
-            
+
         Returns:
             DevsOptions with values from DEVS.yml files or defaults
         """
         project_name = repo_name.replace('/', '-')  # Convert org/repo to org-repo
-        devs_options = DevsConfigLoader.load(project_name=project_name, repo_path=repo_path)
-        
-        # Check which files exist for logging
+        devs_options = DevsConfigLoader.load(project_name=project_name)
+
         user_envs_dir = Path.home() / ".devs" / "envs"
-        repo_devs_yml = repo_path / "DEVS.yml"
-        default_devs_yml = user_envs_dir / "default" / "DEVS.yml"
-        project_devs_yml = user_envs_dir / project_name / "DEVS.yml"
-        
-        logger.info("Loaded DEVS.yml configuration from multiple sources",
+        logger.info("Loaded DEVS.yml configuration",
                    repo=repo_name,
-                   repo_file_exists=repo_devs_yml.exists(),
-                   default_file_exists=default_devs_yml.exists(),
-                   project_file_exists=project_devs_yml.exists(),
+                   default_file_exists=(user_envs_dir / "default" / "DEVS.yml").exists(),
+                   project_file_exists=(user_envs_dir / project_name / "DEVS.yml").exists(),
                    default_branch=devs_options.default_branch,
                    has_prompt_extra=bool(devs_options.prompt_extra),
                    has_prompt_override=bool(devs_options.prompt_override),
@@ -287,9 +256,9 @@ class ContainerPool:
                    ci_test_command=devs_options.ci_test_command,
                    ci_branches=devs_options.ci_branches,
                    env_vars_containers=list(devs_options.env_vars.keys()) if devs_options.env_vars else [])
-        
+
         return devs_options
-    
+
     async def _ensure_repository_files_available(self, repo_name: str, repo_path: Path) -> None:
         """Ensure repository files are available locally without re-reading config.
 
@@ -537,8 +506,8 @@ class ContainerPool:
             # Get cached config or ensure it's loaded
             devs_options = self.get_repo_config(repo_name)
             if devs_options is None:
-                # Not cached yet, need to clone and read config
-                logger.info("Repository config not cached, cloning to read DEVS.yml",
+                # Not cached yet: clone, and read config
+                logger.info("Repository config not cached, cloning and reading DEVS.yml",
                            task_id=queued_task.task_id,
                            container=dev_name,
                            repo_name=repo_name)
@@ -820,7 +789,7 @@ class ContainerPool:
         """Ensure repository is cloned to the workspace directory.
 
         Delegates git clone/fetch/checkout to the shared RepoCache, then reads
-        DEVS.yml configuration.
+        DEVS.yml configuration from ~/.devs/envs.
 
         Args:
             repo_name: Repository name (owner/repo)
@@ -842,8 +811,7 @@ class ContainerPool:
 
         logger.info("Repository ready", repo=repo_name, path=str(repo_path))
 
-        # Read DEVS.yml configuration using shared method
-        devs_options = self._read_devs_options(repo_path, repo_name)
+        devs_options = self._read_devs_options(repo_name)
         return devs_options
     
     async def shutdown(self) -> None:

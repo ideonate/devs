@@ -61,9 +61,10 @@ devs supports layered environment variable configuration through DEVS.yml files:
 1. CLI `--env` flags
 2. `~/.devs/envs/{org-repo}/DEVS.yml` (user-specific project overrides)
 3. `~/.devs/envs/default/DEVS.yml` (user defaults)
-4. `{project-root}/DEVS.yml` (repository configuration)
 
-**Example DEVS.yml in your project:**
+A `DEVS.yml` committed to the repository is not read.
+
+**Example `~/.devs/envs/myorg-myproject/DEVS.yml`:**
 ```yaml
 env_vars:
   default:

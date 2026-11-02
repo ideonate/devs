@@ -9,18 +9,18 @@ devs supports layered environment variable configuration with the following prio
 1. **CLI `--env` flags** (highest priority)
 2. **`~/.devs/envs/{org-repo}/DEVS.yml`** (user-specific project overrides)  
 3. **`~/.devs/envs/default/DEVS.yml`** (user defaults)
-4. **`{project-root}/DEVS.yml`** (repository configuration)
 
-## Scenario 1: Development Team with Shared Defaults
+A `DEVS.yml` committed to the repository is not read.
 
-### Repository Configuration (`project-root/DEVS.yml`)
+## Scenario 1: Project Settings over Personal Defaults
+
+### Project Configuration (`~/.devs/envs/myorg-webapp/DEVS.yml`)
 ```yaml
-# Team shared configuration
+# This project's containers
 env_vars:
   default:
     NODE_ENV: development
     API_URL: https://api.example.com
-    LOG_LEVEL: info
     DEBUG: "false"
   
   frontend:
@@ -49,7 +49,7 @@ env_vars:
 
 ### Usage
 ```bash
-# Basic usage - gets team defaults + user preferences
+# Basic usage - gets project settings + user defaults
 devs start frontend backend
 
 # Quick override for testing
@@ -62,9 +62,9 @@ API_URL=http://localhost:3001  # CLI override
 BROWSER=firefox               # User default  
 DEBUG=false                   # CLI override
 EDITOR=vim                    # User default
-LOG_LEVEL=debug               # User default (overrides team)
-NODE_ENV=development          # Repository
-PORT=3000                     # Repository
+LOG_LEVEL=debug               # User default
+NODE_ENV=development          # Project
+PORT=3000                     # Project
 TIMEZONE=America/New_York     # User default
 ```
 
@@ -105,7 +105,7 @@ devs start production --env LOG_LEVEL=debug  # Add debug for troubleshooting
 
 ## Scenario 3: Webhook CI Configuration
 
-### Repository CI Setup (`project-root/DEVS.yml`)
+### Project CI Setup (`~/.devs/envs/myorg-webapp/DEVS.yml`)
 ```yaml
 # Enable CI and set environment variables
 ci_enabled: true
@@ -134,7 +134,7 @@ env_vars:
     E2E_TESTS: "true"
 ```
 
-### User CI Overrides (`~/.devs/envs/default/DEVS.yml`)
+### Personal CI Defaults (`~/.devs/envs/default/DEVS.yml`)
 ```yaml
 # Personal CI preferences
 env_vars:
@@ -148,16 +148,6 @@ env_vars:
 **When webhook runs tests:** Environment variables are automatically applied based on which container (eamonn/harry/darren) handles the CI task.
 
 ## Scenario 4: Security-Sensitive Configuration
-
-### Repository (Public) - No Secrets (`project-root/DEVS.yml`)
-```yaml
-# Only non-sensitive defaults in public repo
-env_vars:
-  default:
-    NODE_ENV: development
-    LOG_LEVEL: info
-    FEATURE_BETA: "false"
-```
 
 ### User Secrets (`~/.devs/envs/sensitive-client-project/DEVS.yml`)
 ```yaml
@@ -217,42 +207,13 @@ devs vscode frontend \
   --env TEST_USER=developer
 ```
 
-## Scenario 6: Webhook Optimization (No Repository Cloning)
-
-### User Configuration with CI Enabled (`~/.devs/envs/fastproject-api/DEVS.yml`)
-```yaml
-# Complete configuration without needing to clone repo
-ci_enabled: true
-ci_test_command: "docker-compose -f docker-compose.test.yml up --abort-on-container-exit"
-ci_branches: ["main", "develop", "staging"]
-
-env_vars:
-  default:
-    NODE_ENV: test
-    DATABASE_URL: "postgres://test:test@localhost:5433/testdb"
-    
-  eamonn:
-    PARALLEL_WORKERS: "4"
-    
-  harry: 
-    INTEGRATION_TESTS: "true"
-    
-  darren:
-    E2E_TESTS: "true"
-    HEADLESS: "true"
-```
-
-**Result:** When webhook receives events for `fastproject/api`, it immediately uses this configuration without cloning the repository first, making the response much faster.
-
 ## Best Practices
 
 ### 1. Security
 - Keep secrets in user-specific files (`~/.devs/envs/`)
 - Use environment variable references for sensitive values
-- Never commit secrets to repository DEVS.yml
 
 ### 2. Team Collaboration
-- Use repository DEVS.yml for team shared defaults
 - Document environment variables in README
 - Use descriptive variable names
 
@@ -267,8 +228,8 @@ env_vars:
 - Test CI configuration locally with `devs runtests`
 
 ### 5. Webhook Performance
-- Set up user-specific configuration for faster webhook responses
+- The webhook reads config from `~/.devs/envs` on its own machine, so it never clones a repository just to configure it
 - Use CI branch filtering to avoid unnecessary test runs
 - Configure appropriate container timeouts
 
-This layered approach provides maximum flexibility while maintaining security and team collaboration benefits.
+Everything lives on the machine running devs, so a repository never decides how it is treated.

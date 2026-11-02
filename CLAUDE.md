@@ -616,7 +616,9 @@ Environment variables can be configured in DEVS.yml files with a layered priorit
 1. CLI `--env` flags 
 2. `~/.devs/envs/{org-repo}/DEVS.yml` (user-specific project overrides)
 3. `~/.devs/envs/default/DEVS.yml` (user defaults)
-4. `{project-root}/DEVS.yml` (repository configuration)
+
+A `DEVS.yml` in the repository is not read (`DevsConfigLoader.load` takes no repo
+path): these options say how the person running devs treats a repo.
 
 **DEVS.yml Format:**
 ```yaml

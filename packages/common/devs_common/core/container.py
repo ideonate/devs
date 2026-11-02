@@ -351,7 +351,7 @@ class ContainerManager:
             project_devcontainer = self.project.project_dir / ".devcontainer"
             
             if project_devcontainer.exists() and DevsConfigLoader.load(
-                self.project.info.name, self.project.project_dir
+                self.project.info.name
             ).host_devcontainer:
                 config_path = project_devcontainer / "devcontainer.json"
             elif workspace_devcontainer.exists():

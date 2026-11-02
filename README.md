@@ -95,7 +95,7 @@ devs stop sally bob charlie
 devs supports a powerful layered configuration system for environment variables:
 
 ```bash
-# Basic usage with repository DEVS.yml
+# Basic usage with ~/.devs/envs DEVS.yml
 devs start myenv
 
 # CLI overrides for testing
@@ -106,9 +106,11 @@ devs start myenv --env DEBUG=true --env API_URL=http://localhost:3000
 1. CLI `--env` flags
 2. `~/.devs/envs/{org-repo}/DEVS.yml` (user-specific project overrides)
 3. `~/.devs/envs/default/DEVS.yml` (user defaults)
-4. `{project-root}/DEVS.yml` (repository configuration)
 
-**Example DEVS.yml:**
+A `DEVS.yml` committed to the repository is not read: these settings say how you
+run a repo, which isn't the repo's to decide.
+
+**Example `~/.devs/envs/myorg-myrepo/DEVS.yml`:**
 ```yaml
 env_vars:
   default:

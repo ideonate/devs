@@ -251,10 +251,14 @@ Created  Event     Container   & Setup       Solve Issue    Back
 
 ### Repository Configuration (DEVS.yml)
 
-Repositories can include a `DEVS.yml` file in their root directory to customize how the webhook handler interacts with them:
+Each repository's settings live on the webhook's machine, in
+`~/.devs/envs/{org-repo}/DEVS.yml` (`/` in the repo name becomes `-`). A `DEVS.yml`
+committed to the repository is not read, so whoever can push to a repo can't change
+how the webhook treats it, and the webhook never clones a repository just to read its
+configuration.
 
 ```yaml
-# DEVS.yml - Repository-specific configuration
+# ~/.devs/envs/myorg-myrepo/DEVS.yml
 default_branch: develop  # Default branch name (default: main)
 prompt_extra: |          # Additional instructions for Claude
   This project uses a specific code style:
@@ -336,13 +340,12 @@ Available options:
 - **`env_vars`**: Environment variables for containers
   - Supports `default` section for all containers and container-specific overrides
   - Container-specific variables override defaults
-  - User-specific overrides can be configured via `~/.devs/envs/{org-repo}/DEVS.yml`
   - Variables are passed to container during startup
   - Default: empty
 
-### User-Specific Configuration
+### Defaults for Every Repository
 
-Users can override repository settings with their own DEVS.yml files:
+`~/.devs/envs/default/DEVS.yml` sets defaults that each repository's file can override:
 
 ```bash
 # Global defaults for all projects
@@ -354,7 +357,7 @@ env_vars:
     MY_SECRET: "user_secret"
 EOF
 
-# Project-specific overrides (org-repo format)
+# One repository (org-repo format)
 mkdir -p ~/.devs/envs/myorg-myrepo
 cat > ~/.devs/envs/myorg-myrepo/DEVS.yml << 'EOF'
 env_vars:
@@ -367,13 +370,12 @@ EOF
 ```
 
 **Priority order for configuration:**
-1. `~/.devs/envs/{org-repo}/DEVS.yml` (user-specific project overrides)
-2. `~/.devs/envs/default/DEVS.yml` (user defaults)
-3. `{repo-root}/DEVS.yml` (repository configuration)
+1. `~/.devs/envs/{org-repo}/DEVS.yml` (the repository's settings)
+2. `~/.devs/envs/default/DEVS.yml` (defaults)
 
 📖 **[See ../../example-usage.md for detailed examples and scenarios](../../example-usage.md)**
 
-The webhook handler automatically detects and uses these settings when processing tasks for the repository.
+The webhook handler reads these settings when it processes tasks for the repository.
 
 ### Environment Variables
 

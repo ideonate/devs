@@ -452,3 +452,28 @@ async def test_single_queue_transitions(mock_config, mock_event):
                 # Should be registered again with new container
                 assert repo_name in pool.single_queue_assignments
                 assert pool.single_queue_assignments[repo_name] == "darren"
+
+
+@pytest.mark.asyncio
+async def test_repo_config_comes_from_envs_without_a_clone(mock_config, tmp_path, monkeypatch):
+    """Config is read from ~/.devs/envs; a DEVS.yml in the repo is ignored and nothing is cloned."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    env = tmp_path / ".devs" / "envs" / "test-org-test-repo"
+    env.mkdir(parents=True)
+    (env / "DEVS.yml").write_text(yaml.dump({"single_queue": True}))
+    repo_path = mock_config.repo_cache_dir / "test-org-test-repo"
+    repo_path.mkdir(parents=True, exist_ok=True)
+    (repo_path / "DEVS.yml").write_text(yaml.dump({"single_queue": False, "direct_commit": True}))
+
+    with patch('devs_webhook.core.container_pool.get_config', return_value=mock_config):
+        pool = ContainerPool()
+        for name in mock_config.get_container_pool_list():
+            pool.container_workers[name].cancel()
+        pool.cleanup_worker.cancel()
+
+        with patch.object(pool, '_ensure_repository_cloned') as mock_clone:
+            options = await pool.ensure_repo_config("test-org/test-repo")
+            mock_clone.assert_not_called()
+
+    assert options.single_queue is True
+    assert options.direct_commit is False

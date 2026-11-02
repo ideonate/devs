@@ -49,7 +49,7 @@ class DevsOptions(BaseModel):
 
 
 class DevsConfigLoader:
-    """Loads DEVS.yml configuration from multiple sources with priority ordering."""
+    """Loads DEVS.yml configuration from ~/.devs/envs, project over default."""
     
     @staticmethod
     def _load_file(file_path: Path) -> Dict[str, Any]:
@@ -106,55 +106,33 @@ class DevsConfigLoader:
         return result
     
     @staticmethod
-    def load(project_name: Optional[str] = None, repo_path: Optional[Path] = None) -> DevsOptions:
-        """Load DEVS.yml configuration from multiple sources.
-        
+    def load(project_name: Optional[str] = None) -> DevsOptions:
+        """Load DEVS.yml configuration from the user's env folders.
+
         Priority order (highest to lowest):
-        1. ~/.devs/envs/{org-repo}/DEVS.yml (user-specific project overrides)
+        1. ~/.devs/envs/{org-repo}/DEVS.yml (project settings)
         2. ~/.devs/envs/default/DEVS.yml (user defaults)
-        3. {repo_path}/DEVS.yml (repository configuration)
-        
+
+        A DEVS.yml in the repository itself is not read: these options say how
+        the person running devs treats a repo, which isn't the repo's to decide.
+
         Args:
-            project_name: Project name in org-repo format. If None, only loads repo and default configs.
-            repo_path: Path to repository (defaults to cwd if not provided)
-            
+            project_name: Project name in org-repo format. If None, only the defaults load.
+
         Returns:
             DevsOptions with merged configuration
         """
-        if repo_path is None:
-            repo_path = Path.cwd()
-        
-        merged_config = {}
-        
-        # 1. Load repository DEVS.yml (lowest priority)
-        repo_devs_yml = repo_path / "DEVS.yml"
-        merged_config = DevsConfigLoader._merge_configs(
-            merged_config, 
-            DevsConfigLoader._load_file(repo_devs_yml)
-        )
-        
-        # 2. Load user default DEVS.yml
         user_envs_dir = Path.home() / ".devs" / "envs"
-        default_devs_yml = user_envs_dir / "default" / "DEVS.yml"
-        merged_config = DevsConfigLoader._merge_configs(
-            merged_config,
-            DevsConfigLoader._load_file(default_devs_yml)
-        )
-        
-        # 3. Load user project-specific DEVS.yml (highest priority)
+        merged_config = DevsConfigLoader._load_file(user_envs_dir / "default" / "DEVS.yml")
         if project_name:
-            project_devs_yml = user_envs_dir / project_name / "DEVS.yml"
             merged_config = DevsConfigLoader._merge_configs(
                 merged_config,
-                DevsConfigLoader._load_file(project_devs_yml)
+                DevsConfigLoader._load_file(user_envs_dir / project_name / "DEVS.yml")
             )
-        
-        # Create DevsOptions from merged config
         return DevsOptions(**merged_config)
-    
+
     @staticmethod
-    def load_env_vars(dev_name: str, project_name: Optional[str] = None,
-                      repo_path: Optional[Path] = None) -> Dict[str, str]:
+    def load_env_vars(dev_name: str, project_name: Optional[str] = None) -> Dict[str, str]:
         """Load only environment variables for a specific dev environment.
 
         This is a convenience method for CLI usage.
@@ -162,28 +140,25 @@ class DevsConfigLoader:
         Args:
             dev_name: Development environment/container name
             project_name: Project name in org-repo format
-            repo_path: Path to repository (defaults to cwd if not provided)
 
         Returns:
             Dictionary of environment variables with all overrides applied
         """
-        options = DevsConfigLoader.load(project_name, repo_path)
+        options = DevsConfigLoader.load(project_name)
         return options.get_env_vars(dev_name)
 
     @staticmethod
-    def load_ssh_host(project_name: Optional[str] = None,
-                      repo_path: Optional[Path] = None) -> Optional[str]:
+    def load_ssh_host(project_name: Optional[str] = None) -> Optional[str]:
         """Load the configured SSH host for remote container access.
 
-        Reads from DEVS.yml layers (repo → user default → user project-specific),
+        Reads from DEVS.yml layers (user default → user project-specific),
         then falls back to the DEVS_SSH_HOST environment variable.
 
         Args:
             project_name: Project name in org-repo format
-            repo_path: Path to repository (defaults to cwd if not provided)
 
         Returns:
             SSH hostname string, or None if not configured
         """
-        options = DevsConfigLoader.load(project_name, repo_path)
+        options = DevsConfigLoader.load(project_name)
         return options.ssh_host or os.environ.get("DEVS_SSH_HOST") or None
