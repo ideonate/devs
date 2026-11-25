@@ -181,6 +181,29 @@ To unblock an already-running container before rebuilding (ephemeral — gone on
 sudo sed -i '1i nameserver 100.100.100.100' /etc/resolv.conf
 ```
 
+## stone-ingress: `*.internal` names and the stone CA (opt-in)
+
+Services behind stone-ingress (e.g. `https://cairn.internal`) are served with certs from
+stone-caddy's internal CA. To use them from a container, set `STONE_INGRESS_URL` in the
+devs env to the stone-ingress API base:
+
+| Where the container runs | `STONE_INGRESS_URL` | DNS | CA |
+|---|---|---|---|
+| stone-pc | `http://host.docker.internal:8800` | stone-dns on the docker gateway, prepended to `resolv.conf` | fetched from the API |
+| elsewhere, Tailscale up | `http://stone-pc.<tailnet>.ts.net:8800` | MagicDNS (split-DNS routes) | fetched over the tailnet |
+| anywhere else | unset / `off` (default) | unchanged | not installed |
+
+`post-start.sh` runs `sudo-scripts/setup-stone-dns.sh` and `sudo-scripts/trust-stone-ca.sh`
+on every start. Both are best-effort: an unreachable API or a silent stone-dns leaves
+everything as it was.
+
+**Verify** (after a rebuild):
+```bash
+getent hosts cairn.internal                 # 100.x address
+echo | openssl s_client -connect cairn.internal:443 -servername cairn.internal 2>/dev/null \
+  | grep "Verify return"                    # Verify return code: 0 (ok)
+```
+
 ## Notes & troubleshooting
 
 - **Funnel is off by default** and double-gated: only fires with `TS_FUNNEL=1` *and* a `funnel`

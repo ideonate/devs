@@ -8,7 +8,11 @@
   },
   "runArgs": [
     "--cap-add=NET_ADMIN",
-    "--cap-add=NET_RAW"
+    "--cap-add=NET_RAW",
+    // Reach host services at host.docker.internal (e.g. STONE_INGRESS_URL=
+    // http://host.docker.internal:8800 on stone-pc). Docker Desktop provides the
+    // name already; plain Linux Docker only when pinned like this.
+    "--add-host=host.docker.internal:host-gateway"
   ],
   "customizations": {
     "vscode": {

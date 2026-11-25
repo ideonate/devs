@@ -485,6 +485,29 @@ glibc falls through, so public DNS still works — this is why we prepend rather
 
 Full rationale and verification steps are in `docs/tailscale-setup.md`.
 
+### stone-ingress: `*.internal` DNS and CA trust (opt-in)
+
+Set `STONE_INGRESS_URL` in a project's devs env (`~/.devs/envs/<project>/.env`, or
+`default/.env` for projects without their own dir) to the stone-ingress API base. Unset or
+`off` (the default) => nothing happens, so Macs and non-stone hosts are unaffected.
+
+- On stone-pc: `STONE_INGRESS_URL=http://host.docker.internal:8800`. `post-start.sh` runs
+  **`templates/sudo-scripts/setup-stone-dns.sh`**, which sees the API is on the container's
+  own docker gateway, checks stone-dns answers there, and prepends it to
+  `/etc/resolv.conf` (stone-dns serves every `*.internal` name, the split-DNS zones,
+  `ts.net` and public names, with or without Tailscale). It then runs
+  **`templates/sudo-scripts/trust-stone-ca.sh`**, which fetches `<API>/v1/ca.crt` into the
+  system store (curl, Claude Code) and the node user's Chromium NSS store.
+- Elsewhere, over the tailnet: `STONE_INGRESS_URL=http://stone-pc.<tailnet>.ts.net:8800`.
+  The DNS helper no-ops (the API isn't local); MagicDNS resolves `*.internal` via the
+  tailnet's split-DNS routes. The CA is still fetched and trusted.
+- Called on both sides of the `TS_ENABLE` gate; on the Tailscale side after
+  `start-tailscale.sh` and `setup-magicdns.sh`, so a tailnet URL is reachable and
+  stone-dns lands first. `host.docker.internal` comes from
+  `--add-host=host.docker.internal:host-gateway` in `runArgs`.
+- Both helpers are best-effort and idempotent (an unreachable API costs ~3s and changes
+  nothing). New sudo-scripts need a devcontainer **rebuild** for their sudoers entry.
+
 `postStartCommand` is a devcontainer-CLI concept — a plain `docker start` skips it. Since
 `ContainerManager` resumes an already-built container with the raw Docker API,
 `_run_post_start()` (`packages/common/devs_common/core/container.py`) execs the script
