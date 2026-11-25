@@ -154,18 +154,16 @@ removed), which silently did nothing when Tailscale wasn't up. See stone-ingress
 
 The `*.internal` services use HTTPS certs from stone-caddy's internal CA, so
 `post-start.sh` also runs `sudo-scripts/trust-stone-ca.sh` on every start (before the
-`TS_ENABLE` gate) to install that root into the system store and Chromium's NSS store,
-and `containerEnv` sets `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt` so
-Node and Claude Code use it too. Off stone-pc the script skips quietly.
+`TS_ENABLE` gate) to install that root into the system store (which curl and Claude Code
+use) and Chromium's NSS store. Off stone-pc the script skips quietly.
 
-**Verify** (after a rebuild — `--dns`, `containerEnv` and the sudoers entry are all
-fixed at container create / image build):
+**Verify** (after a rebuild — `--dns` and the sudoers entry are fixed at container
+create / image build):
 ```bash
 getent hosts cairn.internal                 # 100.83.126.31
 getent hosts github.com                     # public DNS still works
 echo | openssl s_client -connect cairn.internal:443 -servername cairn.internal 2>/dev/null \
   | grep "Verify return"                    # Verify return code: 0 (ok)
-echo $NODE_EXTRA_CA_CERTS                   # /etc/ssl/certs/ca-certificates.crt
 ```
 
 ## Notes & troubleshooting

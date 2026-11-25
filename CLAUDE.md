@@ -482,12 +482,8 @@ worked while the in-container `tailscaled` was up.
   skips quietly off stone-pc.
 - **`templates/scripts/post-start.sh`** calls it on every start, **before** the
   `TS_ENABLE` gate (which exits early when Tailscale is off).
-- `containerEnv.NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt` — Node and the
-  native Claude Code binary ignore the system store otherwise. It must be
-  `containerEnv`, not `remoteEnv`: Claude Code launched via `docker exec` (the stone web
-  client) never sees `remoteEnv`.
 - The NOPASSWD sudoers entry is generated from `sudo-scripts/` at **image build**, and
-  `--dns`/`containerEnv` are container-create options, so all of this needs a
+  `--dns` is a container-create option, so all of this needs a
   devcontainer **rebuild**.
 
 Verification steps are in `docs/tailscale-setup.md`.

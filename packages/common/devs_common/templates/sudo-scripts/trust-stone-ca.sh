@@ -1,8 +1,7 @@
 #!/bin/bash
 # Trust the stone-ingress CA (the Caddy internal root on the docker host) in the
 # container's system store and the node user's Chromium NSS store, so curl,
-# Node/Claude Code (NODE_EXTRA_CA_CERTS = the system bundle, set in
-# devcontainer.json containerEnv), and the visible Playwright browser accept the
+# Node (--use-system-ca), and the visible Playwright browser accept the
 # https://<dev-domain> certs without warnings. Best-effort and idempotent: skips
 # quietly when the stone-ingress API isn't reachable (developing off stone-pc).
 set -uo pipefail
