@@ -420,7 +420,7 @@
                                target="_blank" class="tunnel-link">
                                 Open in browser
                             </a>
-                            <button v-if="tunnelState[c.name]?.tunnel_name"
+                            <button v-if="tunnelState[c.name]?.vscode_cmd"
                                     class="btn btn-outline btn-sm"
                                     @click="copyVscodeCommand(c)"
                                     :title="getVscodeCommand(c)">
@@ -507,7 +507,7 @@ createApp({
         const startDevName = ref('');
         const toast = ref(null);
         const actionInProgress = reactive({});
-        const tunnelState = reactive({});  // container_name -> { running, web_url, tunnel_name }
+        const tunnelState = reactive({});  // container_name -> { running, web_url, vscode_cmd }
         const authModal = ref(null);
 
         const copied = ref(null);
@@ -550,6 +550,14 @@ createApp({
             }
         }
 
+        function setTunnelState(c, data) {
+            tunnelState[c.name] = {
+                running: data.running,
+                web_url: data.web_url || null,
+                vscode_cmd: data.vscode_cmd || null,
+            };
+        }
+
         async function checkTunnelStatus(c) {
             try {
                 const params = new URLSearchParams({
@@ -557,14 +565,7 @@ createApp({
                     dev_name: c.dev_name,
                 });
                 const res = await fetch(`/api/tunnel/status?${params}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    tunnelState[c.name] = {
-                        running: data.running,
-                        web_url: data.web_url || null,
-                        tunnel_name: data.tunnel_name,
-                    };
-                }
+                if (res.ok) setTunnelState(c, await res.json());
             } catch (e) {
                 // Silently ignore status check failures
             }
@@ -682,28 +683,35 @@ createApp({
                     return;
                 }
 
-                // 'starting' (or legacy 'running') — poll status until connected
-                showToast(`Starting tunnel for ${c.dev_name}…`);
-                const deadline = Date.now() + 30000;
+                // The tunnel's stored sign-in no longer works: it is waiting for a
+                // device login, and connects by itself once that is done.
+                const deviceLogin = data.status === 'waiting_for_browser';
+                if (deviceLogin) {
+                    authModal.value = { ...data, containerName: c.name };
+                } else {
+                    // 'starting' or 'running' — poll status until connected
+                    showToast(`Starting tunnel for ${c.dev_name}…`);
+                }
+                const deadline = Date.now() + (deviceLogin ? 15 * 60000 : 30000);
                 let connected = false;
                 while (Date.now() < deadline) {
+                    if (deviceLogin && authModal.value?.containerName !== c.name) break;
                     await new Promise(r => setTimeout(r, 2000));
                     const params = new URLSearchParams({ project_name: c.project_name, dev_name: c.dev_name });
                     const sr = await fetch(`/api/tunnel/status?${params}`);
                     if (!sr.ok) continue;
                     const sd = await sr.json();
                     if (sd.running) {
-                        tunnelState[c.name] = {
-                            running: true,
-                            web_url: sd.web_url,
-                            tunnel_name: sd.tunnel_name,
-                        };
+                        setTunnelState(c, sd);
+                        if (deviceLogin) authModal.value = null;
                         showToast(`Tunnel running for ${c.dev_name}`);
                         connected = true;
                         break;
                     }
                 }
-                if (!connected) {
+                if (!connected && deviceLogin) {
+                    showToast('Tunnel is still waiting for GitHub sign-in — Start again to get a new code', 'error');
+                } else if (!connected) {
                     showToast('Tunnel is taking a while — check status manually', 'error');
                 }
             } catch (e) {
@@ -722,10 +730,12 @@ createApp({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ project_name: c.project_name, dev_name: c.dev_name }),
                 });
-                if (res.ok) {
-                    delete tunnelState[c.name];
-                    showToast(`Tunnel killed for ${c.dev_name}`);
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Tunnel kill failed');
                 }
+                delete tunnelState[c.name];
+                showToast(`Tunnel killed for ${c.dev_name}`);
             } catch (e) {
                 showToast(e.message, 'error');
             } finally {
@@ -817,10 +827,7 @@ createApp({
         }
 
         function getVscodeCommand(c) {
-            const tunnelName = tunnelState[c.name]?.tunnel_name;
-            if (!tunnelName) return '';
-            const workspacePath = `/workspaces/${c.project_name}-${c.dev_name}`;
-            return `code --remote tunnel+${tunnelName} ${workspacePath}`;
+            return tunnelState[c.name]?.vscode_cmd || '';
         }
 
         async function copyVscodeCommand(c) {

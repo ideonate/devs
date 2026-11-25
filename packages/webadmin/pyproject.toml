@@ -34,6 +34,7 @@ dependencies = [
     "uvicorn[standard]>=0.15.0",
     "click>=8.0.0",
     "devs-common>=0.1.0",
+    "docker>=6.0.0",
     "structlog>=21.1.0",
 ]
 

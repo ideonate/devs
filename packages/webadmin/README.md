@@ -58,6 +58,10 @@ The UI has two main sections:
 
 ### Tunnel Controls
 
+If Webadmin connects through a Docker socket proxy, allow detached exec, exec
+inspection and read access to the container archive endpoint. Webadmin uses the
+archive endpoint to read temporary CLI output without an attached exec stream.
+
 Each running container shows a tunnel panel:
 
 - **Start tunnel** -- Launches a VS Code tunnel in the container. Once running, shows an "Open in browser" link to `vscode.dev`.
@@ -93,7 +97,7 @@ The webadmin shares the same directories as the CLI and webhook:
 
 - **FastAPI** + **Uvicorn** (same stack as the webhook package)
 - Uses `devs-common` for all container/workspace/repo operations
-- Synchronous common library calls wrapped with `asyncio.to_thread`
+- Synchronous common library calls run in worker threads (`_to_thread` in `api/routes.py`, an `asyncio.to_thread` equivalent that also works on Python 3.8)
 - Stop/clean operations work by Docker container name (no repo cloning needed)
 
 ### Frontend
