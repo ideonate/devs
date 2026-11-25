@@ -8,8 +8,24 @@
   },
   "runArgs": [
     "--cap-add=NET_ADMIN",
-    "--cap-add=NET_RAW"
+    "--cap-add=NET_RAW",
+    // Reach host services (the stone-ingress API on :8800) at host.docker.internal;
+    // plain Linux Docker doesn't provide it unless pinned.
+    "--add-host=host.docker.internal:host-gateway",
+    // stone-dns on the docker host: every *.internal name (cairn.internal, …) +
+    // public + ts.net. Replaces the old MagicDNS resolv.conf prepend. 1.1.1.1 is the
+    // fallback, so stone-dns being down means "no .internal names", never "no DNS".
+    // See stone-ingress docs/adding-a-service.md step 4.
+    "--dns=172.17.0.1",
+    "--dns=1.1.1.1"
   ],
+  // Node and the native Claude Code binary ignore the system trust store unless
+  // told; point them at the system bundle, which holds the stone-ingress root once
+  // trust-stone-ca.sh has run. containerEnv, not remoteEnv: Claude Code is often
+  // launched by the stone web client via docker exec, which never sees remoteEnv.
+  "containerEnv": {
+    "NODE_EXTRA_CA_CERTS": "/etc/ssl/certs/ca-certificates.crt"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
