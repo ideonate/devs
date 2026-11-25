@@ -134,34 +134,72 @@ ssh node@<project>-<dev>.<tailnet>.ts.net      # e.g. ssh node@myorg-myapp-alice
 ```
 or add a `Host` entry (`HostName …ts.net`, `User node`) and point VS Code Remote-SSH at it.
 
-## DNS: stone-dns, not MagicDNS
+## Split-DNS / MagicDNS hostname resolution
 
-Because containers join with `--accept-dns=false`, Tailscale never touches the
-container's resolver. DNS comes from **stone-dns on the docker host** instead: the
-template's `devcontainer.json` passes
+Because containers join with `--accept-dns=false` (Tailscale never touches the system
+resolver), tailnet *routing* works but **DNS doesn't** — split-DNS hostnames configured
+on your tailnet (e.g. internal `*.example.com` zones, other nodes' `*.ts.net` names) fail
+to resolve even though their IPs are reachable. Symptom:
 
-```jsonc
-"--add-host=host.docker.internal:host-gateway",  // the stone-ingress API on :8800
-"--dns=172.17.0.1",   // stone-dns: every *.internal + split-DNS zones + ts.net + public
-"--dns=1.1.1.1"       // fallback: stone-dns down => no dev domains, never no DNS
+```
+$ curl http://internal-app.example.com:9000/
+curl: (6) Could not resolve host: internal-app.example.com
 ```
 
-so split-DNS and `*.internal` names (e.g. `cairn.internal`) resolve whether or not the
-in-container `tailscaled` is up. This replaces the old approach of prepending the
-MagicDNS resolver `100.100.100.100` to `/etc/resolv.conf` (`setup-magicdns.sh`, now
-removed), which silently did nothing when Tailscale wasn't up. See stone-ingress
-`docs/adding-a-service.md` step 4.
+The fix is wired into the template: `scripts/post-start.sh` (a `postStartCommand`
+orchestrator, gated on `TS_ENABLE`) re-runs `start-tailscale.sh` and then calls the root
+helper `sudo-scripts/setup-magicdns.sh`,
+which **prepends the MagicDNS resolver `100.100.100.100` to `/etc/resolv.conf`** as the
+first nameserver, leaving the ISP/host nameservers below it.
 
-The `*.internal` services use HTTPS certs from stone-caddy's internal CA, so
-`post-start.sh` also runs `sudo-scripts/trust-stone-ca.sh` on every start (before the
-`TS_ENABLE` gate) to install that root into the system store (which curl and Claude Code
-use) and Chromium's NSS store. Off stone-pc the script skips quietly.
+- It runs on **every start** (not `postCreate`) because Docker regenerates
+  `/etc/resolv.conf` each time the container starts. The same hook re-joins the tailnet:
+  a host reboot or `docker start` re-runs only PID 1, so `tailscaled` and the node (and
+  Tailscale SSH) would otherwise be gone until the next rebuild. `start-tailscaled.sh`
+  probes for a live daemon rather than trusting the socket file — the socket survives on
+  the writable layer, and a stale one used to make every `tailscale up` fail after a
+  restart.
+- MagicDNS answers the split-DNS + `ts.net` zones authoritatively; for any other name it
+  returns **SERVFAIL**, and glibc falls through to the next nameserver — so public DNS
+  (github.com, pip, npm, …) keeps working. This SERVFAIL-vs-NXDOMAIN behaviour is why
+  *prepend* is safe and why we do **not** use `--accept-dns=true` (which would make
+  MagicDNS SERVFAIL every non-tailnet name with no upstream to fall back to).
+- It's a no-op unless `tailscaled` is up, and idempotent (won't double-prepend).
 
-**Verify** (after a rebuild — `--dns` and the sudoers entry are fixed at container
-create / image build):
+Tailnet-wide **Split DNS Routes** are an admin-console setting (DNS page), not something
+the container configures — `tailscale dns status` should list them.
+
+**Verify** (after a rebuild, since the sudoers entry is generated at image build):
 ```bash
-getent hosts cairn.internal                 # 100.83.126.31
-getent hosts github.com                     # public DNS still works
+getent hosts internal-app.example.com      # resolves to a 100.x tailnet IP
+cat /etc/resolv.conf                        # 100.100.100.100 first, ISP servers below
+getent hosts github.com                     # public DNS still works (SERVFAIL fallthrough)
+```
+
+To unblock an already-running container before rebuilding (ephemeral — gone on next start):
+```bash
+sudo sed -i '1i nameserver 100.100.100.100' /etc/resolv.conf
+```
+
+## stone-ingress: `*.internal` names and the stone CA (opt-in)
+
+Services behind stone-ingress (e.g. `https://cairn.internal`) are served with certs from
+stone-caddy's internal CA. To use them from a container, set `STONE_INGRESS_URL` in the
+devs env to the stone-ingress API base:
+
+| Where the container runs | `STONE_INGRESS_URL` | DNS | CA |
+|---|---|---|---|
+| stone-pc | `http://host.docker.internal:8800` | stone-dns on the docker gateway, prepended to `resolv.conf` | fetched from the API |
+| elsewhere, Tailscale up | `http://stone-pc.<tailnet>.ts.net:8800` | MagicDNS (split-DNS routes) | fetched over the tailnet |
+| anywhere else | unset / `off` (default) | unchanged | not installed |
+
+`post-start.sh` runs `sudo-scripts/setup-stone-dns.sh` and `sudo-scripts/trust-stone-ca.sh`
+on every start. Both are best-effort: an unreachable API or a silent stone-dns leaves
+everything as it was.
+
+**Verify** (after a rebuild):
+```bash
+getent hosts cairn.internal                 # 100.x address
 echo | openssl s_client -connect cairn.internal:443 -servername cairn.internal 2>/dev/null \
   | grep "Verify return"                    # Verify return code: 0 (ok)
 ```

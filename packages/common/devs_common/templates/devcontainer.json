@@ -9,15 +9,10 @@
   "runArgs": [
     "--cap-add=NET_ADMIN",
     "--cap-add=NET_RAW",
-    // Reach host services (the stone-ingress API on :8800) at host.docker.internal;
-    // plain Linux Docker doesn't provide it unless pinned.
-    "--add-host=host.docker.internal:host-gateway",
-    // stone-dns on the docker host: every *.internal name (cairn.internal, …) +
-    // public + ts.net. Replaces the old MagicDNS resolv.conf prepend. 1.1.1.1 is the
-    // fallback, so stone-dns being down means "no .internal names", never "no DNS".
-    // See stone-ingress docs/adding-a-service.md step 4.
-    "--dns=172.17.0.1",
-    "--dns=1.1.1.1"
+    // Reach host services at host.docker.internal (e.g. STONE_INGRESS_URL=
+    // http://host.docker.internal:8800 on stone-pc). Docker Desktop provides the
+    // name already; plain Linux Docker only when pinned like this.
+    "--add-host=host.docker.internal:host-gateway"
   ],
   "customizations": {
     "vscode": {

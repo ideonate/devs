@@ -461,32 +461,52 @@ devs vscode sally --ssh devs-myorg-myapp-sally
 > SSH **keys** into the workspace (`packages/common/devs_common/core/workspace.py`). That
 > is about credentials inside the container and has nothing to do with the `--ssh` flag.
 
-### Container DNS and the stone-ingress CA
+### Tailscale Split-DNS / MagicDNS Resolution
 
 Containers join the tailnet with `--accept-dns=false` (see
-`templates/scripts/start-tailscale.sh`), so Tailscale never edits the system resolver.
-Name resolution instead comes from **stone-dns on the docker host**:
-`devcontainer.json` `runArgs` pass `--dns=172.17.0.1` (stone-dns: every `*.internal`
-name such as `cairn.internal`, split-DNS zones, `ts.net`, and public names) plus
-`--dns=1.1.1.1` as a fallback (stone-dns down => no dev domains, never no DNS), and
-`--add-host=host.docker.internal:host-gateway` so the stone-ingress API (`:8800`) is
-reachable. This follows stone-ingress `docs/adding-a-service.md` step 4 and replaces
-the old MagicDNS `resolv.conf` prepend (`setup-magicdns.sh`, removed), which only
-worked while the in-container `tailscaled` was up.
+`templates/scripts/start-tailscale.sh`), so Tailscale never edits the system resolver:
+tailnet *routing* works but tailnet **DNS** (split-DNS zones, other nodes' `*.ts.net`
+names) fails to resolve — `curl: (6) Could not resolve host`. The template fixes this by
+**prepending the MagicDNS resolver `100.100.100.100`** as the first nameserver in
+`/etc/resolv.conf`, leaving the ISP servers below it (MagicDNS SERVFAILs unknown names and
+glibc falls through, so public DNS still works — this is why we prepend rather than use
+`--accept-dns=true`).
 
-`*.internal` services are served over HTTPS with certs from stone-caddy's internal CA:
-- **`templates/sudo-scripts/trust-stone-ca.sh`** — root NOPASSWD helper (copied from
-  stepthrough): fetches `http://<gateway>:8800/v1/ca.crt` into
-  `/usr/local/share/ca-certificates/stone-ingress.crt`, runs `update-ca-certificates`,
-  and imports it into the node user's Chromium NSS store. Best-effort and idempotent;
-  skips quietly off stone-pc.
-- **`templates/scripts/post-start.sh`** calls it on every start, **before** the
-  `TS_ENABLE` gate (which exits early when Tailscale is off).
-- The NOPASSWD sudoers entry is generated from `sudo-scripts/` at **image build**, and
-  `--dns` is a container-create option, so all of this needs a
-  devcontainer **rebuild**.
+- **`templates/scripts/post-start.sh`** — unprivileged `postStartCommand` orchestrator;
+  deploys VS Code settings, then sources the devs env file, gates on `TS_ENABLE`, re-runs
+  `start-tailscale.sh` and calls the root MagicDNS helper, then runs the per-developer
+  `autoexec-start/` hooks (last on both sides of the gate, so they see MagicDNS).
+- **`templates/sudo-scripts/setup-magicdns.sh`** — root NOPASSWD helper that does the
+  in-place prepend (idempotent; no-op unless `tailscaled` is up).
+- Wired via `postStartCommand` (not `postCreate`) because Docker regenerates
+  `/etc/resolv.conf` on **every** container start, so the prepend must re-run each start.
+- The NOPASSWD sudoers entry is auto-generated from `sudo-scripts/` at **image build**, so
+  the helper only becomes runnable after a devcontainer **rebuild**.
 
-Verification steps are in `docs/tailscale-setup.md`.
+Full rationale and verification steps are in `docs/tailscale-setup.md`.
+
+### stone-ingress: `*.internal` DNS and CA trust (opt-in)
+
+Set `STONE_INGRESS_URL` in a project's devs env (`~/.devs/envs/<project>/.env`, or
+`default/.env` for projects without their own dir) to the stone-ingress API base. Unset or
+`off` (the default) => nothing happens, so Macs and non-stone hosts are unaffected.
+
+- On stone-pc: `STONE_INGRESS_URL=http://host.docker.internal:8800`. `post-start.sh` runs
+  **`templates/sudo-scripts/setup-stone-dns.sh`**, which sees the API is on the container's
+  own docker gateway, checks stone-dns answers there, and prepends it to
+  `/etc/resolv.conf` (stone-dns serves every `*.internal` name, the split-DNS zones,
+  `ts.net` and public names, with or without Tailscale). It then runs
+  **`templates/sudo-scripts/trust-stone-ca.sh`**, which fetches `<API>/v1/ca.crt` into the
+  system store (curl, Claude Code) and the node user's Chromium NSS store.
+- Elsewhere, over the tailnet: `STONE_INGRESS_URL=http://stone-pc.<tailnet>.ts.net:8800`.
+  The DNS helper no-ops (the API isn't local); MagicDNS resolves `*.internal` via the
+  tailnet's split-DNS routes. The CA is still fetched and trusted.
+- Called on both sides of the `TS_ENABLE` gate; on the Tailscale side after
+  `start-tailscale.sh` and `setup-magicdns.sh`, so a tailnet URL is reachable and
+  stone-dns lands first. `host.docker.internal` comes from
+  `--add-host=host.docker.internal:host-gateway` in `runArgs`.
+- Both helpers are best-effort and idempotent (an unreachable API costs ~3s and changes
+  nothing). New sudo-scripts need a devcontainer **rebuild** for their sudoers entry.
 
 `postStartCommand` is a devcontainer-CLI concept — a plain `docker start` skips it. Since
 `ContainerManager` resumes an already-built container with the raw Docker API,

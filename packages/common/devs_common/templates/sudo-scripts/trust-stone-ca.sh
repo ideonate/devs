@@ -1,28 +1,39 @@
 #!/bin/bash
-# Trust the stone-ingress CA (the Caddy internal root on the docker host) in the
+# Trust the stone-ingress CA (the Caddy internal root on stone-pc) in the
 # container's system store and the node user's Chromium NSS store, so curl,
-# Node (--use-system-ca), and the visible Playwright browser accept the
-# https://<dev-domain> certs without warnings. Best-effort and idempotent: skips
-# quietly when the stone-ingress API isn't reachable (developing off stone-pc).
+# Claude Code / Node, and the visible Playwright browser accept the
+# https://<dev-domain> and *.internal certs without warnings. Best-effort and
+# idempotent: skips quietly when the stone-ingress API isn't reachable.
+#
+# Usage: trust-stone-ca.sh [API_URL]
+#   API_URL is the stone-ingress API base, e.g. http://host.docker.internal:8800
+#   on stone-pc or http://stone-pc.<tailnet>.ts.net:8800 over the tailnet. It
+#   defaults to http://<docker gateway>:8800 (the container is on stone-pc).
 set -uo pipefail
 
-GW=$(getent ahosts host.docker.internal 2>/dev/null | awk '{print $1; exit}')
-[ -z "$GW" ] && GW=$(ip route show default 2>/dev/null | awk '/default/{print $3; exit}')
-[ -z "$GW" ] && { echo "ℹ️  no gateway found — skipping stone-ingress CA trust"; exit 0; }
+API="${1:-}"
+if [ -z "$API" ]; then
+    GW=$(getent ahosts host.docker.internal 2>/dev/null | awk '{print $1; exit}')
+    [ -z "$GW" ] && GW=$(ip route show default 2>/dev/null | awk '/default/{print $3; exit}')
+    [ -z "$GW" ] && { echo "ℹ️  no gateway found — skipping stone-ingress CA trust"; exit 0; }
+    API="http://$GW:8800"
+fi
+API="${API%/}"
 
 CRT=/usr/local/share/ca-certificates/stone-ingress.crt
-if curl -fsS --connect-timeout 3 "http://$GW:8800/v1/ca.crt" -o "$CRT.tmp" 2>/dev/null; then
+if curl -fsS --connect-timeout 3 --max-time 10 "$API/v1/ca.crt" -o "$CRT.tmp" 2>/dev/null \
+    && openssl x509 -in "$CRT.tmp" -noout 2>/dev/null; then
     if cmp -s "$CRT.tmp" "$CRT" 2>/dev/null; then
         rm -f "$CRT.tmp"
         echo "✅ stone-ingress CA already trusted"
     else
         mv "$CRT.tmp" "$CRT"
         update-ca-certificates >/dev/null 2>&1 || true
-        echo "✅ stone-ingress CA installed into system trust store"
+        echo "✅ stone-ingress CA installed into system trust store (from $API)"
     fi
 else
     rm -f "$CRT.tmp" 2>/dev/null || true
-    echo "ℹ️  stone-ingress API not reachable at http://$GW:8800 — skipping CA trust"
+    echo "ℹ️  stone-ingress API not reachable at $API — skipping CA trust"
 fi
 
 # Chromium on Linux uses the user's NSS database rather than Debian's CA bundle.
